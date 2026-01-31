@@ -6,7 +6,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { copyText } from "../../utils/clipboard";
-import { toISODate } from "../../utils/date";
+import { addDays, toISODate } from "../../utils/date";
 import { average, unitPrice } from "../../utils/price";
 
 export default function GroceryPage() {
@@ -19,7 +19,7 @@ export default function GroceryPage() {
 
   const [settings, setSettings] = useState<GrocerySettings>({
     startDate: toISODate(new Date()),
-    endDate: toISODate(new Date()),
+    endDate: toISODate(addDays(new Date(), 7)),
     expiryBufferDays: 2,
     includeEssentials: true,
     treatPantryAsEmpty: false,

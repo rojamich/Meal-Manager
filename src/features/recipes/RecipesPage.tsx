@@ -14,12 +14,18 @@ import {
 } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 
+const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [selected, setSelected] = useState<Recipe | null>(null);
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [search, setSearch] = useState("");
+  const [mealTypeFilters, setMealTypeFilters] = useState<string[]>([]);
+  const [maxCalories, setMaxCalories] = useState("");
+  const [maxCost, setMaxCost] = useState("");
+  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
 
   const refresh = useCallback(async () => {
     setRecipes([...(await listRecipes())]);
@@ -37,9 +43,32 @@ export default function RecipesPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return recipes;
-    return recipes.filter((r) => r.title.toLowerCase().includes(q));
-  }, [recipes, search]);
+    return recipes
+      .filter((r) => {
+        const matchesText =
+          !q ||
+          r.title.toLowerCase().includes(q) ||
+          r.tags.some((tag) => tag.toLowerCase().includes(q));
+        const matchesMealType =
+          mealTypeFilters.length === 0 || r.mealTypes?.some((type) => mealTypeFilters.includes(type));
+        const caloriesOk =
+          !maxCalories || (r.caloriesPerServing !== undefined && r.caloriesPerServing <= Number(maxCalories));
+        const costOk =
+          !maxCost || (r.estimatedCostPerServing !== undefined && r.estimatedCostPerServing <= Number(maxCost));
+        return matchesText && matchesMealType && caloriesOk && costOk;
+      })
+      .sort((a, b) => {
+        if (sortBy === "title") return a.title.localeCompare(b.title);
+        if (sortBy === "calories") {
+          const aVal = a.caloriesPerServing ?? Number.MAX_VALUE;
+          const bVal = b.caloriesPerServing ?? Number.MAX_VALUE;
+          return aVal - bVal;
+        }
+        const aVal = a.estimatedCostPerServing ?? Number.MAX_VALUE;
+        const bVal = b.estimatedCostPerServing ?? Number.MAX_VALUE;
+        return aVal - bVal;
+      });
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy]);
 
   async function saveRecipe(recipe: Recipe | Omit<Recipe, "id" | "createdAt" | "updatedAt">) {
     if ("id" in recipe && recipe.id) {
@@ -105,9 +134,13 @@ export default function RecipesPage() {
                 id: "",
                 title: "",
                 defaultServings: 2,
+                mealTypes: [],
                 tags: [],
                 notes: "",
                 steps: [""],
+                caloriesPerServing: undefined,
+                estimatedCostPerServing: undefined,
+                imageUrl: "",
                 createdAt: "",
                 updatedAt: ""
               })
@@ -116,11 +149,48 @@ export default function RecipesPage() {
             Add Recipe
           </button>
         </div>
+        <div className="row">
+          {MEAL_TYPES.map((type) => (
+            <label key={type}>
+              <input
+                type="checkbox"
+                checked={mealTypeFilters.includes(type)}
+                onChange={(e) =>
+                  setMealTypeFilters((prev) =>
+                    e.target.checked ? [...prev, type] : prev.filter((t) => t !== type)
+                  )
+                }
+              />
+              {type}
+            </label>
+          ))}
+          <input
+            type="number"
+            placeholder="Max calories"
+            value={maxCalories}
+            onChange={(e) => setMaxCalories(e.target.value)}
+          />
+          <input
+            type="number"
+            placeholder="Max cost"
+            value={maxCost}
+            onChange={(e) => setMaxCost(e.target.value)}
+          />
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost")}>
+            <option value="title">Sort: title</option>
+            <option value="calories">Sort: calories</option>
+            <option value="cost">Sort: cost</option>
+          </select>
+        </div>
         <table className="table">
           <thead>
             <tr>
+              <th>Image</th>
               <th>Title</th>
+              <th>Meal types</th>
               <th>Servings</th>
+              <th>Calories</th>
+              <th>Cost</th>
               <th></th>
             </tr>
           </thead>
@@ -128,11 +198,23 @@ export default function RecipesPage() {
             {filtered.map((recipe) => (
               <tr key={recipe.id}>
                 <td>
+                  {recipe.imageUrl && (
+                    <img src={recipe.imageUrl} alt={recipe.title} style={{ width: 48, height: 48, objectFit: "cover" }} />
+                  )}
+                </td>
+                <td>
                   <button className="ghost" onClick={() => setSelected(recipe)}>
                     {recipe.title}
                   </button>
                 </td>
+                <td>
+                  {recipe.mealTypes?.map((type) => (
+                    <span key={type} className="tag">{type}</span>
+                  ))}
+                </td>
                 <td>{recipe.defaultServings}</td>
+                <td>{recipe.caloriesPerServing ?? "-"}</td>
+                <td>{recipe.estimatedCostPerServing ?? "-"}</td>
                 <td>
                   <button className="secondary" onClick={() => removeRecipe(recipe.id)}>
                     Delete
@@ -184,9 +266,13 @@ function RecipeEditor({
     title: recipe.title,
     url: recipe.url || "",
     defaultServings: recipe.defaultServings || 2,
+    mealTypes: recipe.mealTypes || [],
     tags: recipe.tags.join(", "),
     notes: recipe.notes || "",
-    steps: recipe.steps.length ? recipe.steps : [""]
+    steps: recipe.steps.length ? recipe.steps : [""],
+    caloriesPerServing: recipe.caloriesPerServing?.toString() || "",
+    estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
+    imageUrl: recipe.imageUrl || ""
   });
   const [ingredientFilter, setIngredientFilter] = useState("");
   const [ingredientDraft, setIngredientDraft] = useState({
@@ -200,9 +286,13 @@ function RecipeEditor({
       title: recipe.title,
       url: recipe.url || "",
       defaultServings: recipe.defaultServings || 2,
+      mealTypes: recipe.mealTypes || [],
       tags: recipe.tags.join(", "),
       notes: recipe.notes || "",
-      steps: recipe.steps.length ? recipe.steps : [""]
+      steps: recipe.steps.length ? recipe.steps : [""],
+      caloriesPerServing: recipe.caloriesPerServing?.toString() || "",
+      estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
+      imageUrl: recipe.imageUrl || ""
     });
   }, [recipe]);
 
@@ -212,9 +302,13 @@ function RecipeEditor({
       title: form.title.trim(),
       url: form.url || undefined,
       defaultServings: Number(form.defaultServings),
+      mealTypes: form.mealTypes,
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       notes: form.notes || undefined,
-      steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0)
+      steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
+      caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+      estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
+      imageUrl: form.imageUrl || undefined
     };
     if (recipe.id) {
       onSave({ ...recipe, ...payload });
@@ -266,7 +360,50 @@ function RecipeEditor({
             placeholder="Default servings"
           />
         </div>
+        <div className="row">
+          {MEAL_TYPES.map((type) => (
+            <label key={type}>
+              <input
+                type="checkbox"
+                checked={form.mealTypes.includes(type)}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    mealTypes: e.target.checked
+                      ? [...form.mealTypes, type]
+                      : form.mealTypes.filter((t) => t !== type)
+                  })
+                }
+              />
+              {type}
+            </label>
+          ))}
+        </div>
         <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (comma separated)" />
+        <div className="row">
+          <input
+            type="number"
+            value={form.caloriesPerServing}
+            onChange={(e) => setForm({ ...form, caloriesPerServing: e.target.value })}
+            placeholder="Calories per serving"
+          />
+          <input
+            type="number"
+            value={form.estimatedCostPerServing}
+            onChange={(e) => setForm({ ...form, estimatedCostPerServing: e.target.value })}
+            placeholder="Cost per serving"
+          />
+        </div>
+        <div className="row">
+          <input
+            value={form.imageUrl}
+            onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
+            placeholder="Image URL"
+          />
+          {form.imageUrl && (
+            <img src={form.imageUrl} alt="Recipe preview" style={{ width: 64, height: 64, objectFit: "cover" }} />
+          )}
+        </div>
         <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" />
         <div className="panel">
           <h3>Ingredients</h3>

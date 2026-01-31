@@ -29,9 +29,13 @@ export interface Recipe {
   title: string;
   url?: string;
   defaultServings: number;
+  mealTypes: string[];
   tags: string[];
   notes?: string;
   steps: string[];
+  caloriesPerServing?: number;
+  estimatedCostPerServing?: number;
+  imageUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +65,8 @@ export interface PlannedMeal {
   type: PlannedMealType;
   recipeId?: string;
   sourcePlannedMealId?: string;
+  leftoverSourceMealId?: string;
+  leftoverServingsRemaining?: number;
   freeformTitle?: string;
   notes?: string;
   servingsPlanned?: number;
