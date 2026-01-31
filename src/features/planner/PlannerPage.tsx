@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { MealSlot, PlannedMeal, Recipe } from "../../models";
 import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal } from "../../db/repositories/mealPlanRepo";
@@ -17,10 +17,12 @@ export default function PlannerPage() {
   const [inlineRecipeId, setInlineRecipeId] = useState("");
   const [inlineServings, setInlineServings] = useState("");
   const [inlineLeftoverSource, setInlineLeftoverSource] = useState("");
+  const [includeAnyRecent, setIncludeAnyRecent] = useState(false);
   const [inlineFreeformTitle, setInlineFreeformTitle] = useState("");
   const [inlineNotes, setInlineNotes] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
   const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     listMealSlots().then(setSlots);
@@ -81,6 +83,7 @@ export default function PlannerPage() {
     setInlineRecipeId("");
     setInlineServings("");
     setInlineLeftoverSource("");
+    setIncludeAnyRecent(false);
     setInlineFreeformTitle("");
     setInlineNotes("");
     setRecipeSearch("");
@@ -157,6 +160,26 @@ export default function PlannerPage() {
     recipes
   ]);
 
+  useEffect(() => {
+    if (!activeSlot) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveSlot(null);
+    };
+    const handlePointer = (event: MouseEvent | TouchEvent) => {
+      if (!panelRef.current) return;
+      if (panelRef.current.contains(event.target as Node)) return;
+      setActiveSlot(null);
+    };
+    document.addEventListener("keydown", handleKey);
+    document.addEventListener("mousedown", handlePointer, true);
+    document.addEventListener("touchstart", handlePointer, true);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.removeEventListener("mousedown", handlePointer, true);
+      document.removeEventListener("touchstart", handlePointer, true);
+    };
+  }, [activeSlot]);
+
   const headerLabel = useMemo(() => {
     if (view === "week") {
       const range = weekRange(anchorDate);
@@ -186,6 +209,37 @@ export default function PlannerPage() {
   const goToday = useCallback(() => {
     setAnchorDate(toISODate(new Date()));
   }, []);
+
+  const copyWeek = useCallback(
+    async (sourceOffsetDays: number, targetOffsetDays: number) => {
+      const currentRange = weekRange(anchorDate);
+      const sourceStart = addDays(parseISODate(currentRange.start), sourceOffsetDays);
+      const sourceEnd = addDays(parseISODate(currentRange.end), sourceOffsetDays);
+      const sourceMeals = await listPlannedMeals(toISODate(sourceStart), toISODate(sourceEnd));
+      const count = sourceMeals.length;
+      if (!count) {
+        alert("No meals to copy in the source week.");
+        return;
+      }
+      if (!confirm(`Copy ${count} meals?`)) return;
+      await Promise.all(
+        sourceMeals.map((meal) =>
+          createPlannedMeal({
+            date: toISODate(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
+            mealSlotId: meal.mealSlotId,
+            type: meal.type,
+            recipeId: meal.recipeId,
+            sourcePlannedMealId: meal.sourcePlannedMealId,
+            freeformTitle: meal.freeformTitle,
+            notes: meal.notes,
+            servingsPlanned: meal.servingsPlanned
+          })
+        )
+      );
+      await refreshMeals();
+    },
+    [anchorDate, refreshMeals]
+  );
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
   const days = useMemo(() => {
@@ -219,6 +273,16 @@ export default function PlannerPage() {
             Month
           </button>
           <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
+          {view === "week" && (
+            <>
+              <button className="secondary" onClick={() => copyWeek(-7, 0)}>
+                Copy last week → this week
+              </button>
+              <button className="secondary" onClick={() => copyWeek(0, 7)}>
+                Copy this week → next week
+              </button>
+            </>
+          )}
         </div>
       </section>
 
@@ -260,6 +324,7 @@ export default function PlannerPage() {
                         {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
                           <InlineAddPanel
                             recipes={recipes}
+                            slots={slots}
                             recentPlanned={recentPlanned}
                             inlineType={inlineType}
                             setInlineType={setInlineType}
@@ -269,12 +334,15 @@ export default function PlannerPage() {
                             setInlineServings={setInlineServings}
                             inlineLeftoverSource={inlineLeftoverSource}
                             setInlineLeftoverSource={setInlineLeftoverSource}
+                            includeAnyRecent={includeAnyRecent}
+                            setIncludeAnyRecent={setIncludeAnyRecent}
                             inlineFreeformTitle={inlineFreeformTitle}
                             setInlineFreeformTitle={setInlineFreeformTitle}
                             inlineNotes={inlineNotes}
                             setInlineNotes={setInlineNotes}
                             recipeSearch={recipeSearch}
                             setRecipeSearch={setRecipeSearch}
+                            panelRef={panelRef}
                             onCancel={() => setActiveSlot(null)}
                             onSave={async () => {
                               const payload = buildInlinePayload();
@@ -318,6 +386,7 @@ export default function PlannerPage() {
                       {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
                         <InlineAddPanel
                           recipes={recipes}
+                          slots={slots}
                           recentPlanned={recentPlanned}
                           inlineType={inlineType}
                           setInlineType={setInlineType}
@@ -327,12 +396,15 @@ export default function PlannerPage() {
                           setInlineServings={setInlineServings}
                           inlineLeftoverSource={inlineLeftoverSource}
                           setInlineLeftoverSource={setInlineLeftoverSource}
+                          includeAnyRecent={includeAnyRecent}
+                          setIncludeAnyRecent={setIncludeAnyRecent}
                           inlineFreeformTitle={inlineFreeformTitle}
                           setInlineFreeformTitle={setInlineFreeformTitle}
                           inlineNotes={inlineNotes}
                           setInlineNotes={setInlineNotes}
                           recipeSearch={recipeSearch}
                           setRecipeSearch={setRecipeSearch}
+                          panelRef={panelRef}
                           onCancel={() => setActiveSlot(null)}
                           onSave={async () => {
                             const payload = buildInlinePayload();
@@ -390,6 +462,7 @@ export default function PlannerPage() {
 
 function InlineAddPanel({
   recipes,
+  slots,
   recentPlanned,
   inlineType,
   setInlineType,
@@ -399,16 +472,20 @@ function InlineAddPanel({
   setInlineServings,
   inlineLeftoverSource,
   setInlineLeftoverSource,
+  includeAnyRecent,
+  setIncludeAnyRecent,
   inlineFreeformTitle,
   setInlineFreeformTitle,
   inlineNotes,
   setInlineNotes,
   recipeSearch,
   setRecipeSearch,
+  panelRef,
   onSave,
   onCancel
 }: {
   recipes: Recipe[];
+  slots: MealSlot[];
   recentPlanned: PlannedMeal[];
   inlineType: PlannedMeal["type"];
   setInlineType: (value: PlannedMeal["type"]) => void;
@@ -418,23 +495,48 @@ function InlineAddPanel({
   setInlineServings: (value: string) => void;
   inlineLeftoverSource: string;
   setInlineLeftoverSource: (value: string) => void;
+  includeAnyRecent: boolean;
+  setIncludeAnyRecent: (value: boolean) => void;
   inlineFreeformTitle: string;
   setInlineFreeformTitle: (value: string) => void;
   inlineNotes: string;
   setInlineNotes: (value: string) => void;
   recipeSearch: string;
   setRecipeSearch: (value: string) => void;
+  panelRef: RefObject<HTMLDivElement>;
   onSave: () => void;
   onCancel: () => void;
 }) {
   const filteredRecipes = recipes.filter((recipe) =>
     recipe.title.toLowerCase().includes(recipeSearch.trim().toLowerCase())
   );
-  const recentMealOptions = recentPlanned.filter((meal) => meal.type === "recipe" && meal.recipeId);
+  const recentMealOptions = [...recentPlanned]
+    .filter((meal) => includeAnyRecent || (meal.type === "recipe" && meal.recipeId))
+    .sort((a, b) => b.date.localeCompare(a.date));
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
+  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
+  const typeLabel = (type: PlannedMeal["type"]) =>
+    type === "recipe" ? "Recipe" : type === "leftover" ? "Leftover" : "Freeform";
+  const firstRecipeSearchRef = useRef<HTMLInputElement | null>(null);
+  const firstFreeformRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (inlineType === "recipe" && firstRecipeSearchRef.current) {
+      firstRecipeSearchRef.current.focus();
+    }
+    if (inlineType === "freeform" && firstFreeformRef.current) {
+      firstFreeformRef.current.focus();
+    }
+  }, [inlineType]);
 
   return (
-    <div className="panel">
+    <div
+      className="panel"
+      ref={panelRef}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="row">
         <select value={inlineType} onChange={(e) => setInlineType(e.target.value as PlannedMeal["type"])}>
           <option value="recipe">Recipe</option>
@@ -453,6 +555,7 @@ function InlineAddPanel({
           ) : (
             <>
               <input
+                ref={firstRecipeSearchRef}
                 placeholder="Search recipes"
                 value={recipeSearch}
                 onChange={(e) => setRecipeSearch(e.target.value)}
@@ -491,19 +594,29 @@ function InlineAddPanel({
               No recent meals or recipes yet. <Link className="tag" to="/recipes">Go to Recipes</Link>
             </p>
           ) : (
-            <select value={inlineLeftoverSource} onChange={(e) => setInlineLeftoverSource(e.target.value)}>
-              <option value="">Select source</option>
-              {recentMealOptions.map((meal) => (
-                <option key={meal.id} value={`meal:${meal.id}`}>
-                  Recent meal: {recipeTitle(meal.recipeId)}
-                </option>
-              ))}
-              {recipes.map((recipe) => (
-                <option key={recipe.id} value={`recipe:${recipe.id}`}>
-                  Recipe: {recipe.title}
-                </option>
-              ))}
-            </select>
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={includeAnyRecent}
+                  onChange={(e) => setIncludeAnyRecent(e.target.checked)}
+                />
+                Any recent meal
+              </label>
+              <select value={inlineLeftoverSource} onChange={(e) => setInlineLeftoverSource(e.target.value)}>
+                <option value="">Select source</option>
+                {recentMealOptions.map((meal) => (
+                  <option key={meal.id} value={`meal:${meal.id}`}>
+                    {recipeTitle(meal.recipeId)} · {meal.date} · {slotLabel(meal.mealSlotId)} · {typeLabel(meal.type)}
+                  </option>
+                ))}
+                {recipes.map((recipe) => (
+                  <option key={recipe.id} value={`recipe:${recipe.id}`}>
+                    Recipe: {recipe.title}
+                  </option>
+                ))}
+              </select>
+            </>
           )}
         </>
       )}
@@ -511,6 +624,7 @@ function InlineAddPanel({
       {inlineType === "freeform" && (
         <>
           <input
+            ref={firstFreeformRef}
             placeholder="Title"
             value={inlineFreeformTitle}
             onChange={(e) => setInlineFreeformTitle(e.target.value)}
