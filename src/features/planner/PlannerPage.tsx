@@ -326,10 +326,10 @@ export default function PlannerPage() {
           {view === "week" && (
             <>
               <button className="secondary" onClick={() => copyWeek(-7, 0)}>
-                Copy last week -> this week
+                Copy last week {"->"} this week
               </button>
               <button className="secondary" onClick={() => copyWeek(0, 7)}>
-                Copy this week -> next week
+                Copy this week {"->"} next week
               </button>
             </>
           )}
