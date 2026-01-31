@@ -21,6 +21,7 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - The app uses IndexedDB (via Dexie) for all data storage.
 - A service worker caches the app shell so the UI loads without a network connection.
 - All features work offline with no backend.
+- After service worker config changes, you may need a hard refresh or clear site data once.
 
 ## Offline install (PWA)
 

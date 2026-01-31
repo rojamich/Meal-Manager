@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["manifest.webmanifest", "pwa-192.svg", "pwa-512.svg"],
+      includeAssets: ["pwa-192.svg", "pwa-512.svg"],
       manifest: {
         name: "Meal Manager",
         short_name: "Meals",
