@@ -109,17 +109,19 @@ export async function exportAll(): Promise<ExportBundle> {
 export async function importAll(bundle: ExportBundle, replaceAll = true) {
   await db.transaction(
     "rw",
-    db.pantryItems,
-    db.inventoryLots,
-    db.recipes,
-    db.recipeIngredients,
-    db.mealSlots,
-    db.plannedMeals,
-    db.essentialItems,
-    db.locationProfiles,
-    db.purchaseEntries,
-    db.groceryLists,
-    db.groceryLines,
+    [
+      db.pantryItems,
+      db.inventoryLots,
+      db.recipes,
+      db.recipeIngredients,
+      db.mealSlots,
+      db.plannedMeals,
+      db.essentialItems,
+      db.locationProfiles,
+      db.purchaseEntries,
+      db.groceryLists,
+      db.groceryLines
+    ],
     async () => {
       if (replaceAll) {
         await db.pantryItems.clear();

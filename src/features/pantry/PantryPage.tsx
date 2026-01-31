@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { InventoryLot, PantryItem } from "../../models";
+import { BaseUnit, InventoryLot, PantryItem } from "../../models";
 import {
   createPantryItem,
   deletePantryItem,
@@ -304,7 +304,7 @@ function PantryForm({
             </option>
           ))}
         </select>
-        <select value={form.baseUnit} onChange={(e) => setForm({ ...form, baseUnit: e.target.value })}>
+        <select value={form.baseUnit} onChange={(e) => setForm({ ...form, baseUnit: e.target.value as BaseUnit })}>
           <option value="count">count</option>
           <option value="g">g</option>
           <option value="ml">ml</option>
