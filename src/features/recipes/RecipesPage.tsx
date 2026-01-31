@@ -1,0 +1,444 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import { Link } from "react-router-dom";
+import { PantryItem, Recipe, RecipeIngredient } from "../../models";
+import {
+  addIngredient,
+  createRecipe,
+  deleteIngredient,
+  deleteRecipe,
+  listIngredients,
+  listRecipes,
+  updateIngredient,
+  updateRecipe
+} from "../../db/repositories/recipeRepo";
+import { listPantryItems } from "../../db/repositories/pantryRepo";
+
+export default function RecipesPage() {
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [selected, setSelected] = useState<Recipe | null>(null);
+  const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
+  const [search, setSearch] = useState("");
+
+  const refresh = useCallback(async () => {
+    setRecipes([...(await listRecipes())]);
+    setPantryItems([...(await listPantryItems())]);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!selected) return;
+    listIngredients(selected.id).then(setIngredients);
+  }, [selected]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return recipes;
+    return recipes.filter((r) => r.title.toLowerCase().includes(q));
+  }, [recipes, search]);
+
+  async function saveRecipe(recipe: Recipe | Omit<Recipe, "id" | "createdAt" | "updatedAt">) {
+    if ("id" in recipe && recipe.id) {
+      await updateRecipe(recipe.id, recipe);
+      setSelected(recipe);
+    } else {
+      const created = await createRecipe(recipe);
+      setSelected(created);
+    }
+    await refresh();
+  }
+
+  async function removeRecipe(id: string) {
+    if (!confirm("Delete this recipe?")) return;
+    await deleteRecipe(id);
+    setSelected(null);
+    await refresh();
+  }
+
+  async function addRecipeIngredient(data: { pantryItemId: string; quantity: number; prepNote?: string }) {
+    if (!selected) return;
+    const { pantryItemId, quantity, prepNote } = data;
+    if (!pantryItemId || quantity <= 0) return;
+    const existing = ingredients.find((ing) => ing.pantryItemId === pantryItemId);
+    if (existing) {
+      const shouldMerge = confirm("This pantry item is already in the recipe. Merge quantities?");
+      if (!shouldMerge) return;
+      const mergedNote = [existing.prepNote, prepNote].filter(Boolean).join(" / ") || undefined;
+      await updateIngredient(existing.id, {
+        quantity: existing.quantity + quantity,
+        prepNote: mergedNote
+      });
+    } else {
+      await addIngredient({
+        recipeId: selected.id,
+        pantryItemId,
+        quantity,
+        prepNote
+      });
+    }
+    setIngredients(await listIngredients(selected.id));
+  }
+
+  async function updateRecipeIngredient(id: string, changes: Partial<RecipeIngredient>) {
+    await updateIngredient(id, changes);
+    if (selected) setIngredients(await listIngredients(selected.id));
+  }
+
+  async function removeIngredient(id: string) {
+    await deleteIngredient(id);
+    if (selected) setIngredients(await listIngredients(selected.id));
+  }
+
+  return (
+    <div className="grid grid-2">
+      <section className="panel">
+        <div className="row">
+          <input placeholder="Search recipes" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <button
+            className="secondary"
+            onClick={() =>
+              setSelected({
+                id: "",
+                title: "",
+                defaultServings: 2,
+                tags: [],
+                notes: "",
+                steps: [""],
+                createdAt: "",
+                updatedAt: ""
+              })
+            }
+          >
+            Add Recipe
+          </button>
+        </div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Servings</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((recipe) => (
+              <tr key={recipe.id}>
+                <td>
+                  <button className="ghost" onClick={() => setSelected(recipe)}>
+                    {recipe.title}
+                  </button>
+                </td>
+                <td>{recipe.defaultServings}</td>
+                <td>
+                  <button className="secondary" onClick={() => removeRecipe(recipe.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="panel">
+        {selected ? (
+          <RecipeEditor
+            recipe={selected}
+            pantryItems={pantryItems}
+            ingredients={ingredients}
+            onSave={saveRecipe}
+            onAddIngredient={addRecipeIngredient}
+            onUpdateIngredient={updateRecipeIngredient}
+            onDeleteIngredient={removeIngredient}
+          />
+        ) : (
+          <p>Select a recipe to edit.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function RecipeEditor({
+  recipe,
+  pantryItems,
+  ingredients,
+  onSave,
+  onAddIngredient,
+  onUpdateIngredient,
+  onDeleteIngredient
+}: {
+  recipe: Recipe;
+  pantryItems: PantryItem[];
+  ingredients: RecipeIngredient[];
+  onSave: (recipe: any) => void;
+  onAddIngredient: (data: { pantryItemId: string; quantity: number; prepNote?: string }) => void;
+  onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
+  onDeleteIngredient: (id: string) => void;
+}) {
+  const [form, setForm] = useState({
+    title: recipe.title,
+    url: recipe.url || "",
+    defaultServings: recipe.defaultServings || 2,
+    tags: recipe.tags.join(", "),
+    notes: recipe.notes || "",
+    steps: recipe.steps.length ? recipe.steps : [""]
+  });
+  const [ingredientFilter, setIngredientFilter] = useState("");
+  const [ingredientDraft, setIngredientDraft] = useState({
+    pantryItemId: "",
+    quantity: "",
+    prepNote: ""
+  });
+
+  useEffect(() => {
+    setForm({
+      title: recipe.title,
+      url: recipe.url || "",
+      defaultServings: recipe.defaultServings || 2,
+      tags: recipe.tags.join(", "),
+      notes: recipe.notes || "",
+      steps: recipe.steps.length ? recipe.steps : [""]
+    });
+  }, [recipe]);
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const payload = {
+      title: form.title.trim(),
+      url: form.url || undefined,
+      defaultServings: Number(form.defaultServings),
+      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+      notes: form.notes || undefined,
+      steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0)
+    };
+    if (recipe.id) {
+      onSave({ ...recipe, ...payload });
+    } else {
+      onSave(payload);
+    }
+  }
+
+  function updateStep(index: number, value: string) {
+    const next = [...form.steps];
+    next[index] = value;
+    setForm({ ...form, steps: next });
+  }
+
+  function addStep() {
+    setForm({ ...form, steps: [...form.steps, ""] });
+  }
+
+  function removeStep(index: number) {
+    const next = form.steps.filter((_, i) => i !== index);
+    setForm({ ...form, steps: next.length ? next : [""] });
+  }
+
+  return (
+    <div className="grid">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2>{recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
+        {recipe.id && (
+          <div className="row">
+            {recipe.url && (
+              <a className="tag" href={recipe.url} target="_blank" rel="noreferrer">
+                Open URL
+              </a>
+            )}
+            <Link className="tag" to={`/recipes/${recipe.id}/print`}>
+              Print View
+            </Link>
+          </div>
+        )}
+      </div>
+      <form className="grid" onSubmit={submit}>
+        <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" required />
+        <div className="row">
+          <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="URL" />
+          <input
+            type="number"
+            value={form.defaultServings}
+            onChange={(e) => setForm({ ...form, defaultServings: Number(e.target.value) })}
+            placeholder="Default servings"
+          />
+        </div>
+        <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (comma separated)" />
+        <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" />
+        <div className="panel">
+          <h3>Ingredients</h3>
+          {!recipe.id && <p>Save the recipe first to add ingredients.</p>}
+          {recipe.id && pantryItems.length === 0 && (
+            <div className="row">
+              <p>No pantry items yet.</p>
+              <Link className="tag" to="/pantry">
+                Go to Pantry
+              </Link>
+            </div>
+          )}
+          {recipe.id && pantryItems.length > 0 && (
+            <>
+              <div className="row">
+                <input
+                  value={ingredientFilter}
+                  onChange={(e) => setIngredientFilter(e.target.value)}
+                  placeholder="Search pantry items"
+                />
+                <select
+                  value={ingredientDraft.pantryItemId}
+                  onChange={(e) => setIngredientDraft({ ...ingredientDraft, pantryItemId: e.target.value })}
+                  required
+                >
+                  <option value="" disabled>
+                    Select pantry item
+                  </option>
+                  {pantryItems
+                    .filter((item) => item.name.toLowerCase().includes(ingredientFilter.trim().toLowerCase()))
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="Quantity"
+                  value={ingredientDraft.quantity}
+                  onChange={(e) => setIngredientDraft({ ...ingredientDraft, quantity: e.target.value })}
+                  required
+                />
+                <input
+                  placeholder="Prep note"
+                  value={ingredientDraft.prepNote}
+                  onChange={(e) => setIngredientDraft({ ...ingredientDraft, prepNote: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAddIngredient({
+                      pantryItemId: ingredientDraft.pantryItemId,
+                      quantity: Number(ingredientDraft.quantity || 0),
+                      prepNote: ingredientDraft.prepNote || undefined
+                    });
+                    setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
+                  }}
+                >
+                  Add Ingredient
+                </button>
+              </div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Note</th>
+                    <th>Remove</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ingredients.map((ing) => (
+                    <tr key={ing.id}>
+                      <td>{pantryItems.find((p) => p.id === ing.pantryItemId)?.name || ""}</td>
+                      <td>
+                        <input
+                          type="number"
+                          value={ing.quantity}
+                          step="0.01"
+                          min="0.01"
+                          onChange={(e) => onUpdateIngredient(ing.id, { quantity: Number(e.target.value) })}
+                        />
+                      </td>
+                      <td>{pantryItems.find((p) => p.id === ing.pantryItemId)?.baseUnit || ""}</td>
+                      <td>
+                        <input
+                          value={ing.prepNote || ""}
+                          onChange={(e) => onUpdateIngredient(ing.id, { prepNote: e.target.value })}
+                        />
+                      </td>
+                      <td>
+                        <button className="secondary" onClick={() => onDeleteIngredient(ing.id)}>
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+        <div>
+          <strong>Steps</strong>
+          {form.steps.map((step, idx) => (
+            <div className="row" key={idx}>
+              <textarea value={step} onChange={(e) => updateStep(idx, e.target.value)} placeholder={`Step ${idx + 1}`} />
+              <button type="button" className="secondary" onClick={() => removeStep(idx)}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="secondary" onClick={addStep}>
+            Add Step
+          </button>
+        </div>
+        <div className="row">
+          <button type="submit">Save</button>
+        </div>
+      </form>
+
+      {recipe.id && recipe.steps.length > 0 && (
+        <CookMode steps={recipe.steps} ingredients={ingredients} pantryItems={pantryItems} />
+      )}
+    </div>
+  );
+}
+
+function CookMode({
+  steps,
+  ingredients,
+  pantryItems
+}: {
+  steps: string[];
+  ingredients: RecipeIngredient[];
+  pantryItems: PantryItem[];
+}) {
+  const [index, setIndex] = useState(0);
+  const step = steps[index] || "";
+
+  return (
+    <div className="panel">
+      <h3>Cook Mode</h3>
+      <div className="panel">
+        <strong>Ingredients</strong>
+        <ul>
+          {ingredients.map((ing) => {
+            const item = pantryItems.find((p) => p.id === ing.pantryItemId);
+            if (!item) return null;
+            return (
+              <li key={ing.id}>
+                {item.name} - {ing.quantity} {item.baseUnit}
+                {ing.prepNote ? ` (${ing.prepNote})` : ""}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <p>{step}</p>
+      <div className="row">
+        <button className="secondary" onClick={() => setIndex(Math.max(index - 1, 0))}>
+          Prev
+        </button>
+        <button onClick={() => setIndex(Math.min(index + 1, steps.length - 1))}>Next</button>
+      </div>
+      <p>
+        {index + 1} / {steps.length}
+      </p>
+    </div>
+  );
+}
