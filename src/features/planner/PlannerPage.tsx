@@ -4,6 +4,7 @@ import { MealSlot, PlannedMeal, Recipe } from "../../models";
 import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal } from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
 import { formatDateLabel, parseISODate, startOfWeek, toISODate, addDays } from "../../utils/date";
+import { Link } from "react-router-dom";
 
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
@@ -11,6 +12,15 @@ export default function PlannerPage() {
   const [slots, setSlots] = useState<MealSlot[]>([]);
   const [meals, setMeals] = useState<PlannedMeal[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [activeSlot, setActiveSlot] = useState<{ date: string; mealSlotId: string } | null>(null);
+  const [inlineType, setInlineType] = useState<PlannedMeal["type"]>("recipe");
+  const [inlineRecipeId, setInlineRecipeId] = useState("");
+  const [inlineServings, setInlineServings] = useState("");
+  const [inlineLeftoverSource, setInlineLeftoverSource] = useState("");
+  const [inlineFreeformTitle, setInlineFreeformTitle] = useState("");
+  const [inlineNotes, setInlineNotes] = useState("");
+  const [recipeSearch, setRecipeSearch] = useState("");
+  const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
 
   useEffect(() => {
     listMealSlots().then(setSlots);
@@ -28,6 +38,19 @@ export default function PlannerPage() {
     refreshMeals();
   }, [refreshMeals]);
 
+  const createMealAndRefresh = useCallback(
+    async (payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) => {
+      const created = await createPlannedMeal(payload);
+      const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
+      if (created.date >= range.start && created.date <= range.end) {
+        setMeals((prev) => [...prev, created]);
+      }
+      await refreshMeals();
+      return created;
+    },
+    [anchorDate, refreshMeals, view]
+  );
+
   async function addMeal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -42,14 +65,8 @@ export default function PlannerPage() {
       servingsPlanned: type === "recipe" ? Number(form.get("servingsPlanned") || 0) || undefined : undefined,
       sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined
     };
-    const beforeCount = meals.length;
-    const created = await createPlannedMeal(payload);
-    const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
-    if (created.date >= range.start && created.date <= range.end) {
-      setMeals((prev) => [...prev, created]);
-    }
+    await createMealAndRefresh(payload);
     e.currentTarget.reset();
-    await refreshMeals();
   }
 
   async function removeMeal(id: string) {
@@ -58,6 +75,117 @@ export default function PlannerPage() {
     setMeals((prev) => prev.filter((meal) => meal.id !== id));
     await refreshMeals();
   }
+
+  const resetInline = useCallback(() => {
+    setInlineType("recipe");
+    setInlineRecipeId("");
+    setInlineServings("");
+    setInlineLeftoverSource("");
+    setInlineFreeformTitle("");
+    setInlineNotes("");
+    setRecipeSearch("");
+  }, []);
+
+  const openInlineAdd = useCallback(
+    async (slot: { date: string; mealSlotId: string }) => {
+      setActiveSlot(slot);
+      resetInline();
+      const today = new Date();
+      const start = addDays(today, -14);
+      const recent = await listPlannedMeals(toISODate(start), toISODate(today));
+      setRecentPlanned([...recent]);
+    },
+    [resetInline]
+  );
+
+  const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
+    if (!activeSlot) return null;
+    if (inlineType === "recipe") {
+      const recipe = recipes.find((r) => r.id === inlineRecipeId);
+      if (!recipe) return null;
+      const servings = inlineServings ? Number(inlineServings) : recipe.defaultServings;
+      return {
+        date: activeSlot.date,
+        mealSlotId: activeSlot.mealSlotId,
+        type: "recipe",
+        recipeId: recipe.id,
+        servingsPlanned: servings,
+        notes: inlineNotes || undefined
+      };
+    }
+    if (inlineType === "leftover") {
+      if (!inlineLeftoverSource) return null;
+      if (inlineLeftoverSource.startsWith("meal:")) {
+        const mealId = inlineLeftoverSource.slice(5);
+        return {
+          date: activeSlot.date,
+          mealSlotId: activeSlot.mealSlotId,
+          type: "leftover",
+          sourcePlannedMealId: mealId,
+          notes: inlineNotes || undefined
+        };
+      }
+      if (inlineLeftoverSource.startsWith("recipe:")) {
+        const recipeId = inlineLeftoverSource.slice(7);
+        const recipe = recipes.find((r) => r.id === recipeId);
+        return {
+          date: activeSlot.date,
+          mealSlotId: activeSlot.mealSlotId,
+          type: "leftover",
+          freeformTitle: recipe?.title || "Leftover",
+          notes: inlineNotes || undefined
+        };
+      }
+      return null;
+    }
+    if (!inlineFreeformTitle.trim()) return null;
+    return {
+      date: activeSlot.date,
+      mealSlotId: activeSlot.mealSlotId,
+      type: "freeform",
+      freeformTitle: inlineFreeformTitle.trim(),
+      notes: inlineNotes || undefined
+    };
+  }, [
+    activeSlot,
+    inlineFreeformTitle,
+    inlineLeftoverSource,
+    inlineNotes,
+    inlineRecipeId,
+    inlineServings,
+    inlineType,
+    recipes
+  ]);
+
+  const headerLabel = useMemo(() => {
+    if (view === "week") {
+      const range = weekRange(anchorDate);
+      const start = parseISODate(range.start);
+      const end = parseISODate(range.end);
+      const startLabel = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const endLabel = end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      return `${startLabel}–${endLabel}`;
+    }
+    const d = parseISODate(anchorDate);
+    return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }, [anchorDate, view]);
+
+  const navigate = useCallback(
+    (direction: -1 | 1) => {
+      const base = parseISODate(anchorDate);
+      if (view === "week") {
+        setAnchorDate(toISODate(addDays(base, 7 * direction)));
+      } else {
+        const next = new Date(base.getFullYear(), base.getMonth() + direction, base.getDate());
+        setAnchorDate(toISODate(next));
+      }
+    },
+    [anchorDate, view]
+  );
+
+  const goToday = useCallback(() => {
+    setAnchorDate(toISODate(new Date()));
+  }, []);
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
   const days = useMemo(() => {
@@ -74,8 +202,22 @@ export default function PlannerPage() {
     <div className="grid">
       <section className="panel">
         <div className="row">
-          <button className={view === "week" ? "" : "secondary"} onClick={() => setView("week")}>Week</button>
-          <button className={view === "month" ? "" : "secondary"} onClick={() => setView("month")}>Month</button>
+          <button className="secondary" onClick={() => navigate(-1)} aria-label="Previous">
+            ◀
+          </button>
+          <button className="secondary" onClick={() => navigate(1)} aria-label="Next">
+            ▶
+          </button>
+          <button className="secondary" onClick={goToday}>
+            Today
+          </button>
+          <strong>{headerLabel}</strong>
+          <button className={view === "week" ? "" : "secondary"} onClick={() => setView("week")}>
+            Week
+          </button>
+          <button className={view === "month" ? "" : "secondary"} onClick={() => setView("month")}>
+            Month
+          </button>
           <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
         </div>
       </section>
@@ -107,6 +249,42 @@ export default function PlannerPage() {
                               <button className="secondary" onClick={() => removeMeal(meal.id)}>x</button>
                             </div>
                           ))}
+                        {meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day).length === 0 && (
+                          <button
+                            className="ghost"
+                            onClick={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                          >
+                            Add
+                          </button>
+                        )}
+                        {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
+                          <InlineAddPanel
+                            recipes={recipes}
+                            recentPlanned={recentPlanned}
+                            inlineType={inlineType}
+                            setInlineType={setInlineType}
+                            inlineRecipeId={inlineRecipeId}
+                            setInlineRecipeId={setInlineRecipeId}
+                            inlineServings={inlineServings}
+                            setInlineServings={setInlineServings}
+                            inlineLeftoverSource={inlineLeftoverSource}
+                            setInlineLeftoverSource={setInlineLeftoverSource}
+                            inlineFreeformTitle={inlineFreeformTitle}
+                            setInlineFreeformTitle={setInlineFreeformTitle}
+                            inlineNotes={inlineNotes}
+                            setInlineNotes={setInlineNotes}
+                            recipeSearch={recipeSearch}
+                            setRecipeSearch={setRecipeSearch}
+                            onCancel={() => setActiveSlot(null)}
+                            onSave={async () => {
+                              const payload = buildInlinePayload();
+                              if (!payload) return;
+                              await createMealAndRefresh(payload);
+                              resetInline();
+                              setActiveSlot(null);
+                            }}
+                          />
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -118,8 +296,54 @@ export default function PlannerPage() {
               {days.map((day) => (
                 <div key={day} className="panel" style={{ minHeight: 90 }}>
                   <strong>{formatDateLabel(day)}</strong>
-                  {meals.filter((meal) => meal.date === day).map((meal) => (
-                    <div key={meal.id}><MealLabel meal={meal} recipes={recipes} /></div>
+                  {slots.map((slot) => (
+                    <div key={slot.id}>
+                      <strong>{slot.name}</strong>
+                      {meals
+                        .filter((meal) => meal.date === day && meal.mealSlotId === slot.id)
+                        .map((meal) => (
+                          <div key={meal.id}>
+                            <MealLabel meal={meal} recipes={recipes} />
+                            <button className="secondary" onClick={() => removeMeal(meal.id)}>x</button>
+                          </div>
+                        ))}
+                      {meals.filter((meal) => meal.date === day && meal.mealSlotId === slot.id).length === 0 && (
+                        <button
+                          className="ghost"
+                          onClick={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                        >
+                          Add
+                        </button>
+                      )}
+                      {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
+                        <InlineAddPanel
+                          recipes={recipes}
+                          recentPlanned={recentPlanned}
+                          inlineType={inlineType}
+                          setInlineType={setInlineType}
+                          inlineRecipeId={inlineRecipeId}
+                          setInlineRecipeId={setInlineRecipeId}
+                          inlineServings={inlineServings}
+                          setInlineServings={setInlineServings}
+                          inlineLeftoverSource={inlineLeftoverSource}
+                          setInlineLeftoverSource={setInlineLeftoverSource}
+                          inlineFreeformTitle={inlineFreeformTitle}
+                          setInlineFreeformTitle={setInlineFreeformTitle}
+                          inlineNotes={inlineNotes}
+                          setInlineNotes={setInlineNotes}
+                          recipeSearch={recipeSearch}
+                          setRecipeSearch={setRecipeSearch}
+                          onCancel={() => setActiveSlot(null)}
+                          onSave={async () => {
+                            const payload = buildInlinePayload();
+                            if (!payload) return;
+                            await createMealAndRefresh(payload);
+                            resetInline();
+                            setActiveSlot(null);
+                          }}
+                        />
+                      )}
+                    </div>
                   ))}
                 </div>
               ))}
@@ -160,6 +384,144 @@ export default function PlannerPage() {
           <button type="submit">Add</button>
         </form>
       </section>
+    </div>
+  );
+}
+
+function InlineAddPanel({
+  recipes,
+  recentPlanned,
+  inlineType,
+  setInlineType,
+  inlineRecipeId,
+  setInlineRecipeId,
+  inlineServings,
+  setInlineServings,
+  inlineLeftoverSource,
+  setInlineLeftoverSource,
+  inlineFreeformTitle,
+  setInlineFreeformTitle,
+  inlineNotes,
+  setInlineNotes,
+  recipeSearch,
+  setRecipeSearch,
+  onSave,
+  onCancel
+}: {
+  recipes: Recipe[];
+  recentPlanned: PlannedMeal[];
+  inlineType: PlannedMeal["type"];
+  setInlineType: (value: PlannedMeal["type"]) => void;
+  inlineRecipeId: string;
+  setInlineRecipeId: (value: string) => void;
+  inlineServings: string;
+  setInlineServings: (value: string) => void;
+  inlineLeftoverSource: string;
+  setInlineLeftoverSource: (value: string) => void;
+  inlineFreeformTitle: string;
+  setInlineFreeformTitle: (value: string) => void;
+  inlineNotes: string;
+  setInlineNotes: (value: string) => void;
+  recipeSearch: string;
+  setRecipeSearch: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const filteredRecipes = recipes.filter((recipe) =>
+    recipe.title.toLowerCase().includes(recipeSearch.trim().toLowerCase())
+  );
+  const recentMealOptions = recentPlanned.filter((meal) => meal.type === "recipe" && meal.recipeId);
+  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
+
+  return (
+    <div className="panel">
+      <div className="row">
+        <select value={inlineType} onChange={(e) => setInlineType(e.target.value as PlannedMeal["type"])}>
+          <option value="recipe">Recipe</option>
+          <option value="leftover">Leftover</option>
+          <option value="freeform">Freeform</option>
+        </select>
+        <button className="secondary" onClick={onCancel}>Cancel</button>
+      </div>
+
+      {inlineType === "recipe" && (
+        <>
+          {recipes.length === 0 ? (
+            <p>
+              No recipes yet. <Link className="tag" to="/recipes">Go to Recipes</Link>
+            </p>
+          ) : (
+            <>
+              <input
+                placeholder="Search recipes"
+                value={recipeSearch}
+                onChange={(e) => setRecipeSearch(e.target.value)}
+              />
+              <select
+                value={inlineRecipeId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setInlineRecipeId(nextId);
+                  const recipe = recipes.find((r) => r.id === nextId);
+                  if (recipe) setInlineServings(String(recipe.defaultServings));
+                }}
+              >
+                <option value="">Select recipe</option>
+                {filteredRecipes.map((recipe) => (
+                  <option key={recipe.id} value={recipe.id}>
+                    {recipe.title}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                placeholder="Servings"
+                value={inlineServings}
+                onChange={(e) => setInlineServings(e.target.value)}
+              />
+            </>
+          )}
+        </>
+      )}
+
+      {inlineType === "leftover" && (
+        <>
+          {recentMealOptions.length === 0 && recipes.length === 0 ? (
+            <p>
+              No recent meals or recipes yet. <Link className="tag" to="/recipes">Go to Recipes</Link>
+            </p>
+          ) : (
+            <select value={inlineLeftoverSource} onChange={(e) => setInlineLeftoverSource(e.target.value)}>
+              <option value="">Select source</option>
+              {recentMealOptions.map((meal) => (
+                <option key={meal.id} value={`meal:${meal.id}`}>
+                  Recent meal: {recipeTitle(meal.recipeId)}
+                </option>
+              ))}
+              {recipes.map((recipe) => (
+                <option key={recipe.id} value={`recipe:${recipe.id}`}>
+                  Recipe: {recipe.title}
+                </option>
+              ))}
+            </select>
+          )}
+        </>
+      )}
+
+      {inlineType === "freeform" && (
+        <>
+          <input
+            placeholder="Title"
+            value={inlineFreeformTitle}
+            onChange={(e) => setInlineFreeformTitle(e.target.value)}
+          />
+        </>
+      )}
+
+      <textarea placeholder="Notes" value={inlineNotes} onChange={(e) => setInlineNotes(e.target.value)} />
+      <div className="row">
+        <button onClick={onSave}>Save</button>
+      </div>
     </div>
   );
 }
