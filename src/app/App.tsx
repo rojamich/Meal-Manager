@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./Layout";
 import PantryPage from "../features/pantry/PantryPage";
 import RecipesPage from "../features/recipes/RecipesPage";
@@ -9,7 +9,7 @@ import SettingsPage from "../features/settings/SettingsPage";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/planner" replace />} />
@@ -21,6 +21,6 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
