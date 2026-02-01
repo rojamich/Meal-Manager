@@ -131,9 +131,41 @@ button.ghost {
 }
 
 button.danger {
+  background: transparent;
+  color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+button.danger:hover,
+button.danger:focus {
   background: #b91c1c;
   color: #ffffff;
-  border-color: #b91c1c;
+}
+
+.info-box {
+  background: #f3f4f6;
+  border-left: 4px solid #cbd5f5;
+  color: #475569;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.leftover-remaining {
+  background: #ffffff;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: auto;
+}
+
+.planner-inline-panel {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  position: relative;
+  z-index: 20;
 }
 
 .muted {
@@ -290,6 +322,22 @@ details[open] > summary {
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .leftover-remaining {
+    font-size: 14px;
+  }
+
+  button,
+  .meal-chip,
+  .ghost {
+    font-size: 14px;
+  }
+
+  .planner-week-cards .card {
+    margin-bottom: 12px;
   }
 
   .table {

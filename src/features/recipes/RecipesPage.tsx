@@ -476,7 +476,7 @@ function RecipeEditor({
         <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" />
         <div className="panel">
           <h3>Ingredients</h3>
-          <p className="muted">Ingredients save as you add/remove them.</p>
+          <p className="info-box">Ingredients save as you add/remove them.</p>
           {!recipe.id && <p>Save the recipe first to add ingredients.</p>}
           {recipe.id && pantryItems.length === 0 && (
             <div className="row">
@@ -604,8 +604,8 @@ function RecipeEditor({
           </button>
         </div>
         <div className="row">
-          <button type="submit">Save Recipe</button>
-          <button type="button" className="secondary" onClick={handleSaveAndClose}>
+          <button type="submit" className="secondary">Save Recipe</button>
+          <button type="button" onClick={handleSaveAndClose}>
             Save & Close
           </button>
           {savedAt && <span className="muted">Saved {savedAt}</span>}

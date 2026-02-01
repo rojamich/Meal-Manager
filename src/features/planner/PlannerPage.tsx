@@ -881,7 +881,7 @@ function InlineAddPanel({
 
   return (
     <div
-      className="panel"
+      className="panel planner-inline-panel"
       ref={panelRef}
       data-planner-inline-panel="true"
       onPointerDownCapture={(e) => {
@@ -1334,6 +1334,12 @@ function DraggableMeal({
             remaining={meal.leftoverServingsRemaining}
             onClick={() => onSetLeftovers(meal)}
           />
+          {remaining > 1 && (
+            <span className="leftover-remaining">
+              <span className="desktop-only">{remaining} left</span>
+              <span className="mobile-only">{remaining}</span>
+            </span>
+          )}
         </>
       )}
       <button
