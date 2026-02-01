@@ -178,12 +178,33 @@ export default function PlannerPage() {
     async (slot: { date: string; mealSlotId: string }) => {
       setActiveSlot(slot);
       resetInline();
-      const today = new Date();
-      const start = addDays(today, -14);
-      const recent = await listPlannedMeals(toISODate(start), toISODate(today));
-      setRecentPlanned([...recent]);
+      const range = weekRange(anchorDate);
+      const rangeStart = parseISODate(range.start);
+      const start = addDays(rangeStart, -14);
+      const recent = await listPlannedMeals(toISODate(start), range.start);
+      const normalized = recent.map((meal) => {
+        if (meal.type !== "recipe") return meal;
+        if (typeof meal.leftoverServingsRemaining === "number") return meal;
+        const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+        const servings = meal.servingsPlanned ?? recipeDefault;
+        return { ...meal, leftoverServingsRemaining: Math.max(servings - 1, 0) };
+      });
+      const toPersist = normalized.filter(
+        (meal, idx) =>
+          meal.type === "recipe" &&
+          typeof recent[idx].leftoverServingsRemaining !== "number" &&
+          typeof meal.leftoverServingsRemaining === "number"
+      );
+      if (toPersist.length) {
+        await Promise.all(
+          toPersist.map((meal) =>
+            updatePlannedMeal(meal.id, { leftoverServingsRemaining: meal.leftoverServingsRemaining })
+          )
+        );
+      }
+      setRecentPlanned([...normalized]);
     },
-    [resetInline]
+    [anchorDate, recipes, resetInline]
   );
 
   const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
@@ -492,6 +513,7 @@ export default function PlannerPage() {
                               recipes={recipes}
                               slots={slots}
                               recentPlanned={recentPlanned}
+                              currentMeals={meals}
                               inlineType={inlineType}
                               setInlineType={setInlineType}
                               inlineRecipeId={inlineRecipeId}
@@ -558,6 +580,7 @@ export default function PlannerPage() {
                           recipes={recipes}
                           slots={slots}
                           recentPlanned={recentPlanned}
+                          currentMeals={meals}
                           inlineType={inlineType}
                           setInlineType={setInlineType}
                           inlineRecipeId={inlineRecipeId}
@@ -636,6 +659,7 @@ function InlineAddPanel({
   recipes,
   slots,
   recentPlanned,
+  currentMeals,
   inlineType,
   setInlineType,
   inlineRecipeId,
@@ -661,6 +685,7 @@ function InlineAddPanel({
   recipes: Recipe[];
   slots: MealSlot[];
   recentPlanned: PlannedMeal[];
+  currentMeals: PlannedMeal[];
   inlineType: PlannedMeal["type"];
   setInlineType: (value: PlannedMeal["type"]) => void;
   inlineRecipeId: string;
@@ -686,8 +711,21 @@ function InlineAddPanel({
   const filteredRecipes = recipes.filter((recipe) =>
     recipe.title.toLowerCase().includes(recipeSearch.trim().toLowerCase())
   );
-  const recentMealOptions = [...recentPlanned]
-    .filter((meal) => (includeAnyRecent || meal.type === "recipe") && (meal.leftoverServingsRemaining ?? 0) > 0)
+  const mergedMeals = useMemo(() => {
+    const map = new Map<string, PlannedMeal>();
+    currentMeals.forEach((meal) => map.set(meal.id, meal));
+    recentPlanned.forEach((meal) => {
+      if (!map.has(meal.id)) map.set(meal.id, meal);
+    });
+    return Array.from(map.values());
+  }, [currentMeals, recentPlanned]);
+  const effectiveRemaining = (meal: PlannedMeal) => {
+    if (typeof meal.leftoverServingsRemaining === "number") return meal.leftoverServingsRemaining;
+    if (meal.type !== "recipe") return 0;
+    return Math.max((meal.servingsPlanned ?? 1) - 1, 0);
+  };
+  const recentMealOptions = mergedMeals
+    .filter((meal) => (includeAnyRecent || meal.type === "recipe") && effectiveRemaining(meal) > 0)
     .sort((a, b) => b.date.localeCompare(a.date));
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
   const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
@@ -783,7 +821,7 @@ function InlineAddPanel({
                 <option value="">Select source</option>
                 {recentMealOptions.map((meal) => (
                   <option key={meal.id} value={`meal:${meal.id}`}>
-                    {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | {typeLabel(meal.type)} | remaining {meal.leftoverServingsRemaining ?? 0}
+                    {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | {typeLabel(meal.type)} | remaining {effectiveRemaining(meal)}
                   </option>
                 ))}
                 {recipes.map((recipe) => (
