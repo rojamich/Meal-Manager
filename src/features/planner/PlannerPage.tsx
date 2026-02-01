@@ -311,14 +311,23 @@ export default function PlannerPage() {
     meals
   ]);
 
+  const isEventInside = (e: PointerEvent | MouseEvent) => {
+    const el = panelRef.current;
+    if (!el) return false;
+    const target = e.target as Node | null;
+    if (target && el.contains(target)) return true;
+    const path = (e as any).composedPath?.() as EventTarget[] | undefined;
+    if (path && path.includes(el)) return true;
+    return false;
+  };
+
   useEffect(() => {
     if (!activeSlot) return;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closePanel("escape", event);
     };
     const handlePointer = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      const insidePanel = Boolean(panelRef.current && target && panelRef.current.contains(target));
+      const insidePanel = isEventInside(event);
       if (DEBUG_PANEL) {
         console.log("[PlannerPanel] doc pointerdown", {
           insidePanel,
@@ -326,15 +335,14 @@ export default function PlannerPage() {
           node: event.target
         });
       }
-      if (!panelRef.current) return;
-      if (target && panelRef.current.contains(target)) return;
+      if (insidePanel) return;
       closePanel("doc-pointerdown-outside", event);
     };
     document.addEventListener("keydown", handleKey);
-    document.addEventListener("pointerdown", handlePointer, true);
+    document.addEventListener("pointerdown", handlePointer, { capture: true });
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("pointerdown", handlePointer, true);
+      document.removeEventListener("pointerdown", handlePointer, { capture: true });
     };
   }, [activeSlot]);
 
