@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { MealSlot, PlannedMeal, Recipe } from "../../models";
 import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal, updatePlannedMeal } from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
-import { formatDateLabel, parseISODate, startOfWeek, toISODate, addDays } from "../../utils/date";
+import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/date";
 import { Link } from "react-router-dom";
 import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 
@@ -36,9 +36,29 @@ export default function PlannerPage() {
   const refreshMeals = useCallback(async () => {
     const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
     const data = await listPlannedMeals(range.start, range.end);
-    setMeals([...data]);
-    return data;
-  }, [anchorDate, view]);
+    const normalized = data.map((meal) => {
+      if (meal.type !== "recipe") return meal;
+      if (typeof meal.leftoverServingsRemaining === "number") return meal;
+      const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+      const servings = meal.servingsPlanned ?? recipeDefault;
+      return { ...meal, leftoverServingsRemaining: Math.max(servings - 1, 0) };
+    });
+    const toPersist = normalized.filter(
+      (meal, idx) =>
+        meal.type === "recipe" &&
+        typeof data[idx].leftoverServingsRemaining !== "number" &&
+        typeof meal.leftoverServingsRemaining === "number"
+    );
+    if (toPersist.length) {
+      await Promise.all(
+        toPersist.map((meal) =>
+          updatePlannedMeal(meal.id, { leftoverServingsRemaining: meal.leftoverServingsRemaining })
+        )
+      );
+    }
+    setMeals([...normalized]);
+    return normalized;
+  }, [anchorDate, recipes, view]);
 
   useEffect(() => {
     refreshMeals();
@@ -55,7 +75,11 @@ export default function PlannerPage() {
         const servingsUsed = payload.servingsPlanned ?? 1;
         if (sourceId) {
           const source = meals.find((m) => m.id === sourceId);
-          const originalRemaining = source?.leftoverServingsRemaining ?? 0;
+          const sourceServings = source?.servingsPlanned ?? 1;
+          const originalRemaining =
+            typeof source?.leftoverServingsRemaining === "number"
+              ? source.leftoverServingsRemaining
+              : Math.max(sourceServings - 1, 0);
           const nextRemaining = Math.max(originalRemaining - servingsUsed, 0);
           try {
             await updatePlannedMeal(sourceId, { leftoverServingsRemaining: nextRemaining });
@@ -89,14 +113,18 @@ export default function PlannerPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const type = String(form.get("type")) as PlannedMeal["type"];
+    const recipeId = type === "recipe" ? String(form.get("recipeId")) : undefined;
+    const recipeDefault = recipes.find((r) => r.id === recipeId)?.defaultServings ?? 1;
+    const servings = type === "recipe" ? Number(form.get("servingsPlanned") || recipeDefault) : undefined;
     const payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> = {
       date: String(form.get("date")),
       mealSlotId: String(form.get("mealSlotId")),
       type,
-      recipeId: type === "recipe" ? String(form.get("recipeId")) : undefined,
+      recipeId,
       freeformTitle: type === "freeform" ? String(form.get("freeformTitle")) : undefined,
       notes: String(form.get("notes") || "") || undefined,
-      servingsPlanned: type === "recipe" ? Number(form.get("servingsPlanned") || 0) || undefined : undefined,
+      servingsPlanned: type === "recipe" ? servings : undefined,
+      leftoverServingsRemaining: type === "recipe" ? Math.max((servings ?? 1) - 1, 0) : undefined,
       sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined
     };
     await createMealAndRefresh(payload);
@@ -170,6 +198,7 @@ export default function PlannerPage() {
         type: "recipe",
         recipeId: recipe.id,
         servingsPlanned: servings,
+        leftoverServingsRemaining: Math.max(servings - 1, 0),
         notes: inlineNotes || undefined
       };
     }
@@ -179,7 +208,12 @@ export default function PlannerPage() {
       if (inlineLeftoverSource.startsWith("meal:")) {
         const mealId = inlineLeftoverSource.slice(5);
         const source = meals.find((m) => m.id === mealId);
-        const remaining = source?.leftoverServingsRemaining ?? 0;
+        const sourceServings = source?.servingsPlanned ?? 1;
+        const effectiveRemaining =
+          typeof source?.leftoverServingsRemaining === "number"
+            ? source.leftoverServingsRemaining
+            : Math.max(sourceServings - 1, 0);
+        const remaining = effectiveRemaining;
         if (remaining <= 0) {
           alert("No leftovers remaining");
           return null;
@@ -800,7 +834,10 @@ function MealLabel({
 }) {
   if (meal.type === "recipe") {
     const recipe = recipes.find((r) => r.id === meal.recipeId);
-    const remaining = meal.leftoverServingsRemaining;
+    const remaining =
+      typeof meal.leftoverServingsRemaining === "number"
+        ? meal.leftoverServingsRemaining
+        : Math.max((meal.servingsPlanned ?? 1) - 1, 0);
     return (
       <span>
         {recipe?.title || "Recipe"}
@@ -899,7 +936,10 @@ function DraggableMeal({
     opacity: isDragging ? 0.6 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
   };
-  const remaining = meal.leftoverServingsRemaining ?? 0;
+  const remaining =
+    typeof meal.leftoverServingsRemaining === "number"
+      ? meal.leftoverServingsRemaining
+      : Math.max((meal.servingsPlanned ?? 1) - 1, 0);
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -967,8 +1007,24 @@ function LeftoverBadge({
     id: `leftover:${mealId}`,
     disabled: !canDrag
   });
-  const label =
-    typeof remaining === "number" ? `(${remaining})` : "L";
+  if (!canDrag) {
+    return (
+      <button
+        className="secondary"
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{ padding: "2px 6px", fontSize: 12, opacity: 0.6 }}
+        title="Set leftovers"
+      >
+        L
+      </button>
+    );
+  }
+  const label = `(${remaining})`;
   return (
     <button
       ref={setNodeRef}
@@ -997,7 +1053,7 @@ function formatWeekdayLabel(value: string) {
 }
 
 function weekRange(anchorDate: string) {
-  const start = startOfWeek(parseISODate(anchorDate));
+  const start = parseISODate(anchorDate);
   const end = addDays(start, 6);
   return { start: toISODate(start), end: toISODate(end) };
 }
