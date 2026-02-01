@@ -311,13 +311,21 @@ export default function PlannerPage() {
     meals
   ]);
 
-  const isEventInside = (e: PointerEvent | MouseEvent) => {
-    const el = panelRef.current;
-    if (!el) return false;
-    const target = e.target as Node | null;
-    if (target && el.contains(target)) return true;
+  const isInsideInlinePanel = (e: PointerEvent) => {
+    const t = e.target as HTMLElement | null;
+    const closestInside = Boolean(t?.closest?.('[data-planner-inline-panel="true"]'));
+    if (DEBUG_PANEL) {
+      console.log("closest inside?", closestInside);
+    }
+    if (closestInside) return true;
     const path = (e as any).composedPath?.() as EventTarget[] | undefined;
-    if (path && path.includes(el)) return true;
+    if (path) {
+      for (const node of path) {
+        if (node instanceof HTMLElement && node.hasAttribute("data-planner-inline-panel")) {
+          return true;
+        }
+      }
+    }
     return false;
   };
 
@@ -327,7 +335,7 @@ export default function PlannerPage() {
       if (event.key === "Escape") closePanel("escape", event);
     };
     const handlePointer = (event: PointerEvent) => {
-      const insidePanel = isEventInside(event);
+      const insidePanel = isInsideInlinePanel(event);
       if (DEBUG_PANEL) {
         console.log("[PlannerPanel] doc pointerdown", {
           insidePanel,
@@ -875,6 +883,7 @@ function InlineAddPanel({
     <div
       className="panel"
       ref={panelRef}
+      data-planner-inline-panel="true"
       onPointerDownCapture={(e) => {
         if (DEBUG_PANEL) {
           const target = e.target as Node | null;
