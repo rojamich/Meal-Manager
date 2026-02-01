@@ -7,6 +7,8 @@ import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/d
 import { Link } from "react-router-dom";
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 
+const DEBUG_PANEL = true;
+
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
   const [anchorDate, setAnchorDate] = useState(toISODate(new Date()));
@@ -33,6 +35,25 @@ export default function PlannerPage() {
       activationConstraint: { distance: 4 }
     })
   );
+
+  function closePanel(reason: string, e?: Event) {
+    if (DEBUG_PANEL) {
+      console.group("[PlannerPanel] closePanel");
+      console.log("reason:", reason);
+      if (e) {
+        // @ts-ignore
+        console.log("type:", e.type, "target:", (e.target as any)?.tagName, e.target);
+        // @ts-ignore
+        console.log(
+          "composedPath:",
+          typeof (e as any).composedPath === "function" ? (e as any).composedPath() : null
+        );
+      }
+      console.trace();
+      console.groupEnd();
+    }
+    setActiveSlot(null);
+  }
 
   useEffect(() => {
     listMealSlots().then(setSlots);
@@ -293,13 +314,21 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!activeSlot) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActiveSlot(null);
+      if (event.key === "Escape") closePanel("escape", event);
     };
     const handlePointer = (event: PointerEvent) => {
-      if (!panelRef.current) return;
       const target = event.target as Node | null;
+      const insidePanel = Boolean(panelRef.current && target && panelRef.current.contains(target));
+      if (DEBUG_PANEL) {
+        console.log("[PlannerPanel] doc pointerdown", {
+          insidePanel,
+          target: (event.target as any)?.tagName,
+          node: event.target
+        });
+      }
+      if (!panelRef.current) return;
       if (target && panelRef.current.contains(target)) return;
-      setActiveSlot(null);
+      closePanel("doc-pointerdown-outside", event);
     };
     document.addEventListener("keydown", handleKey);
     document.addEventListener("pointerdown", handlePointer, true);
@@ -544,13 +573,13 @@ export default function PlannerPage() {
                                   recipeSearch={recipeSearch}
                                   setRecipeSearch={setRecipeSearch}
                                   panelRef={panelRef}
-                                  onCancel={() => setActiveSlot(null)}
+                                  onCancel={() => closePanel("inline-cancel")}
                                   onSave={async () => {
                                     const payload = buildInlinePayload();
                                     if (!payload) return;
                                     await createMealAndRefresh(payload);
                                     resetInline();
-                                    setActiveSlot(null);
+                                    closePanel("inline-save");
                                   }}
                                 />
                               ) : null
@@ -625,13 +654,13 @@ export default function PlannerPage() {
                               recipeSearch={recipeSearch}
                               setRecipeSearch={setRecipeSearch}
                               panelRef={panelRef}
-                              onCancel={() => setActiveSlot(null)}
+                              onCancel={() => closePanel("inline-cancel-month")}
                               onSave={async () => {
                                 const payload = buildInlinePayload();
                                 if (!payload) return;
                                 await createMealAndRefresh(payload);
                                 resetInline();
-                                setActiveSlot(null);
+                                closePanel("inline-save-month");
                               }}
                             />
                           ) : null
@@ -691,13 +720,13 @@ export default function PlannerPage() {
                           recipeSearch={recipeSearch}
                           setRecipeSearch={setRecipeSearch}
                           panelRef={panelRef}
-                          onCancel={() => setActiveSlot(null)}
+                          onCancel={() => closePanel("inline-cancel-mobile")}
                           onSave={async () => {
                             const payload = buildInlinePayload();
                             if (!payload) return;
                             await createMealAndRefresh(payload);
                             resetInline();
-                            setActiveSlot(null);
+                            closePanel("inline-save-mobile");
                           }}
                         />
                       )}
@@ -838,10 +867,46 @@ function InlineAddPanel({
     <div
       className="panel"
       ref={panelRef}
+      onPointerDownCapture={(e) => {
+        if (DEBUG_PANEL) {
+          const target = e.target as Node | null;
+          console.log("[PlannerPanel] panel pointerdown capture", {
+            target: (e.target as any)?.tagName,
+            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
+          });
+        }
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        if (DEBUG_PANEL) {
+          const target = e.target as Node | null;
+          console.log("[PlannerPanel] panel pointerdown", {
+            target: (e.target as any)?.tagName,
+            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
+          });
+        }
+        e.stopPropagation();
+      }}
+      onClickCapture={(e) => {
+        if (DEBUG_PANEL) {
+          const target = e.target as Node | null;
+          console.log("[PlannerPanel] panel click capture", {
+            target: (e.target as any)?.tagName,
+            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
+          });
+        }
+      }}
+      onClick={(e) => {
+        if (DEBUG_PANEL) {
+          const target = e.target as Node | null;
+          console.log("[PlannerPanel] panel click", {
+            target: (e.target as any)?.tagName,
+            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
+          });
+        }
+        e.stopPropagation();
+      }}
     >
       <div className="row">
         <select value={inlineType} onChange={(e) => setInlineType(e.target.value as PlannedMeal["type"])}>
