@@ -131,9 +131,9 @@ button.ghost {
 }
 
 button.danger {
-  background: var(--danger);
+  background: #b91c1c;
   color: #ffffff;
-  border-color: var(--danger);
+  border-color: #b91c1c;
 }
 
 .muted {

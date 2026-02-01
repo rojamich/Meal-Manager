@@ -301,7 +301,7 @@ function RecipeEditor({
   const [ingredientFilter, setIngredientFilter] = useState("");
   const [ingredientDraft, setIngredientDraft] = useState({
     pantryItemId: "",
-    quantity: "",
+    quantity: "1",
     prepNote: ""
   });
   const [ingredientError, setIngredientError] = useState<string | null>(null);
@@ -320,7 +320,7 @@ function RecipeEditor({
       estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
       imageUrl: recipe.imageUrl || ""
     });
-    setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
+    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "" });
     setIngredientFilter("");
     setIngredientError(null);
     setSavedAt(null);
@@ -540,7 +540,7 @@ function RecipeEditor({
                       quantity: qty,
                       prepNote: ingredientDraft.prepNote || undefined
                     });
-                    setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "" });
                   }}
                 >
                   Add Ingredient

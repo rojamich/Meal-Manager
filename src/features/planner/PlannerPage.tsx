@@ -299,8 +299,6 @@ export default function PlannerPage() {
       if (!panelRef.current) return;
       const target = event.target as Node | null;
       if (target && panelRef.current.contains(target)) return;
-      const activeEl = document.activeElement;
-      if (activeEl && panelRef.current.contains(activeEl)) return;
       setActiveSlot(null);
     };
     document.addEventListener("keydown", handleKey);
