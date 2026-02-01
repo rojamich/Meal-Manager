@@ -4,6 +4,11 @@
   --panel: #ffffff;
   --text: #0f172a;
   --muted: #64748b;
+  --primary-bg: #25634a;
+  --primary-bg-hover: #1f563f;
+  --primary-text: #ffffff;
+  --secondary-bg: #e2e8f0;
+  --secondary-text: #0f172a;
   --accent: #22c55e;
   --danger: #ef4444;
   --soft: #f1f5f9;
@@ -103,15 +108,19 @@ textarea {
 }
 
 button {
-  background: var(--accent);
-  color: white;
+  background: var(--primary-bg);
+  color: var(--primary-text);
   border: 1px solid transparent;
   cursor: pointer;
 }
 
+button:hover {
+  background: var(--primary-bg-hover);
+}
+
 button.secondary {
-  background: var(--soft);
-  color: #0f172a;
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
   border-color: var(--border);
 }
 
@@ -228,8 +237,8 @@ button.danger {
 
 .tag {
   display: inline-block;
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
   padding: 2px 6px;
   border-radius: 6px;
   font-size: 12px;

@@ -305,6 +305,7 @@ function RecipeEditor({
     prepNote: ""
   });
   const [ingredientError, setIngredientError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
     setForm({
@@ -322,9 +323,10 @@ function RecipeEditor({
     setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
     setIngredientFilter("");
     setIngredientError(null);
+    setSavedAt(null);
   }, [recipe]);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     const payload = {
       title: form.title.trim(),
@@ -339,10 +341,46 @@ function RecipeEditor({
       imageUrl: form.imageUrl || undefined
     };
     if (recipe.id) {
-      onSave({ ...recipe, ...payload });
+      await Promise.resolve(onSave({ ...recipe, ...payload }));
     } else {
-      onSave(payload);
+      await Promise.resolve(onSave(payload));
     }
+    setSavedAt(new Date().toLocaleTimeString());
+  }
+
+  async function handleSaveAndClose() {
+    await Promise.resolve(
+      onSave(
+        recipe.id
+          ? {
+              ...recipe,
+              title: form.title.trim(),
+              url: form.url || undefined,
+              defaultServings: Number(form.defaultServings),
+              mealTypes: form.mealTypes,
+              tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+              notes: form.notes || undefined,
+              steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
+              caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+              estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
+              imageUrl: form.imageUrl || undefined
+            }
+          : {
+              title: form.title.trim(),
+              url: form.url || undefined,
+              defaultServings: Number(form.defaultServings),
+              mealTypes: form.mealTypes,
+              tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+              notes: form.notes || undefined,
+              steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
+              caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+              estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
+              imageUrl: form.imageUrl || undefined
+            }
+      )
+    );
+    setSavedAt(new Date().toLocaleTimeString());
+    onBack();
   }
 
   function updateStep(index: number, value: string) {
@@ -438,6 +476,7 @@ function RecipeEditor({
         <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" />
         <div className="panel">
           <h3>Ingredients</h3>
+          <p className="muted">Ingredients save as you add/remove them.</p>
           {!recipe.id && <p>Save the recipe first to add ingredients.</p>}
           {recipe.id && pantryItems.length === 0 && (
             <div className="row">
@@ -565,7 +604,11 @@ function RecipeEditor({
           </button>
         </div>
         <div className="row">
-          <button type="submit">Save</button>
+          <button type="submit">Save Recipe</button>
+          <button type="button" className="secondary" onClick={handleSaveAndClose}>
+            Save & Close
+          </button>
+          {savedAt && <span className="muted">Saved {savedAt}</span>}
         </div>
       </form>
 

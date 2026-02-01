@@ -295,7 +295,7 @@ export default function PlannerPage() {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setActiveSlot(null);
     };
-    const handlePointer = (event: MouseEvent | TouchEvent) => {
+    const handlePointer = (event: PointerEvent) => {
       if (!panelRef.current) return;
       const target = event.target as Node | null;
       if (target && panelRef.current.contains(target)) return;
@@ -304,12 +304,10 @@ export default function PlannerPage() {
       setActiveSlot(null);
     };
     document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handlePointer, true);
-    document.addEventListener("touchstart", handlePointer, true);
+    document.addEventListener("pointerdown", handlePointer, true);
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handlePointer, true);
-      document.removeEventListener("touchstart", handlePointer, true);
+      document.removeEventListener("pointerdown", handlePointer, true);
     };
   }, [activeSlot]);
 
@@ -844,6 +842,7 @@ function InlineAddPanel({
       ref={panelRef}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="row">
