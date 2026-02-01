@@ -25,6 +25,8 @@ export default function PlannerPage() {
   const [recipeSearch, setRecipeSearch] = useState("");
   const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
+  const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
 
   useEffect(() => {
     listMealSlots().then(setSlots);
@@ -57,6 +59,11 @@ export default function PlannerPage() {
           const nextRemaining = Math.max(originalRemaining - servingsUsed, 0);
           try {
             await updatePlannedMeal(sourceId, { leftoverServingsRemaining: nextRemaining });
+            if (source) {
+              setMeals((prev: PlannedMeal[]) =>
+                prev.map((m: PlannedMeal) => (m.id === sourceId ? { ...m, leftoverServingsRemaining: nextRemaining } : m))
+              );
+            }
             created = await createPlannedMeal(payload);
           } catch (err) {
             await updatePlannedMeal(sourceId, { leftoverServingsRemaining: originalRemaining });
@@ -70,7 +77,7 @@ export default function PlannerPage() {
       }
       const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
       if (created && created.date >= range.start && created.date <= range.end) {
-        setMeals((prev) => [...prev, created as PlannedMeal]);
+        setMeals((prev: PlannedMeal[]) => [...prev, created as PlannedMeal]);
       }
       await refreshMeals();
       return created;
@@ -107,6 +114,9 @@ export default function PlannerPage() {
         if (source) {
           const remaining = Math.max((source.leftoverServingsRemaining ?? 0) + servingsUsed, 0);
           await updatePlannedMeal(source.id, { leftoverServingsRemaining: remaining });
+          setMeals((prev: PlannedMeal[]) =>
+            prev.map((m: PlannedMeal) => (m.id === source.id ? { ...m, leftoverServingsRemaining: remaining } : m))
+          );
         } else {
           const today = new Date();
           const start = addDays(today, -30);
@@ -120,7 +130,7 @@ export default function PlannerPage() {
       }
     }
     await deletePlannedMeal(id);
-    setMeals((prev) => prev.filter((meal) => meal.id !== id));
+    setMeals((prev: PlannedMeal[]) => prev.filter((meal: PlannedMeal) => meal.id !== id));
     await refreshMeals();
   }
 
@@ -168,6 +178,12 @@ export default function PlannerPage() {
       const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || 1), 1);
       if (inlineLeftoverSource.startsWith("meal:")) {
         const mealId = inlineLeftoverSource.slice(5);
+        const source = meals.find((m) => m.id === mealId);
+        const remaining = source?.leftoverServingsRemaining ?? 0;
+        if (remaining <= 0) {
+          alert("No leftovers remaining");
+          return null;
+        }
         return {
           date: activeSlot.date,
           mealSlotId: activeSlot.mealSlotId,
@@ -209,7 +225,8 @@ export default function PlannerPage() {
     inlineRecipeId,
     inlineServings,
     inlineType,
-    recipes
+    recipes,
+    meals
   ]);
 
   useEffect(() => {
@@ -328,8 +345,8 @@ export default function PlannerPage() {
         if (!meal) return;
         if (meal.date === day && meal.mealSlotId === slotId) return;
         await updatePlannedMeal(meal.id, { date: day, mealSlotId: slotId });
-        setMeals((prev) =>
-          prev.map((m) => (m.id === meal.id ? { ...m, date: day, mealSlotId: slotId } : m))
+        setMeals((prev: PlannedMeal[]) =>
+          prev.map((m: PlannedMeal) => (m.id === meal.id ? { ...m, date: day, mealSlotId: slotId } : m))
         );
         return;
       }
@@ -339,7 +356,10 @@ export default function PlannerPage() {
         const source = mealsById.get(sourceId);
         if (!source) return;
         const remaining = source.leftoverServingsRemaining ?? 0;
-        if (remaining <= 0) return;
+        if (remaining <= 0) {
+          alert("No leftovers remaining");
+          return;
+        }
         await createMealAndRefresh({
           date: day,
           mealSlotId: slotId,
@@ -414,16 +434,24 @@ export default function PlannerPage() {
                         recipes={recipes}
                         onRemove={removeMeal}
                         onSetLeftovers={async (meal) => {
-                          const current = meal.leftoverServingsRemaining ?? 0;
-                          const input = prompt("Set leftovers remaining", String(current || 2));
-                          if (input === null) return;
-                          const value = Math.max(Number(input || 0), 0);
-                          await updatePlannedMeal(meal.id, { leftoverServingsRemaining: value });
-                          setMeals((prev) =>
-                            prev.map((m) => (m.id === meal.id ? { ...m, leftoverServingsRemaining: value } : m))
-                          );
+                          setLeftoverEditMealId(meal.id);
+                          setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
                         }}
                         onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                        editingMealId={leftoverEditMealId}
+                        editValue={leftoverEditValue}
+                        onEditValue={setLeftoverEditValue}
+                        onSaveEdit={async (mealId) => {
+                          const value = Math.max(Number(leftoverEditValue || 0), 0);
+                          await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
+                          setMeals((prev: PlannedMeal[]) =>
+                            prev.map((m: PlannedMeal) =>
+                              m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
+                            )
+                          );
+                          setLeftoverEditMealId(null);
+                        }}
+                        onCancelEdit={() => setLeftoverEditMealId(null)}
                         inlinePanel={
                           activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
                             <InlineAddPanel
@@ -480,23 +508,6 @@ export default function PlannerPage() {
                         .map((meal) => (
                           <div key={meal.id}>
                             <MealLabel meal={meal} recipes={recipes} />
-                            {meal.type === "recipe" && (
-                              <button
-                                className="secondary"
-                                onClick={async () => {
-                                  const current = meal.leftoverServingsRemaining ?? 0;
-                                  const input = prompt("Set leftovers remaining", String(current || 2));
-                                  if (input === null) return;
-                                  const value = Math.max(Number(input || 0), 0);
-                                  await updatePlannedMeal(meal.id, { leftoverServingsRemaining: value });
-                                  setMeals((prev) =>
-                                    prev.map((m) => (m.id === meal.id ? { ...m, leftoverServingsRemaining: value } : m))
-                                  );
-                                }}
-                              >
-                                Set leftovers
-                              </button>
-                            )}
                             <button className="secondary" onClick={() => removeMeal(meal.id)}>x</button>
                           </div>
                         ))}
@@ -778,14 +789,22 @@ function InlineAddPanel({
   );
 }
 
-function MealLabel({ meal, recipes }: { meal: PlannedMeal; recipes: Recipe[] }) {
+function MealLabel({
+  meal,
+  recipes,
+  showRemaining = true
+}: {
+  meal: PlannedMeal;
+  recipes: Recipe[];
+  showRemaining?: boolean;
+}) {
   if (meal.type === "recipe") {
     const recipe = recipes.find((r) => r.id === meal.recipeId);
     const remaining = meal.leftoverServingsRemaining;
     return (
       <span>
         {recipe?.title || "Recipe"}
-        {typeof remaining === "number" && remaining > 0 ? ` (${remaining})` : ""}
+        {showRemaining && typeof remaining === "number" && remaining > 0 ? ` (${remaining})` : ""}
       </span>
     );
   }
@@ -803,6 +822,11 @@ function WeekCell({
   onRemove,
   onSetLeftovers,
   onAdd,
+  editingMealId,
+  editValue,
+  onEditValue,
+  onSaveEdit,
+  onCancelEdit,
   inlinePanel
 }: {
   day: string;
@@ -812,6 +836,11 @@ function WeekCell({
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onAdd: () => void | Promise<void>;
+  editingMealId: string | null;
+  editValue: number;
+  onEditValue: (value: number) => void;
+  onSaveEdit: (mealId: string) => void | Promise<void>;
+  onCancelEdit: () => void;
   inlinePanel: ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
@@ -825,6 +854,11 @@ function WeekCell({
           recipes={recipes}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
+          isEditing={editingMealId === meal.id}
+          editValue={editValue}
+          onEditValue={onEditValue}
+          onSaveEdit={() => onSaveEdit(meal.id)}
+          onCancelEdit={onCancelEdit}
         />
       ))}
       {meals.length === 0 && (
@@ -841,12 +875,22 @@ function DraggableMeal({
   meal,
   recipes,
   onRemove,
-  onSetLeftovers
+  onSetLeftovers,
+  isEditing,
+  editValue,
+  onEditValue,
+  onSaveEdit,
+  onCancelEdit
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  isEditing: boolean;
+  editValue: number;
+  onEditValue: (value: number) => void;
+  onSaveEdit: () => void | Promise<void>;
+  onCancelEdit: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `meal:${meal.id}`
@@ -868,20 +912,14 @@ function DraggableMeal({
       >
         Drag
       </button>
-      <MealLabel meal={meal} recipes={recipes} />
+      <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
       {meal.type === "recipe" && (
         <>
-          <button
-            className="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              void onSetLeftovers(meal);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            Set leftovers
-          </button>
-          {remaining > 0 && <LeftoverToken sourceMealId={meal.id} />}
+          <LeftoverBadge
+            mealId={meal.id}
+            remaining={meal.leftoverServingsRemaining}
+            onClick={() => onSetLeftovers(meal)}
+          />
         </>
       )}
       <button
@@ -894,31 +932,64 @@ function DraggableMeal({
       >
         x
       </button>
+      {meal.type === "recipe" && isEditing && (
+        <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          <input
+            type="number"
+            min="0"
+            value={editValue}
+            onChange={(e) => onEditValue(Number(e.target.value))}
+            style={{ width: 80 }}
+          />
+          <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveEdit(); }}>
+            Save
+          </button>
+          <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }}>
+            Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-function LeftoverToken({ sourceMealId }: { sourceMealId: string }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `leftover:${sourceMealId}`
+function LeftoverBadge({
+  mealId,
+  remaining,
+  onClick
+}: {
+  mealId: string;
+  remaining?: number;
+  onClick: () => void;
+}) {
+  const canDrag = typeof remaining === "number" && remaining > 0;
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: `leftover:${mealId}`,
+    disabled: !canDrag
   });
-  const style = {
-    opacity: isDragging ? 0.6 : 1,
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
-  };
+  const label =
+    typeof remaining === "number" ? `(${remaining})` : "L";
   return (
     <button
       ref={setNodeRef}
-      style={style}
       className="secondary"
+      type="button"
       {...attributes}
       {...listeners}
-      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{ padding: "2px 6px", fontSize: 12, opacity: canDrag ? 1 : 0.6 }}
+      title={canDrag ? "Drag to create leftover" : "Set leftovers"}
     >
-      Drag leftover
+      {label}
     </button>
   );
 }
+
+// Leftover badge serves as the drag handle; no separate token needed.
 
 function formatWeekdayLabel(value: string) {
   const d = parseISODate(value);
