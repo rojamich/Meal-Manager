@@ -1,10 +1,11 @@
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { MealSlot, PlannedMeal, Recipe } from "../../models";
 import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal, updatePlannedMeal } from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
 import { formatDateLabel, parseISODate, startOfWeek, toISODate, addDays } from "../../utils/date";
 import { Link } from "react-router-dom";
+import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
 
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
@@ -42,31 +43,34 @@ export default function PlannerPage() {
   }, [refreshMeals]);
 
   const createMealAndRefresh = useCallback(
-    async (payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) => {
-      const created = await createPlannedMeal(payload);
-      if (payload.type === "leftover") {
+    async (
+      payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">,
+      options?: { skipLeftoverDecrement?: boolean }
+    ) => {
+      let created: PlannedMeal | undefined;
+      if (payload.type === "leftover" && !options?.skipLeftoverDecrement) {
         const sourceId = payload.leftoverSourceMealId || payload.sourcePlannedMealId;
         const servingsUsed = payload.servingsPlanned ?? 1;
         if (sourceId) {
           const source = meals.find((m) => m.id === sourceId);
-          if (source) {
-            const remaining = Math.max((source.leftoverServingsRemaining ?? 0) - servingsUsed, 0);
-            await updatePlannedMeal(source.id, { leftoverServingsRemaining: remaining });
-          } else {
-            const today = new Date();
-            const start = addDays(today, -30);
-            const recent = await listPlannedMeals(toISODate(start), toISODate(today));
-            const fallback = recent.find((m) => m.id === sourceId);
-            if (fallback) {
-              const remaining = Math.max((fallback.leftoverServingsRemaining ?? 0) - servingsUsed, 0);
-              await updatePlannedMeal(fallback.id, { leftoverServingsRemaining: remaining });
-            }
+          const originalRemaining = source?.leftoverServingsRemaining ?? 0;
+          const nextRemaining = Math.max(originalRemaining - servingsUsed, 0);
+          try {
+            await updatePlannedMeal(sourceId, { leftoverServingsRemaining: nextRemaining });
+            created = await createPlannedMeal(payload);
+          } catch (err) {
+            await updatePlannedMeal(sourceId, { leftoverServingsRemaining: originalRemaining });
+            throw err;
           }
+        } else {
+          created = await createPlannedMeal(payload);
         }
+      } else {
+        created = await createPlannedMeal(payload);
       }
       const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
-      if (created.date >= range.start && created.date <= range.end) {
-        setMeals((prev) => [...prev, created]);
+      if (created && created.date >= range.start && created.date <= range.end) {
+        setMeals((prev) => [...prev, created as PlannedMeal]);
       }
       await refreshMeals();
       return created;
@@ -302,6 +306,53 @@ export default function PlannerPage() {
     return list;
   }, [range.start, range.end]);
 
+  const mealsById = useMemo(() => {
+    const map = new Map<string, PlannedMeal>();
+    meals.forEach((meal) => map.set(meal.id, meal));
+    return map;
+  }, [meals]);
+
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over) return;
+      const overId = String(over.id);
+      if (!overId.startsWith("cell:")) return;
+      const [, day, slotId] = overId.split(":");
+      if (!day || !slotId) return;
+
+      const activeId = String(active.id);
+      if (activeId.startsWith("meal:")) {
+        const mealId = activeId.slice(5);
+        const meal = mealsById.get(mealId);
+        if (!meal) return;
+        if (meal.date === day && meal.mealSlotId === slotId) return;
+        await updatePlannedMeal(meal.id, { date: day, mealSlotId: slotId });
+        setMeals((prev) =>
+          prev.map((m) => (m.id === meal.id ? { ...m, date: day, mealSlotId: slotId } : m))
+        );
+        return;
+      }
+
+      if (activeId.startsWith("leftover:")) {
+        const sourceId = activeId.slice(9);
+        const source = mealsById.get(sourceId);
+        if (!source) return;
+        const remaining = source.leftoverServingsRemaining ?? 0;
+        if (remaining <= 0) return;
+        await createMealAndRefresh({
+          date: day,
+          mealSlotId: slotId,
+          type: "leftover",
+          leftoverSourceMealId: source.id,
+          sourcePlannedMealId: source.id,
+          servingsPlanned: 1
+        });
+      }
+    },
+    [createMealAndRefresh, mealsById]
+  );
+
   return (
     <div className="grid">
       <section className="panel">
@@ -340,12 +391,13 @@ export default function PlannerPage() {
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
         <div className="grid" style={{ overflowX: "auto" }}>
           {view === "week" ? (
+            <DndContext onDragEnd={handleDragEnd}>
             <table className="table">
               <thead>
                 <tr>
                   <th>Slot</th>
                   {days.map((day) => (
-                    <th key={day}>{formatDateLabel(day)}</th>
+                    <th key={day}>{formatWeekdayLabel(day)}</th>
                   ))}
                 </tr>
               </thead>
@@ -354,80 +406,67 @@ export default function PlannerPage() {
                   <tr key={slot.id}>
                     <td>{slot.name}</td>
                     {days.map((day) => (
-                      <td key={day}>
-                        {meals
-                          .filter((meal) => meal.mealSlotId === slot.id && meal.date === day)
-                          .map((meal) => (
-                            <div key={meal.id}>
-                              <MealLabel meal={meal} recipes={recipes} />
-                              {meal.type === "recipe" && (
-                                <button
-                                  className="secondary"
-                                  onClick={async () => {
-                                    const current = meal.leftoverServingsRemaining ?? 0;
-                                    const input = prompt("Set leftovers remaining", String(current || 2));
-                                    if (input === null) return;
-                                    const value = Math.max(Number(input || 0), 0);
-                                    await updatePlannedMeal(meal.id, { leftoverServingsRemaining: value });
-                                    setMeals((prev) =>
-                                      prev.map((m) => (m.id === meal.id ? { ...m, leftoverServingsRemaining: value } : m))
-                                    );
-                                  }}
-                                >
-                                  Set leftovers
-                                </button>
-                              )}
-                              <button className="secondary" onClick={() => removeMeal(meal.id)}>x</button>
-                            </div>
-                          ))}
-                        {meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day).length === 0 && (
-                          <button
-                            className="ghost"
-                            onClick={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
-                          >
-                            Add
-                          </button>
-                        )}
-                        {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
-                          <InlineAddPanel
-                            recipes={recipes}
-                            slots={slots}
-                            recentPlanned={recentPlanned}
-                            inlineType={inlineType}
-                            setInlineType={setInlineType}
-                            inlineRecipeId={inlineRecipeId}
-                            setInlineRecipeId={setInlineRecipeId}
-                            inlineServings={inlineServings}
-                            setInlineServings={setInlineServings}
-                            inlineLeftoverSource={inlineLeftoverSource}
-                            setInlineLeftoverSource={setInlineLeftoverSource}
-                            inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                            setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                            includeAnyRecent={includeAnyRecent}
-                            setIncludeAnyRecent={setIncludeAnyRecent}
-                            inlineFreeformTitle={inlineFreeformTitle}
-                            setInlineFreeformTitle={setInlineFreeformTitle}
-                            inlineNotes={inlineNotes}
-                            setInlineNotes={setInlineNotes}
-                            recipeSearch={recipeSearch}
-                            setRecipeSearch={setRecipeSearch}
-                            panelRef={panelRef}
-                            onCancel={() => setActiveSlot(null)}
-                            onSave={async () => {
-                              const payload = buildInlinePayload();
-                              if (!payload) return;
-                              await createMealAndRefresh(payload);
-                              resetInline();
-                              setActiveSlot(null);
-                            }}
-                          />
-                        )}
-                      </td>
+                      <WeekCell
+                        key={`${day}-${slot.id}`}
+                        day={day}
+                        slotId={slot.id}
+                        meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
+                        recipes={recipes}
+                        onRemove={removeMeal}
+                        onSetLeftovers={async (meal) => {
+                          const current = meal.leftoverServingsRemaining ?? 0;
+                          const input = prompt("Set leftovers remaining", String(current || 2));
+                          if (input === null) return;
+                          const value = Math.max(Number(input || 0), 0);
+                          await updatePlannedMeal(meal.id, { leftoverServingsRemaining: value });
+                          setMeals((prev) =>
+                            prev.map((m) => (m.id === meal.id ? { ...m, leftoverServingsRemaining: value } : m))
+                          );
+                        }}
+                        onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                        inlinePanel={
+                          activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
+                            <InlineAddPanel
+                              recipes={recipes}
+                              slots={slots}
+                              recentPlanned={recentPlanned}
+                              inlineType={inlineType}
+                              setInlineType={setInlineType}
+                              inlineRecipeId={inlineRecipeId}
+                              setInlineRecipeId={setInlineRecipeId}
+                              inlineServings={inlineServings}
+                              setInlineServings={setInlineServings}
+                              inlineLeftoverSource={inlineLeftoverSource}
+                              setInlineLeftoverSource={setInlineLeftoverSource}
+                              inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
+                              setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
+                              includeAnyRecent={includeAnyRecent}
+                              setIncludeAnyRecent={setIncludeAnyRecent}
+                              inlineFreeformTitle={inlineFreeformTitle}
+                              setInlineFreeformTitle={setInlineFreeformTitle}
+                              inlineNotes={inlineNotes}
+                              setInlineNotes={setInlineNotes}
+                              recipeSearch={recipeSearch}
+                              setRecipeSearch={setRecipeSearch}
+                              panelRef={panelRef}
+                              onCancel={() => setActiveSlot(null)}
+                              onSave={async () => {
+                                const payload = buildInlinePayload();
+                                if (!payload) return;
+                                await createMealAndRefresh(payload);
+                                resetInline();
+                                setActiveSlot(null);
+                              }}
+                            />
+                          ) : null
+                        }
+                      />
                     ))}
                   </tr>
                 ))}
               </tbody>
             </table>
+            </DndContext>
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
               {days.map((day) => (
@@ -746,7 +785,7 @@ function MealLabel({ meal, recipes }: { meal: PlannedMeal; recipes: Recipe[] }) 
     return (
       <span>
         {recipe?.title || "Recipe"}
-        {typeof remaining === "number" ? ` (leftovers: ${remaining})` : ""}
+        {typeof remaining === "number" && remaining > 0 ? <span className="tag">Leftovers: {remaining}</span> : null}
       </span>
     );
   }
@@ -754,6 +793,113 @@ function MealLabel({ meal, recipes }: { meal: PlannedMeal; recipes: Recipe[] }) 
     return <span>Leftover</span>;
   }
   return <span>{meal.freeformTitle || "Freeform"}</span>;
+}
+
+function WeekCell({
+  day,
+  slotId,
+  meals,
+  recipes,
+  onRemove,
+  onSetLeftovers,
+  onAdd,
+  inlinePanel
+}: {
+  day: string;
+  slotId: string;
+  meals: PlannedMeal[];
+  recipes: Recipe[];
+  onRemove: (id: string) => void | Promise<void>;
+  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  onAdd: () => void | Promise<void>;
+  inlinePanel: ReactNode;
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
+
+  return (
+    <td ref={setNodeRef} style={{ background: isOver ? "#e0f2fe" : undefined }}>
+      {meals.map((meal) => (
+        <DraggableMeal
+          key={meal.id}
+          meal={meal}
+          recipes={recipes}
+          onRemove={onRemove}
+          onSetLeftovers={onSetLeftovers}
+        />
+      ))}
+      {meals.length === 0 && (
+        <button className="ghost" onClick={onAdd}>
+          Add
+        </button>
+      )}
+      {inlinePanel}
+    </td>
+  );
+}
+
+function DraggableMeal({
+  meal,
+  recipes,
+  onRemove,
+  onSetLeftovers
+}: {
+  meal: PlannedMeal;
+  recipes: Recipe[];
+  onRemove: (id: string) => void;
+  onSetLeftovers: (meal: PlannedMeal) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `meal:${meal.id}`
+  });
+  const style = {
+    opacity: isDragging ? 0.6 : 1,
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
+  };
+  const remaining = meal.leftoverServingsRemaining ?? 0;
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <MealLabel meal={meal} recipes={recipes} />
+      {meal.type === "recipe" && (
+        <>
+          <button className="secondary" onClick={() => onSetLeftovers(meal)}>
+            Set leftovers
+          </button>
+          {remaining > 0 && <LeftoverToken sourceMealId={meal.id} />}
+        </>
+      )}
+      <button className="secondary" onClick={() => onRemove(meal.id)}>
+        x
+      </button>
+    </div>
+  );
+}
+
+function LeftoverToken({ sourceMealId }: { sourceMealId: string }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `leftover:${sourceMealId}`
+  });
+  const style = {
+    opacity: isDragging ? 0.6 : 1,
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
+  };
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      className="secondary"
+      {...attributes}
+      {...listeners}
+      type="button"
+    >
+      🍱 Drag leftover
+    </button>
+  );
+}
+
+function formatWeekdayLabel(value: string) {
+  const d = parseISODate(value);
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function weekRange(anchorDate: string) {
