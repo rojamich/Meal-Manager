@@ -104,10 +104,13 @@ export default function RecipesPage() {
     await refresh();
   }
 
-  async function addRecipeIngredient(data: { pantryItemId: string; quantity: number; prepNote?: string }) {
-    if (!selected) return;
+  async function addRecipeIngredient(
+    recipeId: string,
+    data: { pantryItemId: string; quantity: number; prepNote?: string }
+  ) {
+    if (!recipeId) return;
     const { pantryItemId, quantity, prepNote } = data;
-    if (!pantryItemId || quantity <= 0) return;
+    if (!pantryItemId || !(quantity > 0)) return;
     const existing = ingredients.find((ing) => ing.pantryItemId === pantryItemId);
     if (existing) {
       const shouldMerge = confirm("This pantry item is already in the recipe. Merge quantities?");
@@ -119,13 +122,13 @@ export default function RecipesPage() {
       });
     } else {
       await addIngredient({
-        recipeId: selected.id,
+        recipeId,
         pantryItemId,
         quantity,
         prepNote
       });
     }
-    setIngredients(await listIngredients(selected.id));
+    setIngredients(await listIngredients(recipeId));
   }
 
   async function updateRecipeIngredient(id: string, changes: Partial<RecipeIngredient>) {
@@ -278,7 +281,7 @@ function RecipeEditor({
   pantryItems: PantryItem[];
   ingredients: RecipeIngredient[];
   onSave: (recipe: any) => void;
-  onAddIngredient: (data: { pantryItemId: string; quantity: number; prepNote?: string }) => void;
+  onAddIngredient: (recipeId: string, data: { pantryItemId: string; quantity: number; prepNote?: string }) => void;
   onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
   onDeleteIngredient: (id: string) => void;
   onBack: () => void;
@@ -301,6 +304,7 @@ function RecipeEditor({
     quantity: "",
     prepNote: ""
   });
+  const [ingredientError, setIngredientError] = useState<string | null>(null);
 
   useEffect(() => {
     setForm({
@@ -315,6 +319,9 @@ function RecipeEditor({
       estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
       imageUrl: recipe.imageUrl || ""
     });
+    setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
+    setIngredientFilter("");
+    setIngredientError(null);
   }, [recipe]);
 
   function submit(e: FormEvent) {
@@ -479,9 +486,19 @@ function RecipeEditor({
                 <button
                   type="button"
                   onClick={() => {
-                    onAddIngredient({
+                    const qty = Number(ingredientDraft.quantity || 0);
+                    if (!recipe.id) {
+                      setIngredientError("Save the recipe first.");
+                      return;
+                    }
+                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+                      setIngredientError("Select a pantry item and enter a quantity > 0.");
+                      return;
+                    }
+                    setIngredientError(null);
+                    onAddIngredient(recipe.id, {
                       pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: Number(ingredientDraft.quantity || 0),
+                      quantity: qty,
                       prepNote: ingredientDraft.prepNote || undefined
                     });
                     setIngredientDraft({ pantryItemId: "", quantity: "", prepNote: "" });
@@ -490,6 +507,7 @@ function RecipeEditor({
                   Add Ingredient
                 </button>
               </div>
+              {ingredientError && <p className="muted">{ingredientError}</p>}
               <table className="table">
                 <thead>
                   <tr>

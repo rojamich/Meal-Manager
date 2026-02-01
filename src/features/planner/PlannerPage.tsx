@@ -1222,7 +1222,9 @@ function DraggableMeal({
       style={{
         ...style,
         borderLeft: `4px solid ${color}`,
-        paddingLeft: 6
+        paddingLeft: 6,
+        background: tintFromAccent(color),
+        color: "#0f172a"
       }}
       onClick={(e) => {
         e.stopPropagation();
@@ -1365,6 +1367,13 @@ function colorFromId(value: string) {
     hash = (hash * 31 + value.charCodeAt(i)) % 360;
   }
   return `hsl(${hash}, 48%, 38%)`;
+}
+
+function tintFromAccent(accent: string) {
+  const match = /hsl\((\d+),\s*(\d+)%?,\s*(\d+)%\)/.exec(accent);
+  if (!match) return "#f1f5f9";
+  const hue = Number(match[1]);
+  return `hsl(${hue}, 28%, 92%)`;
 }
 
 function weekRange(anchorDate: string) {
