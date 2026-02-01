@@ -30,7 +30,7 @@ export default function PlannerPage() {
   const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { delay: 150, tolerance: 5 }
+      activationConstraint: { distance: 4 }
     })
   );
 
@@ -297,7 +297,10 @@ export default function PlannerPage() {
     };
     const handlePointer = (event: MouseEvent | TouchEvent) => {
       if (!panelRef.current) return;
-      if (panelRef.current.contains(event.target as Node)) return;
+      const target = event.target as Node | null;
+      if (target && panelRef.current.contains(target)) return;
+      const activeEl = document.activeElement;
+      if (activeEl && panelRef.current.contains(activeEl)) return;
       setActiveSlot(null);
     };
     document.addEventListener("keydown", handleKey);
@@ -1322,7 +1325,6 @@ function LeftoverBadge({
           e.stopPropagation();
           onClick();
         }}
-        onPointerDown={(e) => e.stopPropagation()}
         style={{ opacity: 0.6 }}
         title="Set leftovers"
       >
@@ -1342,7 +1344,6 @@ function LeftoverBadge({
         e.stopPropagation();
         onClick();
       }}
-      onPointerDown={(e) => e.stopPropagation()}
       style={{ opacity: canDrag ? 1 : 0.6 }}
       title={canDrag ? "Drag to create leftover" : "Set leftovers"}
     >
@@ -1363,7 +1364,7 @@ function colorFromId(value: string) {
   for (let i = 0; i < value.length; i += 1) {
     hash = (hash * 31 + value.charCodeAt(i)) % 360;
   }
-  return `hsl(${hash}, 55%, 45%)`;
+  return `hsl(${hash}, 48%, 38%)`;
 }
 
 function weekRange(anchorDate: string) {

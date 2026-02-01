@@ -48,7 +48,10 @@ export default function RecipesPage() {
   }, [location.state, recipes]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setIngredients([]);
+      return;
+    }
     listIngredients(selected.id).then(setIngredients);
   }, [selected]);
 
@@ -85,9 +88,11 @@ export default function RecipesPage() {
     if ("id" in recipe && recipe.id) {
       await updateRecipe(recipe.id, recipe);
       setSelected(recipe);
+      setIngredients(await listIngredients(recipe.id));
     } else {
       const created = await createRecipe(recipe);
       setSelected(created);
+      setIngredients(await listIngredients(created.id));
     }
     await refresh();
   }

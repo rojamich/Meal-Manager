@@ -95,6 +95,8 @@ export default function GroceryPage() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [lines, pantryItems]);
 
+  const titleCase = useCallback((value: string) => (value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value), []);
+
   const estimate = useMemo(() => {
     let total = 0;
     let known = 0;
@@ -207,7 +209,7 @@ export default function GroceryPage() {
         <p>Estimated total: {estimate.total.toFixed(2)} ({estimate.known}/{estimate.totalLines} items priced)</p>
         {grouped.map(([category, items]) => (
           <div key={category} className="panel">
-            <h3>{category}</h3>
+            <h3>{titleCase(category)}</h3>
             <table className="table">
               <thead>
                 <tr>

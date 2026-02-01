@@ -17,6 +17,7 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { toISODate } from "../../utils/date";
 
 const categories = ["produce", "dairy", "pantry", "freezer", "spices", "bakery", "protein", "other"];
+const titleCase = (value: string) => value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value;
 
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -151,7 +152,7 @@ export default function PantryPage() {
                     {item.name}
                   </button>
                 </td>
-                <td data-label="Category">{item.category}</td>
+                <td data-label="Category">{titleCase(item.category)}</td>
                 <td data-label="Unit">{item.baseUnit}</td>
                 <td data-label="Actions">
                   <button className="secondary" onClick={() => setEditing(item)}>
@@ -301,7 +302,7 @@ function PantryForm({
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
           {categories.map((cat) => (
             <option key={cat} value={cat}>
-              {cat}
+              {titleCase(cat)}
             </option>
           ))}
         </select>
