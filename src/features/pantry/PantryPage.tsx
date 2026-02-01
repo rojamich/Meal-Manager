@@ -40,7 +40,7 @@ export default function PantryPage() {
   }, []);
 
   async function loadLots(itemId: string) {
-    setLots(await listInventoryLots(itemId));
+    setLots([...(await listInventoryLots(itemId))]);
   }
 
   useEffect(() => {

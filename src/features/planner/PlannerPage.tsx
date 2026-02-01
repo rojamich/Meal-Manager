@@ -785,7 +785,7 @@ function MealLabel({ meal, recipes }: { meal: PlannedMeal; recipes: Recipe[] }) 
     return (
       <span>
         {recipe?.title || "Recipe"}
-        {typeof remaining === "number" && remaining > 0 ? <span className="tag">Leftovers: {remaining}</span> : null}
+        {typeof remaining === "number" && remaining > 0 ? ` (${remaining})` : ""}
       </span>
     );
   }
@@ -845,8 +845,8 @@ function DraggableMeal({
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
-  onRemove: (id: string) => void;
-  onSetLeftovers: (meal: PlannedMeal) => void;
+  onRemove: (id: string) => void | Promise<void>;
+  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `meal:${meal.id}`
@@ -858,17 +858,40 @@ function DraggableMeal({
   const remaining = meal.leftoverServingsRemaining ?? 0;
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style}>
+      <button
+        className="secondary"
+        type="button"
+        {...attributes}
+        {...listeners}
+        style={{ cursor: "grab" }}
+      >
+        Drag
+      </button>
       <MealLabel meal={meal} recipes={recipes} />
       {meal.type === "recipe" && (
         <>
-          <button className="secondary" onClick={() => onSetLeftovers(meal)}>
+          <button
+            className="secondary"
+            onClick={(e) => {
+              e.stopPropagation();
+              void onSetLeftovers(meal);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             Set leftovers
           </button>
           {remaining > 0 && <LeftoverToken sourceMealId={meal.id} />}
         </>
       )}
-      <button className="secondary" onClick={() => onRemove(meal.id)}>
+      <button
+        className="secondary"
+        onClick={(e) => {
+          e.stopPropagation();
+          void onRemove(meal.id);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         x
       </button>
     </div>
@@ -892,7 +915,7 @@ function LeftoverToken({ sourceMealId }: { sourceMealId: string }) {
       {...listeners}
       type="button"
     >
-      🍱 Drag leftover
+      Drag leftover
     </button>
   );
 }

@@ -427,7 +427,6 @@ function RecipeEditor({
                 <select
                   value={ingredientDraft.pantryItemId}
                   onChange={(e) => setIngredientDraft({ ...ingredientDraft, pantryItemId: e.target.value })}
-                  required
                 >
                   <option value="" disabled>
                     Select pantry item
@@ -447,7 +446,6 @@ function RecipeEditor({
                   placeholder="Quantity"
                   value={ingredientDraft.quantity}
                   onChange={(e) => setIngredientDraft({ ...ingredientDraft, quantity: e.target.value })}
-                  required
                 />
                 <input
                   placeholder="Prep note"
