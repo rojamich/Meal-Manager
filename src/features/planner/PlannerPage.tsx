@@ -487,6 +487,8 @@ export default function PlannerPage() {
                         slotId={slot.id}
                         meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
                         recipes={recipes}
+                        allMealsMap={mealsById}
+                        slots={slots}
                         onRemove={removeMeal}
                         onSetLeftovers={async (meal) => {
                           setLeftoverEditMealId(meal.id);
@@ -894,6 +896,8 @@ function WeekCell({
   slotId,
   meals,
   recipes,
+  allMealsMap,
+  slots,
   onRemove,
   onSetLeftovers,
   onAdd,
@@ -908,6 +912,8 @@ function WeekCell({
   slotId: string;
   meals: PlannedMeal[];
   recipes: Recipe[];
+  allMealsMap: Map<string, PlannedMeal>;
+  slots: MealSlot[];
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onAdd: () => void | Promise<void>;
@@ -919,6 +925,26 @@ function WeekCell({
   inlinePanel: ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
+  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
+  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
+
+  const colorForMeal = (meal: PlannedMeal) => {
+    let colorKey = meal.recipeId || meal.id;
+    if (meal.type === "leftover") {
+      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+      const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+      colorKey = source?.recipeId || colorKey;
+    }
+    return colorFromId(colorKey);
+  };
+
+  const sourceInfo = (meal: PlannedMeal) => {
+    if (meal.type !== "leftover") return "";
+    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+    if (!source) return "From: Unknown";
+    return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
+    };
 
   return (
     <td ref={setNodeRef} style={{ background: isOver ? "#e0f2fe" : undefined }}>
@@ -927,6 +953,8 @@ function WeekCell({
           key={meal.id}
           meal={meal}
           recipes={recipes}
+          color={colorForMeal(meal)}
+          sourceInfo={sourceInfo(meal)}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
           isEditing={editingMealId === meal.id}
@@ -949,6 +977,8 @@ function WeekCell({
 function DraggableMeal({
   meal,
   recipes,
+  color,
+  sourceInfo,
   onRemove,
   onSetLeftovers,
   isEditing,
@@ -959,6 +989,8 @@ function DraggableMeal({
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
+  color: string;
+  sourceInfo: string;
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   isEditing: boolean;
@@ -980,7 +1012,14 @@ function DraggableMeal({
       : Math.max((meal.servingsPlanned ?? 1) - 1, 0);
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        borderLeft: `4px solid ${color}`,
+        paddingLeft: 6
+      }}
+    >
       <button
         className="secondary"
         type="button"
@@ -990,7 +1029,18 @@ function DraggableMeal({
       >
         Drag
       </button>
-      <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
+      <span
+        title={meal.type === "leftover" ? sourceInfo : undefined}
+        tabIndex={meal.type === "leftover" ? 0 : -1}
+        aria-label={meal.type === "leftover" ? sourceInfo : undefined}
+      >
+        <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
+      </span>
+      {meal.type === "recipe" && remaining > 0 && (
+        <span className="tag" style={{ marginLeft: 6 }}>
+          {remaining}
+        </span>
+      )}
       {meal.type === "recipe" && (
         <>
           <LeftoverBadge
@@ -1088,6 +1138,14 @@ function LeftoverBadge({
 function formatWeekdayLabel(value: string) {
   const d = parseISODate(value);
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function colorFromId(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) % 360;
+  }
+  return `hsl(${hash}, 55%, 45%)`;
 }
 
 function weekRange(anchorDate: string) {
