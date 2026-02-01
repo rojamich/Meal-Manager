@@ -227,7 +227,7 @@ export default function GroceryPage() {
                   .map((line) => {
                     const item = pantryItems.find((p) => p.id === line.pantryItemId);
                     const usedFor = JSON.parse(line.usedForJson || "{}");
-                    const usedText = Object.entries(usedFor)
+                    const usedText = (Object.entries(usedFor) as [string, number][])
                       .map(([title, count]) => (count > 1 ? `${title} x${count}` : title))
                       .join(", ") || "-";
                     return (
