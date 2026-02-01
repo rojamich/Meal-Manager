@@ -5,7 +5,7 @@ import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal, 
 import { listRecipes } from "../../db/repositories/recipeRepo";
 import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/date";
 import { Link } from "react-router-dom";
-import { DndContext, DragEndEvent, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
@@ -27,6 +27,12 @@ export default function PlannerPage() {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
   const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
+  const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 }
+    })
+  );
 
   useEffect(() => {
     listMealSlots().then(setSlots);
@@ -466,25 +472,107 @@ export default function PlannerPage() {
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
         <div className="grid" style={{ overflowX: "auto" }}>
           {view === "week" ? (
-            <DndContext onDragEnd={handleDragEnd}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Slot</th>
-                  {days.map((day) => (
-                    <th key={day}>{formatWeekdayLabel(day)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {slots.map((slot) => (
-                  <tr key={slot.id}>
-                    <td>{slot.name}</td>
-                    {days.map((day) => (
-                      <WeekCell
+            <DndContext onDragEnd={handleDragEnd} sensors={sensors}>
+              <div className="planner-week-grid">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Slot</th>
+                      {days.map((day) => (
+                        <th key={day}>{formatWeekdayLabel(day)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {slots.map((slot) => (
+                      <tr key={slot.id}>
+                        <td>{slot.name}</td>
+                        {days.map((day) => (
+                          <WeekCell
+                            key={`${day}-${slot.id}`}
+                            day={day}
+                            slotId={slot.id}
+                            meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
+                            recipes={recipes}
+                            allMealsMap={mealsById}
+                            slots={slots}
+                            onRemove={removeMeal}
+                            onSetLeftovers={async (meal) => {
+                              setLeftoverEditMealId(meal.id);
+                              setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
+                            }}
+                            onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                            editingMealId={leftoverEditMealId}
+                            editValue={leftoverEditValue}
+                            onEditValue={setLeftoverEditValue}
+                            onSaveEdit={async (mealId) => {
+                              const value = Math.max(Number(leftoverEditValue || 0), 0);
+                              await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
+                              setMeals((prev: PlannedMeal[]) =>
+                                prev.map((m: PlannedMeal) =>
+                                  m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
+                                )
+                              );
+                              setLeftoverEditMealId(null);
+                            }}
+                            onCancelEdit={() => setLeftoverEditMealId(null)}
+                            onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
+                            activeMealId={activeMealActionsId}
+                            onClearActions={() => setActiveMealActionsId(null)}
+                            inlinePanel={
+                              activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
+                                <InlineAddPanel
+                                  recipes={recipes}
+                                  slots={slots}
+                                  recentPlanned={recentPlanned}
+                                  currentMeals={meals}
+                                  inlineType={inlineType}
+                                  setInlineType={setInlineType}
+                                  inlineRecipeId={inlineRecipeId}
+                                  setInlineRecipeId={setInlineRecipeId}
+                                  inlineServings={inlineServings}
+                                  setInlineServings={setInlineServings}
+                                  inlineLeftoverSource={inlineLeftoverSource}
+                                  setInlineLeftoverSource={setInlineLeftoverSource}
+                                  inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
+                                  setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
+                                  includeAnyRecent={includeAnyRecent}
+                                  setIncludeAnyRecent={setIncludeAnyRecent}
+                                  inlineFreeformTitle={inlineFreeformTitle}
+                                  setInlineFreeformTitle={setInlineFreeformTitle}
+                                  inlineNotes={inlineNotes}
+                                  setInlineNotes={setInlineNotes}
+                                  recipeSearch={recipeSearch}
+                                  setRecipeSearch={setRecipeSearch}
+                                  panelRef={panelRef}
+                                  onCancel={() => setActiveSlot(null)}
+                                  onSave={async () => {
+                                    const payload = buildInlinePayload();
+                                    if (!payload) return;
+                                    await createMealAndRefresh(payload);
+                                    resetInline();
+                                    setActiveSlot(null);
+                                  }}
+                                />
+                              ) : null
+                            }
+                          />
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="planner-week-cards">
+                {days.map((day) => (
+                  <div key={day} className="card">
+                    <strong>{formatWeekdayLabel(day)}</strong>
+                    {slots.map((slot) => (
+                      <WeekSlotCard
                         key={`${day}-${slot.id}`}
                         day={day}
                         slotId={slot.id}
+                        slotName={slot.name}
                         meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
                         recipes={recipes}
                         allMealsMap={mealsById}
@@ -509,6 +597,9 @@ export default function PlannerPage() {
                           setLeftoverEditMealId(null);
                         }}
                         onCancelEdit={() => setLeftoverEditMealId(null)}
+                        onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
+                        activeMealId={activeMealActionsId}
+                        onClearActions={() => setActiveMealActionsId(null)}
                         inlinePanel={
                           activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
                             <InlineAddPanel
@@ -548,10 +639,9 @@ export default function PlannerPage() {
                         }
                       />
                     ))}
-                  </tr>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
             </DndContext>
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
@@ -566,7 +656,7 @@ export default function PlannerPage() {
                         .map((meal) => (
                           <div key={meal.id}>
                             <MealLabel meal={meal} recipes={recipes} />
-                            <button className="secondary" onClick={() => removeMeal(meal.id)}>x</button>
+                            <button className="danger" onClick={() => removeMeal(meal.id)}>x</button>
                           </div>
                         ))}
                       {meals.filter((meal) => meal.date === day && meal.mealSlotId === slot.id).length === 0 && (
@@ -906,7 +996,10 @@ function WeekCell({
   onEditValue,
   onSaveEdit,
   onCancelEdit,
-  inlinePanel
+  inlinePanel,
+  onActivateMeal,
+  activeMealId,
+  onClearActions
 }: {
   day: string;
   slotId: string;
@@ -923,6 +1016,9 @@ function WeekCell({
   onSaveEdit: (mealId: string) => void | Promise<void>;
   onCancelEdit: () => void;
   inlinePanel: ReactNode;
+  onActivateMeal: (mealId: string) => void;
+  activeMealId: string | null;
+  onClearActions: () => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
@@ -947,7 +1043,7 @@ function WeekCell({
     };
 
   return (
-    <td ref={setNodeRef} style={{ background: isOver ? "#e0f2fe" : undefined }}>
+    <td ref={setNodeRef} style={{ background: isOver ? "#e0f2fe" : undefined }} onClick={onClearActions}>
       {meals.map((meal) => (
         <DraggableMeal
           key={meal.id}
@@ -962,6 +1058,8 @@ function WeekCell({
           onEditValue={onEditValue}
           onSaveEdit={() => onSaveEdit(meal.id)}
           onCancelEdit={onCancelEdit}
+          onActivate={() => onActivateMeal(meal.id)}
+          isActionsOpen={activeMealId === meal.id}
         />
       ))}
       {meals.length === 0 && (
@@ -971,6 +1069,105 @@ function WeekCell({
       )}
       {inlinePanel}
     </td>
+  );
+}
+
+function WeekSlotCard({
+  day,
+  slotId,
+  slotName,
+  meals,
+  recipes,
+  allMealsMap,
+  slots,
+  onRemove,
+  onSetLeftovers,
+  onAdd,
+  editingMealId,
+  editValue,
+  onEditValue,
+  onSaveEdit,
+  onCancelEdit,
+  inlinePanel,
+  onActivateMeal,
+  activeMealId,
+  onClearActions
+}: {
+  day: string;
+  slotId: string;
+  slotName: string;
+  meals: PlannedMeal[];
+  recipes: Recipe[];
+  allMealsMap: Map<string, PlannedMeal>;
+  slots: MealSlot[];
+  onRemove: (id: string) => void | Promise<void>;
+  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  onAdd: () => void | Promise<void>;
+  editingMealId: string | null;
+  editValue: number;
+  onEditValue: (value: number) => void;
+  onSaveEdit: (mealId: string) => void | Promise<void>;
+  onCancelEdit: () => void;
+  inlinePanel: ReactNode;
+  onActivateMeal: (mealId: string) => void;
+  activeMealId: string | null;
+  onClearActions: () => void;
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
+  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
+  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
+
+  const colorForMeal = (meal: PlannedMeal) => {
+    let colorKey = meal.recipeId || meal.id;
+    if (meal.type === "leftover") {
+      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+      const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+      colorKey = source?.recipeId || colorKey;
+    }
+    return colorFromId(colorKey);
+  };
+
+  const sourceInfo = (meal: PlannedMeal) => {
+    if (meal.type !== "leftover") return "";
+    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+    if (!source) return "From: Unknown";
+    return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      className="card"
+      style={{ marginTop: 10, background: isOver ? "#e0f2fe" : undefined }}
+      onClick={onClearActions}
+    >
+      <strong>{slotName}</strong>
+      {meals.map((meal) => (
+        <DraggableMeal
+          key={meal.id}
+          meal={meal}
+          recipes={recipes}
+          color={colorForMeal(meal)}
+          sourceInfo={sourceInfo(meal)}
+          onRemove={onRemove}
+          onSetLeftovers={onSetLeftovers}
+          isEditing={editingMealId === meal.id}
+          editValue={editValue}
+          onEditValue={onEditValue}
+          onSaveEdit={() => onSaveEdit(meal.id)}
+          onCancelEdit={onCancelEdit}
+          onActivate={() => onActivateMeal(meal.id)}
+          isActionsOpen={activeMealId === meal.id}
+        />
+      ))}
+      {meals.length === 0 && (
+        <button className="ghost" onClick={onAdd}>
+          Add
+        </button>
+      )}
+      {inlinePanel}
+    </div>
   );
 }
 
@@ -985,7 +1182,9 @@ function DraggableMeal({
   editValue,
   onEditValue,
   onSaveEdit,
-  onCancelEdit
+  onCancelEdit,
+  onActivate,
+  isActionsOpen
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
@@ -998,6 +1197,8 @@ function DraggableMeal({
   onEditValue: (value: number) => void;
   onSaveEdit: () => void | Promise<void>;
   onCancelEdit: () => void;
+  onActivate: () => void;
+  isActionsOpen: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `meal:${meal.id}`
@@ -1014,20 +1215,26 @@ function DraggableMeal({
   return (
     <div
       ref={setNodeRef}
+      className="meal-chip"
       style={{
         ...style,
         borderLeft: `4px solid ${color}`,
         paddingLeft: 6
       }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onActivate();
+      }}
     >
       <button
-        className="secondary"
+        className="drag-handle"
         type="button"
         {...attributes}
         {...listeners}
-        style={{ cursor: "grab" }}
+        aria-label="Drag meal"
+        onClick={(e) => e.stopPropagation()}
       >
-        Drag
+        ::
       </button>
       <span
         title={meal.type === "leftover" ? sourceInfo : undefined}
@@ -1036,11 +1243,6 @@ function DraggableMeal({
       >
         <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
       </span>
-      {meal.type === "recipe" && remaining > 0 && (
-        <span className="tag" style={{ marginLeft: 6 }}>
-          {remaining}
-        </span>
-      )}
       {meal.type === "recipe" && (
         <>
           <LeftoverBadge
@@ -1051,7 +1253,7 @@ function DraggableMeal({
         </>
       )}
       <button
-        className="secondary"
+        className="danger"
         onClick={(e) => {
           e.stopPropagation();
           void onRemove(meal.id);
@@ -1060,6 +1262,22 @@ function DraggableMeal({
       >
         x
       </button>
+      {isActionsOpen && (
+        <div
+          className="action-sheet mobile-only"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {meal.type === "recipe" && meal.recipeId && (
+            <Link className="secondary" to="/recipes" state={{ recipeId: meal.recipeId }}>
+              View recipe
+            </Link>
+          )}
+          <button className="danger" onClick={() => void onRemove(meal.id)}>
+            Delete
+          </button>
+        </div>
+      )}
       {meal.type === "recipe" && isEditing && (
         <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <input
@@ -1098,14 +1316,14 @@ function LeftoverBadge({
   if (!canDrag) {
     return (
       <button
-        className="secondary"
+        className="leftover-badge"
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onClick();
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        style={{ padding: "2px 6px", fontSize: 12, opacity: 0.6 }}
+        style={{ opacity: 0.6 }}
         title="Set leftovers"
       >
         L
@@ -1116,7 +1334,7 @@ function LeftoverBadge({
   return (
     <button
       ref={setNodeRef}
-      className="secondary"
+      className="leftover-badge"
       type="button"
       {...attributes}
       {...listeners}
@@ -1125,7 +1343,7 @@ function LeftoverBadge({
         onClick();
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      style={{ padding: "2px 6px", fontSize: 12, opacity: canDrag ? 1 : 0.6 }}
+      style={{ opacity: canDrag ? 1 : 0.6 }}
       title={canDrag ? "Drag to create leftover" : "Set leftovers"}
     >
       {label}

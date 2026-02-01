@@ -5,6 +5,8 @@
   --text: #0f172a;
   --muted: #64748b;
   --accent: #22c55e;
+  --danger: #ef4444;
+  --soft: #f1f5f9;
   --border: #e2e8f0;
 }
 
@@ -70,6 +72,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .grid {
@@ -100,21 +103,116 @@ textarea {
 }
 
 button {
-  background: var(--text);
+  background: var(--accent);
   color: white;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
 button.secondary {
-  background: #e2e8f0;
+  background: var(--soft);
   color: #0f172a;
+  border-color: var(--border);
 }
 
 button.ghost {
   background: transparent;
   color: var(--text);
   border: 1px dashed var(--border);
+}
+
+button.danger {
+  background: var(--danger);
+  color: #ffffff;
+  border-color: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mobile-only {
+  display: none;
+}
+
+.desktop-only {
+  display: block;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.hide-on-mobile {
+  display: none;
+}
+
+.hide-on-mobile-row {
+  display: none;
+}
+
+.mobile-hide {
+  display: block;
+}
+
+.action-sheet {
+  margin-top: 8px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-sheet a {
+  display: inline-block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--soft);
+  color: var(--text);
+}
+
+.planner-week-grid {
+  display: block;
+}
+
+.planner-week-cards {
+  display: none;
+  gap: 12px;
+}
+
+.meal-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #f8fafc;
+  margin-bottom: 6px;
+}
+
+.meal-chip .drag-handle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 2px 6px;
+  font-size: 16px;
+  cursor: grab;
+}
+
+.meal-chip .leftover-badge {
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
 }
 
 .table {
@@ -138,6 +236,16 @@ button.ghost {
   margin-right: 6px;
 }
 
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+details[open] > summary {
+  margin-bottom: 12px;
+}
+
 .print-only {
   display: none;
 }
@@ -145,6 +253,83 @@ button.ghost {
 @media (max-width: 720px) {
   .top-nav {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .planner-week-grid {
+    display: none;
+  }
+
+  .planner-week-cards {
+    display: grid;
+  }
+
+  .meal-chip {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .table {
+    display: block;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody, .table tr, .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: var(--panel);
+    margin-bottom: 12px;
+  }
+
+  .table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border: none;
+    padding: 6px 0;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  .mobile-hide {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .hide-on-mobile {
+    display: grid;
+  }
+
+  .hide-on-mobile-row {
+    display: flex;
   }
 }
 

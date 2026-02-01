@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { PantryItem, Recipe, RecipeIngredient } from "../../models";
 import {
   addIngredient,
@@ -26,6 +26,10 @@ export default function RecipesPage() {
   const [maxCalories, setMaxCalories] = useState("");
   const [maxCost, setMaxCost] = useState("");
   const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
+  const [showFilters, setShowFilters] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+  );
+  const location = useLocation();
 
   const refresh = useCallback(async () => {
     setRecipes([...(await listRecipes())]);
@@ -35,6 +39,13 @@ export default function RecipesPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const state = location.state as { recipeId?: string } | null;
+    if (!state?.recipeId) return;
+    const target = recipes.find((r) => r.id === state.recipeId);
+    if (target) setSelected(target);
+  }, [location.state, recipes]);
 
   useEffect(() => {
     if (!selected) return;
@@ -124,11 +135,13 @@ export default function RecipesPage() {
 
   return (
     <div className="grid grid-2">
-      <section className="panel">
+      <section className={`panel ${selected ? "mobile-hide" : ""}`}>
         <div className="row">
           <input placeholder="Search recipes" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <button className="secondary mobile-only" onClick={() => setShowFilters((prev) => !prev)}>
+            Filter {showFilters ? "^" : "v"}
+          </button>
           <button
-            className="secondary"
             onClick={() =>
               setSelected({
                 id: "",
@@ -149,7 +162,7 @@ export default function RecipesPage() {
             Add Recipe
           </button>
         </div>
-        <div className="row">
+        <div className={`row ${showFilters ? "" : "hide-on-mobile-row"}`}>
           {MEAL_TYPES.map((type) => (
             <label key={type}>
               <input
@@ -197,26 +210,26 @@ export default function RecipesPage() {
           <tbody>
             {filtered.map((recipe) => (
               <tr key={recipe.id}>
-                <td>
+                <td data-label="Image">
                   {recipe.imageUrl && (
                     <img src={recipe.imageUrl} alt={recipe.title} style={{ width: 48, height: 48, objectFit: "cover" }} />
                   )}
                 </td>
-                <td>
+                <td data-label="Title">
                   <button className="ghost" onClick={() => setSelected(recipe)}>
                     {recipe.title}
                   </button>
                 </td>
-                <td>
+                <td data-label="Meal types">
                   {recipe.mealTypes?.map((type) => (
                     <span key={type} className="tag">{type}</span>
                   ))}
                 </td>
-                <td>{recipe.defaultServings}</td>
-                <td>{recipe.caloriesPerServing ?? "-"}</td>
-                <td>{recipe.estimatedCostPerServing ?? "-"}</td>
-                <td>
-                  <button className="secondary" onClick={() => removeRecipe(recipe.id)}>
+                <td data-label="Servings">{recipe.defaultServings}</td>
+                <td data-label="Calories">{recipe.caloriesPerServing ?? "-"}</td>
+                <td data-label="Cost">{recipe.estimatedCostPerServing ?? "-"}</td>
+                <td data-label="Actions">
+                  <button className="danger" onClick={() => removeRecipe(recipe.id)}>
                     Delete
                   </button>
                 </td>
@@ -236,6 +249,7 @@ export default function RecipesPage() {
             onAddIngredient={addRecipeIngredient}
             onUpdateIngredient={updateRecipeIngredient}
             onDeleteIngredient={removeIngredient}
+            onBack={() => setSelected(null)}
           />
         ) : (
           <p>Select a recipe to edit.</p>
@@ -252,7 +266,8 @@ function RecipeEditor({
   onSave,
   onAddIngredient,
   onUpdateIngredient,
-  onDeleteIngredient
+  onDeleteIngredient,
+  onBack
 }: {
   recipe: Recipe;
   pantryItems: PantryItem[];
@@ -261,6 +276,7 @@ function RecipeEditor({
   onAddIngredient: (data: { pantryItemId: string; quantity: number; prepNote?: string }) => void;
   onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
   onDeleteIngredient: (id: string) => void;
+  onBack: () => void;
 }) {
   const [form, setForm] = useState({
     title: recipe.title,
@@ -336,6 +352,9 @@ function RecipeEditor({
     <div className="grid">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>{recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
+        <button className="secondary mobile-only" type="button" onClick={onBack}>
+          Back to list
+        </button>
         {recipe.id && (
           <div className="row">
             {recipe.url && (
@@ -479,8 +498,8 @@ function RecipeEditor({
                 <tbody>
                   {ingredients.map((ing) => (
                     <tr key={ing.id}>
-                      <td>{pantryItems.find((p) => p.id === ing.pantryItemId)?.name || ""}</td>
-                      <td>
+                      <td data-label="Item">{pantryItems.find((p) => p.id === ing.pantryItemId)?.name || ""}</td>
+                      <td data-label="Qty">
                         <input
                           type="number"
                           value={ing.quantity}
@@ -489,15 +508,15 @@ function RecipeEditor({
                           onChange={(e) => onUpdateIngredient(ing.id, { quantity: Number(e.target.value) })}
                         />
                       </td>
-                      <td>{pantryItems.find((p) => p.id === ing.pantryItemId)?.baseUnit || ""}</td>
-                      <td>
+                      <td data-label="Unit">{pantryItems.find((p) => p.id === ing.pantryItemId)?.baseUnit || ""}</td>
+                      <td data-label="Note">
                         <input
                           value={ing.prepNote || ""}
                           onChange={(e) => onUpdateIngredient(ing.id, { prepNote: e.target.value })}
                         />
                       </td>
-                      <td>
-                        <button className="secondary" onClick={() => onDeleteIngredient(ing.id)}>
+                      <td data-label="Remove">
+                        <button className="danger" onClick={() => onDeleteIngredient(ing.id)}>
                           Remove
                         </button>
                       </td>

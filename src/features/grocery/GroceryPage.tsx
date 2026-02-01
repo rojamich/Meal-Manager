@@ -16,6 +16,9 @@ export default function GroceryPage() {
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+  );
 
   const [settings, setSettings] = useState<GrocerySettings>({
     startDate: toISODate(new Date()),
@@ -132,6 +135,11 @@ export default function GroceryPage() {
     <div className="grid">
       <section className="panel">
         <h2>Generate Grocery List</h2>
+        <div className="row mobile-only">
+          <button className="secondary" onClick={() => setShowAdvanced((prev) => !prev)}>
+            Advanced {showAdvanced ? "^" : "v"}
+          </button>
+        </div>
         <div className="grid grid-2">
           <label>
             Start date
@@ -141,6 +149,8 @@ export default function GroceryPage() {
             End date
             <input type="date" value={settings.endDate} onChange={(e) => setSettings({ ...settings, endDate: e.target.value })} />
           </label>
+        </div>
+        <div className={`grid grid-2 ${showAdvanced ? "" : "hide-on-mobile"}`}>
           <label>
             Expiry buffer days
             <input type="number" value={settings.expiryBufferDays} onChange={(e) => setSettings({ ...settings, expiryBufferDays: Number(e.target.value) })} />
@@ -190,7 +200,7 @@ export default function GroceryPage() {
               </option>
             ))}
           </select>
-          <button className="secondary" onClick={handleDeleteList}>Delete list</button>
+          <button className="danger" onClick={handleDeleteList}>Delete list</button>
           <button className="secondary" onClick={handleCopy}>Copy list</button>
           <button className="secondary" onClick={() => window.print()}>Print</button>
         </div>
@@ -218,16 +228,16 @@ export default function GroceryPage() {
                     const item = pantryItems.find((p) => p.id === line.pantryItemId);
                     const usedFor = JSON.parse(line.usedForJson || "{}");
                     const usedText = Object.entries(usedFor)
-                      .map(([title, count]) => `${title} (${count})`)
-                      .join(", ");
+                      .map(([title, count]) => (count > 1 ? `${title} x${count}` : title))
+                      .join(", ") || "-";
                     return (
                       <tr key={line.id}>
-                        <td>{item?.name}</td>
-                        <td>
+                        <td data-label="Item">{item?.name}</td>
+                        <td data-label="To buy">
                           {line.toBuyQty} {line.unit}
                         </td>
-                        <td>{usedText}</td>
-                        <td>
+                        <td data-label="Used for">{usedText}</td>
+                        <td data-label="Check">
                           <input type="checkbox" checked={line.checked} onChange={() => toggleChecked(line)} />
                         </td>
                       </tr>

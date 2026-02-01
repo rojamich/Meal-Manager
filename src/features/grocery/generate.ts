@@ -9,6 +9,7 @@ import { listEssentialItems } from "../../db/repositories/essentialsRepo";
 import { usableInventory } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
+import { formatDateLong } from "../../utils/date";
 
 export interface GrocerySettings {
   startDate: string;
@@ -44,7 +45,8 @@ export async function generateGroceryList(settings: GrocerySettings) {
       neededByItem.set(ingredient.pantryItemId, prev + qty);
 
       const usedFor = usedForMap.get(ingredient.pantryItemId) ?? new Map<string, number>();
-      usedFor.set(recipe.title, (usedFor.get(recipe.title) ?? 0) + 1);
+      const usedLabel = `${recipe.title} (${formatDateLong(meal.date)})`;
+      usedFor.set(usedLabel, (usedFor.get(usedLabel) ?? 0) + 1);
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
   }

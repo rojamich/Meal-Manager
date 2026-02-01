@@ -4,7 +4,7 @@ import { EssentialItem, PantryItem } from "../../models";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { createEssentialItem, deleteEssentialItem, listEssentialItems, updateEssentialItem } from "../../db/repositories/essentialsRepo";
 
-export default function EssentialsSection() {
+export default function EssentialsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<EssentialItem[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
 
@@ -47,9 +47,9 @@ export default function EssentialsSection() {
     await refresh();
   }
 
-  return (
-    <div className="panel">
-      <h3>Essentials</h3>
+  const body = (
+    <>
+      {!embedded && <h3>Essentials</h3>}
       <form className="row" onSubmit={addEssential}>
         <select name="pantryItemId" defaultValue="">
           <option value="">Select pantry item</option>
@@ -81,9 +81,11 @@ export default function EssentialsSection() {
         <tbody>
           {items.map((item) => (
             <tr key={item.id}>
-              <td>{item.pantryItemId ? pantryItems.find((p) => p.id === item.pantryItemId)?.name : item.freeformLabel}</td>
-              <td>{item.defaultQty}</td>
-              <td>
+              <td data-label="Item">
+                {item.pantryItemId ? pantryItems.find((p) => p.id === item.pantryItemId)?.name : item.freeformLabel}
+              </td>
+              <td data-label="Qty">{item.defaultQty}</td>
+              <td data-label="Rules">
                 <label>
                   <input type="checkbox" checked={item.includeWhenPantryEmpty} onChange={() => toggle(item.id, "includeWhenPantryEmpty")} /> Pantry empty
                 </label>
@@ -91,14 +93,16 @@ export default function EssentialsSection() {
                   <input type="checkbox" checked={item.alwaysInclude} onChange={() => toggle(item.id, "alwaysInclude")} /> Always
                 </label>
               </td>
-              <td>
-                <button className="secondary" onClick={() => remove(item.id)}>Delete</button>
+              <td data-label="Actions">
+                <button className="danger" onClick={() => remove(item.id)}>Delete</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p>Note: Freeform essentials are stored but not included in generator yet.</p>
-    </div>
+    </>
   );
+
+  return embedded ? <div>{body}</div> : <div className="panel">{body}</div>;
 }

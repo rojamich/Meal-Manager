@@ -118,7 +118,6 @@ export default function PantryPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
           <button
-            className="secondary"
             onClick={() =>
               setEditing({
                 id: "",
@@ -147,18 +146,18 @@ export default function PantryPage() {
           <tbody>
             {filtered.map((item) => (
               <tr key={item.id}>
-                <td>
+                <td data-label="Name">
                   <button className="ghost" onClick={() => setSelectedItemId(item.id)}>
                     {item.name}
                   </button>
                 </td>
-                <td>{item.category}</td>
-                <td>{item.baseUnit}</td>
-                <td>
+                <td data-label="Category">{item.category}</td>
+                <td data-label="Unit">{item.baseUnit}</td>
+                <td data-label="Actions">
                   <button className="secondary" onClick={() => setEditing(item)}>
                     Edit
                   </button>
-                  <button className="secondary" onClick={() => removeItem(item.id)}>
+                  <button className="danger" onClick={() => removeItem(item.id)}>
                     Delete
                   </button>
                 </td>
@@ -196,60 +195,62 @@ export default function PantryPage() {
                 </option>
               ))}
             </select>
-            <button className="secondary" onClick={handleEmptyPantry}>
+            <button className="danger" onClick={handleEmptyPantry}>
               Empty Pantry
             </button>
           </div>
         </div>
-        {selectedItemId && (
-          <form className="grid" onSubmit={addLot}>
-            <div className="row">
-              <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
-              <input name="purchasedAt" type="date" defaultValue={toISODate(new Date())} />
-              <input name="expiresAt" type="date" />
-            </div>
-            <div className="row">
-              <select name="locationId" defaultValue="">
-                <option value="">No location</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-              <input name="notes" placeholder="Notes" />
-              <button type="submit">Add Lot</button>
-            </div>
-          </form>
-        )}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Qty</th>
-              <th>Purchased</th>
-              <th>Expires</th>
-              <th>Location</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {lots.map((lot) => (
-              <tr key={lot.id}>
-                <td>{lot.quantity}</td>
-                <td>{lot.purchasedAt}</td>
-                <td>{lot.expiresAt || "-"}</td>
-                <td>{locations.find((l) => l.id === lot.locationId)?.name || "-"}</td>
-                <td>
-                  {!lot.archivedAt && (
-                    <button className="secondary" onClick={() => archiveLot(lot.id)}>
-                      Archive
-                    </button>
-                  )}
-                </td>
+        <div className={selectedItemId ? "" : "mobile-hide"}>
+          {selectedItemId && (
+            <form className="grid" onSubmit={addLot}>
+              <div className="row">
+                <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
+                <input name="purchasedAt" type="date" defaultValue={toISODate(new Date())} />
+                <input name="expiresAt" type="date" />
+              </div>
+              <div className="row">
+                <select name="locationId" defaultValue="">
+                  <option value="">No location</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}
+                    </option>
+                  ))}
+                </select>
+                <input name="notes" placeholder="Notes" />
+                <button type="submit">Add Lot</button>
+              </div>
+            </form>
+          )}
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Qty</th>
+                <th>Purchased</th>
+                <th>Expires</th>
+                <th>Location</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lots.map((lot) => (
+                <tr key={lot.id}>
+                  <td data-label="Qty">{lot.quantity}</td>
+                  <td data-label="Purchased">{lot.purchasedAt}</td>
+                  <td data-label="Expires">{lot.expiresAt || "-"}</td>
+                  <td data-label="Location">{locations.find((l) => l.id === lot.locationId)?.name || "-"}</td>
+                  <td data-label="Actions">
+                    {!lot.archivedAt && (
+                      <button className="secondary" onClick={() => archiveLot(lot.id)}>
+                        Archive
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

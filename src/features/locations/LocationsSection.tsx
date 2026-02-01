@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { LocationProfile } from "../../models";
 import { createLocation, deleteLocation, listLocations, updateLocation } from "../../db/repositories/locationRepo";
 
-export default function LocationsSection() {
+export default function LocationsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [locations, setLocations] = useState<LocationProfile[]>([]);
 
   const refresh = useCallback(async () => {
@@ -36,9 +36,9 @@ export default function LocationsSection() {
     await refresh();
   }
 
-  return (
-    <div className="panel">
-      <h3>Locations</h3>
+  const body = (
+    <>
+      {!embedded && <h3>Locations</h3>}
       <form className="row" onSubmit={addLocation}>
         <input name="name" placeholder="Name" required />
         <input name="currencyCode" placeholder="Currency" required />
@@ -57,22 +57,24 @@ export default function LocationsSection() {
         <tbody>
           {locations.map((loc) => (
             <tr key={loc.id}>
-              <td>
+              <td data-label="Name">
                 <input value={loc.name} onChange={(e) => updateField(loc.id, "name", e.target.value)} />
               </td>
-              <td>
+              <td data-label="Currency">
                 <input value={loc.currencyCode} onChange={(e) => updateField(loc.id, "currencyCode", e.target.value)} />
               </td>
-              <td>
+              <td data-label="Rate to USD">
                 <input type="number" step="0.0001" value={loc.exchangeRateToUSD || ""} onChange={(e) => updateField(loc.id, "exchangeRateToUSD", Number(e.target.value) || undefined)} />
               </td>
-              <td>
-                <button className="secondary" onClick={() => remove(loc.id)}>Delete</button>
+              <td data-label="Actions">
+                <button className="danger" onClick={() => remove(loc.id)}>Delete</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </>
   );
+
+  return embedded ? <div>{body}</div> : <div className="panel">{body}</div>;
 }

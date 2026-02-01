@@ -6,7 +6,7 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { createPurchaseEntry, deletePurchaseEntry, listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { toISODate } from "../../utils/date";
 
-export default function PricesSection() {
+export default function PricesSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<PantryItem[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [entries, setEntries] = useState<PurchaseEntry[]>([]);
@@ -42,9 +42,9 @@ export default function PricesSection() {
     await refresh();
   }
 
-  return (
-    <div className="panel">
-      <h3>Price History</h3>
+  const body = (
+    <>
+      {!embedded && <h3>Price History</h3>}
       <form className="row" onSubmit={addEntry}>
         <select name="pantryItemId" required defaultValue="">
           <option value="" disabled>Select item</option>
@@ -79,18 +79,20 @@ export default function PricesSection() {
         <tbody>
           {entries.map((entry) => (
             <tr key={entry.id}>
-              <td>{items.find((i) => i.id === entry.pantryItemId)?.name}</td>
-              <td>{entry.quantity}</td>
-              <td>{entry.totalPrice}</td>
-              <td>{entry.currencyCode}</td>
-              <td>{entry.date}</td>
-              <td>
-                <button className="secondary" onClick={() => remove(entry.id)}>Delete</button>
+              <td data-label="Item">{items.find((i) => i.id === entry.pantryItemId)?.name}</td>
+              <td data-label="Qty">{entry.quantity}</td>
+              <td data-label="Total">{entry.totalPrice}</td>
+              <td data-label="Currency">{entry.currencyCode}</td>
+              <td data-label="Date">{entry.date}</td>
+              <td data-label="Actions">
+                <button className="danger" onClick={() => remove(entry.id)}>Delete</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </>
   );
+
+  return embedded ? <div>{body}</div> : <div className="panel">{body}</div>;
 }

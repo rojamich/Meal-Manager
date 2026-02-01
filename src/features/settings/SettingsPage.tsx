@@ -35,8 +35,8 @@ export default function SettingsPage() {
 
   return (
     <div className="grid">
-      <section className="panel">
-        <h2>Backup</h2>
+      <details className="panel" open>
+        <summary>Backup</summary>
         <div className="row">
           <button onClick={handleExport}>Export JSON</button>
           <label>
@@ -45,16 +45,25 @@ export default function SettingsPage() {
           </label>
         </div>
         {importError && <p style={{ color: "#dc2626" }}>{importError}</p>}
-      </section>
+      </details>
 
-      <EssentialsSection />
-      <LocationsSection />
-      <PricesSection />
+      <details className="panel">
+        <summary>Essentials</summary>
+        <EssentialsSection embedded />
+      </details>
+      <details className="panel">
+        <summary>Locations</summary>
+        <LocationsSection embedded />
+      </details>
+      <details className="panel">
+        <summary>Price History</summary>
+        <PricesSection embedded />
+      </details>
 
-      <section className="panel">
-        <h3>Sync (optional scaffold)</h3>
+      <details className="panel">
+        <summary>Sync (optional scaffold)</summary>
         <p>Firebase sync is disabled by default. Set VITE_ENABLE_FIREBASE_SYNC=true to enable the stub.</p>
-      </section>
+      </details>
     </div>
   );
 }
