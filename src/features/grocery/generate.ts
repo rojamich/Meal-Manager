@@ -135,6 +135,8 @@ export async function buildGroceryLines(settings: GrocerySettings) {
         groceryListId: "",
         freeformLabel: label,
         category,
+        altGroupLabel: groupLabel,
+        altOptionsJson: JSON.stringify(options.map((opt) => opt.pantryItemId)),
         neededQty: 1,
         fromPantryQty: 0,
         toBuyQty: 1,

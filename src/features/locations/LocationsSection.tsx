@@ -5,6 +5,7 @@ import { createLocation, deleteLocation, listLocations, updateLocation } from ".
 
 export default function LocationsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [locations, setLocations] = useState<LocationProfile[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLocations([...(await listLocations())]);
@@ -17,12 +18,23 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
   async function addLocation(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const currencyCode = String(form.get("currencyCode") || "").trim();
+    if (!name || !currencyCode) {
+      setError("Name and currency are required.");
+      return;
+    }
+    if (locations.some((loc) => loc.name.toLowerCase() === name.toLowerCase())) {
+      setError("Location name already exists.");
+      return;
+    }
     await createLocation({
-      name: String(form.get("name")),
-      currencyCode: String(form.get("currencyCode")),
+      name,
+      currencyCode,
       exchangeRateToUSD: Number(form.get("exchangeRateToUSD") || 0) || undefined
     });
     e.currentTarget.reset();
+    setError(null);
     await refresh();
   }
 
@@ -45,6 +57,7 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
         <input name="exchangeRateToUSD" type="number" step="0.0001" placeholder="Rate to USD" />
         <button type="submit">Add</button>
       </form>
+      {error && <p className="muted">{error}</p>}
       <table className="table">
         <thead>
           <tr>

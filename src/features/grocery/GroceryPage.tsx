@@ -18,6 +18,9 @@ export default function GroceryPage() {
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>("");
   const [addedLotsCount, setAddedLotsCount] = useState(0);
+  const [purchaseOverrides, setPurchaseOverrides] = useState<Record<string, string>>({});
+  const [altPickerOpen, setAltPickerOpen] = useState(false);
+  const [altSelections, setAltSelections] = useState<Record<string, string>>({});
   const [showAdvanced, setShowAdvanced] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -104,6 +107,14 @@ export default function GroceryPage() {
 
   async function toggleChecked(line: GroceryLine) {
     await updateGroceryLine(line.id, { checked: !line.checked });
+    setPurchaseOverrides((prev) => {
+      if (line.checked) {
+        const next = { ...prev };
+        delete next[line.id];
+        return next;
+      }
+      return { ...prev, [line.id]: String(line.toBuyQty || "") };
+    });
     setLines(await listGroceryLines(selectedListId));
   }
 
@@ -169,7 +180,16 @@ export default function GroceryPage() {
     alert("Copied to clipboard");
   }
 
-  async function handleAddCheckedToPantry() {
+  function parseAltOptions(line: GroceryLine) {
+    if (!line.altOptionsJson) return [];
+    try {
+      return JSON.parse(line.altOptionsJson) as string[];
+    } catch {
+      return [];
+    }
+  }
+
+  async function performAddChecked(selectionMap: Record<string, string>) {
     if (!selectedListId) return;
     const today = new Date();
     const purchasedAt = toISODate(today);
@@ -178,20 +198,28 @@ export default function GroceryPage() {
     const locationId = settings.locationId || undefined;
 
     const toAdd = lines.filter(
-      (line) => line.checked && line.pantryItemId && line.toBuyQty > 0
+      (line) =>
+        line.checked &&
+        line.toBuyQty > 0 &&
+        (line.pantryItemId || parseAltOptions(line).length > 0)
     );
     if (!toAdd.length) return;
 
     await Promise.all(
       toAdd.map(async (line) => {
-        const item = pantryItems.find((p) => p.id === line.pantryItemId);
-        if (!item || !line.pantryItemId) return;
+        const chosenId = line.pantryItemId || selectionMap[line.id];
+        if (!chosenId) return;
+        const item = pantryItems.find((p) => p.id === chosenId);
+        if (!item) return;
+        const override = purchaseOverrides[line.id];
+        const quantity = override ? Number(override) : line.toBuyQty;
+        if (!quantity || quantity <= 0) return;
         const expiresAt = item.defaultShelfLifeDays
           ? toISODate(addDays(today, item.defaultShelfLifeDays))
           : undefined;
         await createInventoryLot({
-          pantryItemId: line.pantryItemId,
-          quantity: line.toBuyQty,
+          pantryItemId: chosenId,
+          quantity,
           purchasedAt,
           expiresAt,
           locationId,
@@ -201,7 +229,32 @@ export default function GroceryPage() {
       })
     );
     setAddedLotsCount(toAdd.length);
+    setPurchaseOverrides((prev) => {
+      const next = { ...prev };
+      toAdd.forEach((line) => delete next[line.id]);
+      return next;
+    });
     await refresh(selectedListId);
+  }
+
+  async function handleAddCheckedToPantry() {
+    if (!selectedListId) return;
+    const altRows = lines.filter(
+      (line) => line.checked && !line.pantryItemId && parseAltOptions(line).length > 0
+    );
+    if (altRows.length) {
+      setAltPickerOpen(true);
+      setAltSelections((prev) => {
+        const next = { ...prev };
+        altRows.forEach((line) => {
+          const options = parseAltOptions(line);
+          if (!next[line.id] && options[0]) next[line.id] = options[0];
+        });
+        return next;
+      });
+      return;
+    }
+    await performAddChecked({});
   }
 
   return (
@@ -279,6 +332,50 @@ export default function GroceryPage() {
           <button className="secondary" onClick={handleCopy}>Copy list</button>
           <button className="secondary" onClick={() => window.print()}>Print</button>
         </div>
+        {altPickerOpen && (
+          <div className="panel" style={{ marginTop: 12 }}>
+            <h4>Select options for alternatives</h4>
+            {lines
+              .filter((line) => line.checked && !line.pantryItemId && parseAltOptions(line).length > 0)
+              .map((line) => {
+                const options = parseAltOptions(line);
+                return (
+                  <div key={line.id} className="row">
+                    <span>{line.freeformLabel}</span>
+                    <select
+                      value={altSelections[line.id] || ""}
+                      onChange={(e) => setAltSelections((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                    >
+                      <option value="">Select option</option>
+                      {options.map((optId) => (
+                        <option key={optId} value={optId}>
+                          {pantryItems.find((p) => p.id === optId)?.name || "Option"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
+            <div className="row">
+              <button
+                onClick={async () => {
+                  const pending = lines.filter(
+                    (line) => line.checked && !line.pantryItemId && parseAltOptions(line).length > 0
+                  );
+                  const missing = pending.some((line) => !altSelections[line.id]);
+                  if (missing) return;
+                  setAltPickerOpen(false);
+                  await performAddChecked(altSelections);
+                }}
+              >
+                Confirm
+              </button>
+              <button className="secondary" onClick={() => setAltPickerOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <p>Estimated total: {estimate.total.toFixed(2)} ({estimate.known}/{estimate.totalLines} items priced)</p>
         {grouped.map(([category, items]) => (
           <div key={category} className="panel">
@@ -288,6 +385,7 @@ export default function GroceryPage() {
                 <tr>
                   <th>Item</th>
                   <th>To Buy</th>
+                  <th>Purchased</th>
                   <th>Used For</th>
                   <th>Check</th>
                 </tr>
@@ -316,6 +414,21 @@ export default function GroceryPage() {
                         <td data-label="Item">{line.freeformLabel || item?.name}</td>
                         <td data-label="To buy">
                           {line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-"}
+                        </td>
+                        <td data-label="Purchased">
+                          {line.checked && line.toBuyQty > 0 && (line.pantryItemId || line.altOptionsJson) ? (
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={purchaseOverrides[line.id] ?? String(line.toBuyQty)}
+                              onChange={(e) =>
+                                setPurchaseOverrides((prev) => ({ ...prev, [line.id]: e.target.value }))
+                              }
+                            />
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td data-label="Used for">{usedText}</td>
                         <td data-label="Check">

@@ -11,6 +11,7 @@ import {
   archiveInventoryLot,
   createInventoryLot,
   emptyPantry,
+  listActiveLots,
   listInventoryLots
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
@@ -27,7 +28,7 @@ export default function PantryPage() {
   const [error, setError] = useState<string | null>(null);
   const [lots, setLots] = useState<InventoryLot[]>([]);
   const [lotError, setLotError] = useState<string | null>(null);
-  const [selectedItemId, setSelectedItemId] = useState<string>("");
+  const [selectedItemId, setSelectedItemId] = useState<string>("__ALL__");
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [emptyLocationId, setEmptyLocationId] = useState<string>("");
   const selectedItem = items.find((item) => item.id === selectedItemId);
@@ -59,7 +60,10 @@ export default function PantryPage() {
   }
 
   async function loadLots(itemId: string, locationId?: string) {
-    const all = await listInventoryLots(itemId);
+    const all =
+      itemId === "__ALL__"
+        ? await listActiveLots(locationId)
+        : await listInventoryLots(itemId);
     const today = toISODateLocal(new Date());
     const active = all.filter((lot) => {
       if (lot.archivedAt) return false;
@@ -107,7 +111,10 @@ export default function PantryPage() {
   async function addLot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLotError(null);
-    if (!selectedItemId) return;
+    if (!selectedItemId || selectedItemId === "__ALL__") {
+      setLotError("Select a pantry item to add a lot.");
+      return;
+    }
     const form = new FormData(e.currentTarget);
     const quantity = Number(form.get("quantity") || 0);
     if (!quantity || quantity <= 0) {
@@ -220,7 +227,7 @@ export default function PantryPage() {
         <h3>Inventory Lots</h3>
         <div className="row">
           <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
-            <option value="">Select pantry item</option>
+            <option value="__ALL__">All pantry items</option>
             {items.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -242,7 +249,7 @@ export default function PantryPage() {
           </div>
         </div>
         <div className={selectedItemId ? "" : "mobile-hide"}>
-          {selectedItemId && (
+          {selectedItemId && selectedItemId !== "__ALL__" && (
             <form className="grid" onSubmit={addLot}>
               <div className="row">
                 <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
@@ -268,6 +275,7 @@ export default function PantryPage() {
           <table className="table">
             <thead>
               <tr>
+                {selectedItemId === "__ALL__" && <th>Item</th>}
                 <th>Qty</th>
                 <th>Purchased</th>
                 <th>Expires</th>
@@ -278,6 +286,11 @@ export default function PantryPage() {
             <tbody>
               {lots.map((lot) => (
                 <tr key={lot.id}>
+                  {selectedItemId === "__ALL__" && (
+                    <td data-label="Item">
+                      {items.find((i) => i.id === lot.pantryItemId)?.name || "Item"}
+                    </td>
+                  )}
                   <td data-label="Qty">{lot.quantity}</td>
                   <td data-label="Purchased">{lot.purchasedAt}</td>
                   <td data-label="Expires">{lot.expiresAt || "-"}</td>
@@ -293,7 +306,7 @@ export default function PantryPage() {
               ))}
               {selectedItemId && lots.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted">No active lots.</td>
+                  <td colSpan={selectedItemId === "__ALL__" ? 6 : 5} className="muted">No active lots.</td>
                 </tr>
               )}
             </tbody>

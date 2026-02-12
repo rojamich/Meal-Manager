@@ -125,6 +125,8 @@ export interface GroceryLine {
   pantryItemId?: string;
   freeformLabel?: string;
   category?: string;
+  altGroupLabel?: string;
+  altOptionsJson?: string;
   neededQty: number;
   fromPantryQty: number;
   toBuyQty: number;
