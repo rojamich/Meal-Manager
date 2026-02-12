@@ -173,6 +173,24 @@ button.danger:focus {
   z-index: 2;
 }
 
+.day-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.day-action {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.note-row td {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .muted {
   color: var(--muted);
 }

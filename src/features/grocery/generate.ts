@@ -7,10 +7,10 @@ import { listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import { listRecipes, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listEssentialItems } from "../../db/repositories/essentialsRepo";
-import { usableInventory } from "../../db/repositories/inventoryRepo";
+import { listActiveLots, usableInventory } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
-import { formatDateLong } from "../../utils/date";
+import { formatDateLong, parseISODate } from "../../utils/date";
 
 export interface GrocerySettings {
   startDate: string;
@@ -22,12 +22,14 @@ export interface GrocerySettings {
   stayDays?: number;
 }
 
-export async function generateGroceryList(settings: GrocerySettings) {
+export async function buildGroceryLines(settings: GrocerySettings) {
   const pantryItems = await listPantryItems();
   const recipes = await listRecipes();
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   const meals = await listPlannedMeals(settings.startDate, settings.endDate);
   const now = new Date();
+  const startDate = parseISODate(settings.startDate);
+  const activeLots = await listActiveLots(settings.locationId);
 
   const neededByItem = new Map<string, number>();
   const usedForMap = new Map<string, Map<string, number>>();
@@ -62,17 +64,21 @@ export async function generateGroceryList(settings: GrocerySettings) {
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
 
+    const isInPantry = (pantryItemId: string) => {
+      // "In pantry" means there is a non-expired lot with qty > 0 as of startDate.
+      return activeLots.some((lot) => {
+        if (lot.pantryItemId !== pantryItemId) return false;
+        if (!lot.quantity || lot.quantity <= 0) return false;
+        if (!lot.expiresAt) return true;
+        return parseISODate(lot.expiresAt) >= startDate;
+      });
+    };
+
     for (const [groupLabel, options] of altGroupMap.entries()) {
       let availableOption: RecipeIngredient | undefined;
       if (!settings.treatPantryAsEmpty) {
         for (const option of options) {
-          const availableQty = await usableInventory(
-            option.pantryItemId,
-            settings.expiryBufferDays,
-            now,
-            settings.locationId
-          );
-          if (availableQty > 0) {
+          if (isInPantry(option.pantryItemId)) {
             availableOption = option;
             break;
           }
@@ -173,7 +179,11 @@ export async function generateGroceryList(settings: GrocerySettings) {
   }
 
   const allLines = [...lines, ...freeformLines];
+  return { lines: allLines, pantryItems };
+}
 
+export async function generateGroceryList(settings: GrocerySettings) {
+  const { lines, pantryItems } = await buildGroceryLines(settings);
   const listInput: Omit<GroceryList, "id" | "createdAt"> = {
     startDate: settings.startDate,
     endDate: settings.endDate,
@@ -182,7 +192,7 @@ export async function generateGroceryList(settings: GrocerySettings) {
   };
 
   const list = await createGroceryList(listInput);
-  const linesWithList = allLines.map((line) => ({ ...line, groceryListId: list.id }));
+  const linesWithList = lines.map((line) => ({ ...line, groceryListId: list.id }));
   const storedLines = await createGroceryLines(linesWithList);
 
   return { list, lines: storedLines, pantryItems };

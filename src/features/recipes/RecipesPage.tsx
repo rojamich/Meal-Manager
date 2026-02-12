@@ -308,6 +308,7 @@ function RecipeEditor({
     altGroup: ""
   });
   const [ingredientError, setIngredientError] = useState<string | null>(null);
+  const [noMatches, setNoMatches] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const filteredPantryItems = useMemo(
     () =>
@@ -316,6 +317,27 @@ function RecipeEditor({
       ),
     [pantryItems, ingredientFilter]
   );
+
+  useEffect(() => {
+    if (!pantryItems.length) return;
+    if (ingredientFilter.trim().length === 0) {
+      const stillValid = pantryItems.some((item) => item.id === ingredientDraft.pantryItemId);
+      if (!stillValid) {
+        setIngredientDraft((prev) => ({ ...prev, pantryItemId: pantryItems[0].id }));
+      }
+      setNoMatches(false);
+      return;
+    }
+    if (filteredPantryItems.length > 0) {
+      setIngredientDraft((prev) => ({
+        ...prev,
+        pantryItemId: filteredPantryItems[0].id
+      }));
+      setNoMatches(false);
+    } else {
+      setNoMatches(true);
+    }
+  }, [ingredientFilter, filteredPantryItems, pantryItems, ingredientDraft.pantryItemId]);
 
   useEffect(() => {
     setForm({
@@ -539,6 +561,7 @@ function RecipeEditor({
                     </option>
                   ))}
                 </select>
+                {noMatches && <span className="muted">No matches</span>}
                 <input
                   type="number"
                   step="0.01"
@@ -568,6 +591,11 @@ function RecipeEditor({
                     setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
                   }}
                 />
+                {ingredientDraft.pantryItemId && (
+                  <span className="muted">
+                    {pantryItems.find((p) => p.id === ingredientDraft.pantryItemId)?.baseUnit}
+                  </span>
+                )}
                 <input
                   placeholder="Prep note"
                   value={ingredientDraft.prepNote}

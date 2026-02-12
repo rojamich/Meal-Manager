@@ -36,6 +36,17 @@ export async function createGroceryLines(lines: Omit<GroceryLine, "id">[]) {
   return withIds;
 }
 
+export async function replaceGroceryLines(groceryListId: string, lines: Omit<GroceryLine, "id">[]) {
+  await db.groceryLines.where("groceryListId").equals(groceryListId).delete();
+  const withIds = lines.map((line) => ({ ...line, id: newId(), groceryListId }));
+  await db.groceryLines.bulkAdd(withIds);
+  return withIds;
+}
+
+export async function updateGroceryList(id: string, changes: Partial<GroceryList>) {
+  await db.groceryLists.update(id, changes);
+}
+
 export async function updateGroceryLine(id: string, changes: Partial<GroceryLine>) {
   await db.groceryLines.update(id, changes);
 }

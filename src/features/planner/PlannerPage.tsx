@@ -7,8 +7,6 @@ import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/d
 import { Link } from "react-router-dom";
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 
-const DEBUG_PANEL = true;
-
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
   const [anchorDate, setAnchorDate] = useState(toISODate(new Date()));
@@ -38,21 +36,8 @@ export default function PlannerPage() {
   );
 
   function closePanel(reason: string, e?: Event) {
-    if (DEBUG_PANEL) {
-      console.group("[PlannerPanel] closePanel");
-      console.log("reason:", reason);
-      if (e) {
-        // @ts-ignore
-        console.log("type:", e.type, "target:", (e.target as any)?.tagName, e.target);
-        // @ts-ignore
-        console.log(
-          "composedPath:",
-          typeof (e as any).composedPath === "function" ? (e as any).composedPath() : null
-        );
-      }
-      console.trace();
-      console.groupEnd();
-    }
+    void reason;
+    void e;
     setActiveSlot(null);
   }
 
@@ -314,11 +299,7 @@ export default function PlannerPage() {
 
   const isInsideInlinePanel = (e: PointerEvent) => {
     const t = e.target as HTMLElement | null;
-    const closestInside = Boolean(t?.closest?.('[data-planner-inline-panel="true"]'));
-    if (DEBUG_PANEL) {
-      console.log("closest inside?", closestInside);
-    }
-    if (closestInside) return true;
+    if (t?.closest?.('[data-planner-inline-panel="true"]')) return true;
     const path = (e as any).composedPath?.() as EventTarget[] | undefined;
     if (path) {
       for (const node of path) {
@@ -337,13 +318,6 @@ export default function PlannerPage() {
     };
     const handlePointer = (event: PointerEvent) => {
       const insidePanel = isInsideInlinePanel(event);
-      if (DEBUG_PANEL) {
-        console.log("[PlannerPanel] doc pointerdown", {
-          insidePanel,
-          target: (event.target as any)?.tagName,
-          node: event.target
-        });
-      }
       if (insidePanel) return;
       closePanel("doc-pointerdown-outside", event);
     };
@@ -555,18 +529,18 @@ export default function PlannerPage() {
                       <th>Slot</th>
                       {days.map((day) => (
                         <th key={day}>
-                          <div className="row" style={{ justifyContent: "space-between" }}>
-                            <span>{formatWeekdayLabel(day)}</span>
+                          <div className="day-header">
+                            <span className="day-label">{formatWeekdayLabel(day)}</span>
                             {copySourceDay === day ? (
-                              <button className="secondary" onClick={() => setCopySourceDay(null)}>
+                              <button className="secondary day-action" onClick={() => setCopySourceDay(null)} disabled>
                                 Copied
                               </button>
                             ) : copySourceDay ? (
-                              <button className="secondary" onClick={() => copyMealsForDay(copySourceDay, day)}>
+                              <button className="secondary day-action" onClick={() => copyMealsForDay(copySourceDay, day)}>
                                 Paste
                               </button>
                             ) : (
-                              <button className="secondary" onClick={() => setCopySourceDay(day)}>
+                              <button className="secondary day-action" onClick={() => setCopySourceDay(day)}>
                                 Copy
                               </button>
                             )}
@@ -661,7 +635,7 @@ export default function PlannerPage() {
                     <div className="row" style={{ justifyContent: "space-between" }}>
                       <strong>{formatWeekdayLabel(day)}</strong>
                       {copySourceDay === day ? (
-                        <button className="secondary" onClick={() => setCopySourceDay(null)}>
+                        <button className="secondary" onClick={() => setCopySourceDay(null)} disabled>
                           Copied
                         </button>
                       ) : copySourceDay ? (
@@ -947,44 +921,12 @@ function InlineAddPanel({
       className="panel planner-inline-panel"
       ref={panelRef}
       data-planner-inline-panel="true"
-      onPointerDownCapture={(e) => {
-        if (DEBUG_PANEL) {
-          const target = e.target as Node | null;
-          console.log("[PlannerPanel] panel pointerdown capture", {
-            target: (e.target as any)?.tagName,
-            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
-          });
-        }
-      }}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
       onPointerDown={(e) => {
-        if (DEBUG_PANEL) {
-          const target = e.target as Node | null;
-          console.log("[PlannerPanel] panel pointerdown", {
-            target: (e.target as any)?.tagName,
-            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
-          });
-        }
         e.stopPropagation();
       }}
-      onClickCapture={(e) => {
-        if (DEBUG_PANEL) {
-          const target = e.target as Node | null;
-          console.log("[PlannerPanel] panel click capture", {
-            target: (e.target as any)?.tagName,
-            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
-          });
-        }
-      }}
       onClick={(e) => {
-        if (DEBUG_PANEL) {
-          const target = e.target as Node | null;
-          console.log("[PlannerPanel] panel click", {
-            target: (e.target as any)?.tagName,
-            insidePanel: Boolean(panelRef.current && target && panelRef.current.contains(target))
-          });
-        }
         e.stopPropagation();
       }}
     >

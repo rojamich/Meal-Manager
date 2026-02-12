@@ -29,6 +29,7 @@ export default function PantryPage() {
   const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [emptyLocationId, setEmptyLocationId] = useState<string>("");
+  const selectedItem = items.find((item) => item.id === selectedItemId);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -218,6 +219,7 @@ export default function PantryPage() {
             <form className="grid" onSubmit={addLot}>
               <div className="row">
                 <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
+                {selectedItem && <span className="muted">{selectedItem.baseUnit}</span>}
                 <input name="purchasedAt" type="date" defaultValue={toISODate(new Date())} />
                 <input name="expiresAt" type="date" />
               </div>

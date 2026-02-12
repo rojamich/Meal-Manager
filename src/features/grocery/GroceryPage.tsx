@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
-import { generateGroceryList, GrocerySettings } from "./generate";
-import { listGroceryLists, listGroceryLines, updateGroceryLine, deleteGroceryList } from "../../db/repositories/groceryRepo";
+import { buildGroceryLines, generateGroceryList, GrocerySettings } from "./generate";
+import { listGroceryLists, listGroceryLines, updateGroceryLine, deleteGroceryList, replaceGroceryLines, updateGroceryList } from "../../db/repositories/groceryRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
@@ -50,9 +50,40 @@ export default function GroceryPage() {
     }
   }, [selectedListId]);
 
+  const regenerateSelectedList = useCallback(async () => {
+    if (!selectedListId) return;
+    const { lines } = await buildGroceryLines({
+      ...settings,
+      locationId: settings.locationId || undefined
+    });
+    await updateGroceryList(selectedListId, {
+      startDate: settings.startDate,
+      endDate: settings.endDate,
+      locationId: settings.locationId || undefined,
+      settingsJson: JSON.stringify(settings)
+    });
+    await replaceGroceryLines(selectedListId, lines);
+    await refresh(selectedListId);
+  }, [refresh, selectedListId, settings]);
+
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const onEssentialsUpdated = () => {
+      void regenerateSelectedList();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "essentialsUpdatedAt") void regenerateSelectedList();
+    };
+    window.addEventListener("essentials-updated", onEssentialsUpdated);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("essentials-updated", onEssentialsUpdated);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [regenerateSelectedList]);
 
   useEffect(() => {
     if (!selectedListId) return;
@@ -225,8 +256,14 @@ export default function GroceryPage() {
               <tbody>
                 {items
                   .sort((a, b) => {
-                    const nameA = pantryItems.find((p) => p.id === a.pantryItemId)?.name || "";
-                    const nameB = pantryItems.find((p) => p.id === b.pantryItemId)?.name || "";
+                    const nameA =
+                      a.freeformLabel ||
+                      pantryItems.find((p) => p.id === a.pantryItemId)?.name ||
+                      "";
+                    const nameB =
+                      b.freeformLabel ||
+                      pantryItems.find((p) => p.id === b.pantryItemId)?.name ||
+                      "";
                     return nameA.localeCompare(nameB);
                   })
                   .map((line) => {
@@ -236,7 +273,7 @@ export default function GroceryPage() {
                       .map(([title, count]) => (count > 1 ? `${title} x${count}` : title))
                       .join(", ") || "-";
                     return (
-                      <tr key={line.id}>
+                      <tr key={line.id} className={line.freeformLabel && line.toBuyQty === 0 ? "note-row" : undefined}>
                         <td data-label="Item">{line.freeformLabel || item?.name}</td>
                         <td data-label="To buy">
                           {line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-"}
