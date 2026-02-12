@@ -5,6 +5,7 @@ import { listGroceryLists, listGroceryLines, updateGroceryLine, deleteGroceryLis
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
+import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, toISODate } from "../../utils/date";
 import { average, unitPrice } from "../../utils/price";
@@ -167,6 +168,40 @@ export default function GroceryPage() {
     alert("Copied to clipboard");
   }
 
+  async function handleAddCheckedToPantry() {
+    if (!selectedListId) return;
+    const today = new Date();
+    const purchasedAt = toISODate(today);
+    const selectedList = lists.find((list) => list.id === selectedListId);
+    const note = selectedList ? `From grocery list ${selectedList.startDate}-${selectedList.endDate}` : "From grocery list";
+    const locationId = settings.locationId || undefined;
+
+    const toAdd = lines.filter(
+      (line) => line.checked && line.pantryItemId && line.toBuyQty > 0
+    );
+    if (!toAdd.length) return;
+
+    await Promise.all(
+      toAdd.map(async (line) => {
+        const item = pantryItems.find((p) => p.id === line.pantryItemId);
+        if (!item || !line.pantryItemId) return;
+        const expiresAt = item.defaultShelfLifeDays
+          ? toISODate(addDays(today, item.defaultShelfLifeDays))
+          : undefined;
+        await createInventoryLot({
+          pantryItemId: line.pantryItemId,
+          quantity: line.toBuyQty,
+          purchasedAt,
+          expiresAt,
+          locationId,
+          notes: note
+        });
+        await updateGroceryLine(line.id, { checked: false });
+      })
+    );
+    await refresh(selectedListId);
+  }
+
   return (
     <div className="grid">
       <section className="panel">
@@ -237,6 +272,7 @@ export default function GroceryPage() {
             ))}
           </select>
           <button className="danger" onClick={handleDeleteList}>Delete list</button>
+          <button className="secondary" onClick={handleAddCheckedToPantry}>Add checked to pantry</button>
           <button className="secondary" onClick={handleCopy}>Copy list</button>
           <button className="secondary" onClick={() => window.print()}>Print</button>
         </div>

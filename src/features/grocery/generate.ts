@@ -7,7 +7,7 @@ import { listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import { listRecipes, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listEssentialItems } from "../../db/repositories/essentialsRepo";
-import { listActiveLots, usableInventory } from "../../db/repositories/inventoryRepo";
+import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
 import { formatDateLong, parseISODate } from "../../utils/date";
@@ -27,13 +27,20 @@ export async function buildGroceryLines(settings: GrocerySettings) {
   const recipes = await listRecipes();
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   const meals = await listPlannedMeals(settings.startDate, settings.endDate);
-  const now = new Date();
-  const startDate = parseISODate(settings.startDate);
   const activeLots = await listActiveLots(settings.locationId);
 
   const neededByItem = new Map<string, number>();
+  const neededByItemByDate = new Map<string, { date: string; qty: number }[]>();
   const usedForMap = new Map<string, Map<string, number>>();
   const freeformLines: Omit<GroceryLine, "id">[] = [];
+
+  const addNeeded = (pantryItemId: string, date: string, qty: number) => {
+    const prevTotal = neededByItem.get(pantryItemId) ?? 0;
+    neededByItem.set(pantryItemId, prevTotal + qty);
+    const list = neededByItemByDate.get(pantryItemId) ?? [];
+    list.push({ date, qty });
+    neededByItemByDate.set(pantryItemId, list);
+  };
 
   for (const meal of meals) {
     if (meal.type !== "recipe" || !meal.recipeId) continue;
@@ -55,8 +62,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
 
     for (const ingredient of normalIngredients) {
       const qty = ingredient.quantity * factor;
-      const prev = neededByItem.get(ingredient.pantryItemId) ?? 0;
-      neededByItem.set(ingredient.pantryItemId, prev + qty);
+      addNeeded(ingredient.pantryItemId, meal.date, qty);
 
       const usedFor = usedForMap.get(ingredient.pantryItemId) ?? new Map<string, number>();
       const usedLabel = `${recipe.title} (${formatDateLong(meal.date)})`;
@@ -64,13 +70,14 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
 
-    const isInPantry = (pantryItemId: string) => {
-      // "In pantry" means there is a non-expired lot with qty > 0 as of startDate.
+    const isInPantryForDate = (pantryItemId: string, date: string) => {
+      const reqDate = parseISODate(date);
+      // "In pantry" means a non-expired lot with qty > 0 for that meal date.
       return activeLots.some((lot) => {
         if (lot.pantryItemId !== pantryItemId) return false;
         if (!lot.quantity || lot.quantity <= 0) return false;
         if (!lot.expiresAt) return true;
-        return parseISODate(lot.expiresAt) >= startDate;
+        return parseISODate(lot.expiresAt) >= reqDate;
       });
     };
 
@@ -78,7 +85,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       let availableOption: RecipeIngredient | undefined;
       if (!settings.treatPantryAsEmpty) {
         for (const option of options) {
-          if (isInPantry(option.pantryItemId)) {
+          if (isInPantryForDate(option.pantryItemId, meal.date)) {
             availableOption = option;
             break;
           }
@@ -133,8 +140,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       if (!canIncludeByStay) continue;
       if (!(item.alwaysInclude || (item.includeWhenPantryEmpty && settings.treatPantryAsEmpty))) continue;
       if (item.pantryItemId && item.defaultQty) {
-        const prev = neededByItem.get(item.pantryItemId) ?? 0;
-        neededByItem.set(item.pantryItemId, prev + item.defaultQty);
+        addNeeded(item.pantryItemId, settings.startDate, item.defaultQty);
         const usedFor = usedForMap.get(item.pantryItemId) ?? new Map<string, number>();
         usedFor.set("Essentials", (usedFor.get("Essentials") ?? 0) + 1);
         usedForMap.set(item.pantryItemId, usedFor);
@@ -155,14 +161,41 @@ export async function buildGroceryLines(settings: GrocerySettings) {
     }
   }
 
+  const computeUnmetQty = (pantryItemId: string) => {
+    const requirements = [...(neededByItemByDate.get(pantryItemId) ?? [])].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+    const lots = activeLots
+      .filter((lot) => lot.pantryItemId === pantryItemId)
+      .map((lot) => ({
+        remaining: lot.quantity,
+        expiresAt: lot.expiresAt ? parseISODate(lot.expiresAt) : null
+      }));
+    let unmet = 0;
+    for (const req of requirements) {
+      let remainingNeed = req.qty;
+      const reqDate = parseISODate(req.date);
+      for (const lot of lots) {
+        if (remainingNeed <= 0) break;
+        if (lot.remaining <= 0) continue;
+        if (lot.expiresAt && lot.expiresAt < reqDate) continue;
+        const used = Math.min(lot.remaining, remainingNeed);
+        lot.remaining -= used;
+        remainingNeed -= used;
+      }
+      if (remainingNeed > 0) unmet += remainingNeed;
+    }
+    return unmet;
+  };
+
   const lines: Omit<GroceryLine, "id">[] = [];
   for (const [pantryItemId, needed] of neededByItem.entries()) {
     const pantryItem = pantryItems.find((p) => p.id === pantryItemId);
     if (!pantryItem) continue;
-    const fromPantry = settings.treatPantryAsEmpty
-      ? 0
-      : await usableInventory(pantryItemId, settings.expiryBufferDays, now, settings.locationId);
-    const toBuy = Math.max(needed - fromPantry, 0);
+    const unmet = settings.treatPantryAsEmpty ? needed : computeUnmetQty(pantryItemId);
+    const toBuy = Math.max(unmet, 0);
+    if (toBuy <= 0) continue;
+    const fromPantry = Math.max(needed - toBuy, 0);
     const usedFor = usedForMap.get(pantryItemId);
     const usedForJson = JSON.stringify(Object.fromEntries(usedFor ?? []));
 

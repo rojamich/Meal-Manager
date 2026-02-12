@@ -14,7 +14,7 @@ import {
   listInventoryLots
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { toISODate } from "../../utils/date";
+import { parseISODate, toISODate } from "../../utils/date";
 
 const categories = ["produce", "dairy", "pantry", "freezer", "spices", "bakery", "protein", "other"];
 const titleCase = (value: string) => value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value;
@@ -45,8 +45,16 @@ export default function PantryPage() {
     setLocations([...(await listLocations())]);
   }, []);
 
-  async function loadLots(itemId: string) {
-    setLots([...(await listInventoryLots(itemId))]);
+  async function loadLots(itemId: string, locationId?: string) {
+    const all = await listInventoryLots(itemId);
+    const today = parseISODate(toISODate(new Date()));
+    const active = all.filter((lot) => {
+      if (lot.archivedAt) return false;
+      if (locationId && lot.locationId !== locationId) return false;
+      if (!lot.expiresAt) return true;
+      return parseISODate(lot.expiresAt) >= today;
+    });
+    setLots([...active]);
   }
 
   useEffect(() => {
@@ -55,11 +63,11 @@ export default function PantryPage() {
 
   useEffect(() => {
     if (selectedItemId) {
-      loadLots(selectedItemId);
+      loadLots(selectedItemId, emptyLocationId || undefined);
     } else {
       setLots([]);
     }
-  }, [selectedItemId]);
+  }, [selectedItemId, emptyLocationId]);
 
   async function saveItem(form: PantryItem | Omit<PantryItem, "id" | "createdAt" | "updatedAt">) {
     setError(null);
@@ -98,19 +106,19 @@ export default function PantryPage() {
       notes: String(form.get("notes") || "") || undefined
     });
     e.currentTarget.reset();
-    await loadLots(selectedItemId);
+    await loadLots(selectedItemId, emptyLocationId || undefined);
   }
 
   async function archiveLot(id: string) {
     await archiveInventoryLot(id);
-    await loadLots(selectedItemId);
+    await loadLots(selectedItemId, emptyLocationId || undefined);
   }
 
   async function handleEmptyPantry() {
     if (!confirm("Archive all active lots for this location?")) return;
     await emptyPantry(emptyLocationId || undefined);
     if (selectedItemId) {
-      await loadLots(selectedItemId);
+      await loadLots(selectedItemId, emptyLocationId || undefined);
     }
   }
 
