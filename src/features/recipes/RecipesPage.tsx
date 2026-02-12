@@ -106,10 +106,10 @@ export default function RecipesPage() {
 
   async function addRecipeIngredient(
     recipeId: string,
-    data: { pantryItemId: string; quantity: number; prepNote?: string }
+    data: { pantryItemId: string; quantity: number; prepNote?: string; altGroup?: string }
   ) {
     if (!recipeId) return;
-    const { pantryItemId, quantity, prepNote } = data;
+    const { pantryItemId, quantity, prepNote, altGroup } = data;
     if (!pantryItemId || !(quantity > 0)) return;
     const existing = ingredients.find((ing) => ing.pantryItemId === pantryItemId);
     if (existing) {
@@ -118,14 +118,16 @@ export default function RecipesPage() {
       const mergedNote = [existing.prepNote, prepNote].filter(Boolean).join(" / ") || undefined;
       await updateIngredient(existing.id, {
         quantity: existing.quantity + quantity,
-        prepNote: mergedNote
+        prepNote: mergedNote,
+        altGroup: altGroup ?? existing.altGroup
       });
     } else {
       await addIngredient({
         recipeId,
         pantryItemId,
         quantity,
-        prepNote
+        prepNote,
+        altGroup
       });
     }
     setIngredients(await listIngredients(recipeId));
@@ -281,7 +283,7 @@ function RecipeEditor({
   pantryItems: PantryItem[];
   ingredients: RecipeIngredient[];
   onSave: (recipe: any) => void;
-  onAddIngredient: (recipeId: string, data: { pantryItemId: string; quantity: number; prepNote?: string }) => void;
+  onAddIngredient: (recipeId: string, data: { pantryItemId: string; quantity: number; prepNote?: string; altGroup?: string }) => void;
   onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
   onDeleteIngredient: (id: string) => void;
   onBack: () => void;
@@ -302,10 +304,18 @@ function RecipeEditor({
   const [ingredientDraft, setIngredientDraft] = useState({
     pantryItemId: "",
     quantity: "1",
-    prepNote: ""
+    prepNote: "",
+    altGroup: ""
   });
   const [ingredientError, setIngredientError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const filteredPantryItems = useMemo(
+    () =>
+      pantryItems.filter((item) =>
+        item.name.toLowerCase().includes(ingredientFilter.trim().toLowerCase())
+      ),
+    [pantryItems, ingredientFilter]
+  );
 
   useEffect(() => {
     setForm({
@@ -320,7 +330,7 @@ function RecipeEditor({
       estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
       imageUrl: recipe.imageUrl || ""
     });
-    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "" });
+    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
     setIngredientFilter("");
     setIngredientError(null);
     setSavedAt(null);
@@ -493,21 +503,41 @@ function RecipeEditor({
                   value={ingredientFilter}
                   onChange={(e) => setIngredientFilter(e.target.value)}
                   placeholder="Search pantry items"
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const qty = Number(ingredientDraft.quantity || 0);
+                    if (!recipe.id) {
+                      setIngredientError("Save the recipe first.");
+                      return;
+                    }
+                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+                      setIngredientError("Select a pantry item and enter a quantity > 0.");
+                      return;
+                    }
+                    setIngredientError(null);
+                    onAddIngredient(recipe.id, {
+                      pantryItemId: ingredientDraft.pantryItemId,
+                      quantity: qty,
+                      prepNote: ingredientDraft.prepNote || undefined,
+                      altGroup: ingredientDraft.altGroup.trim() || undefined
+                    });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                  }}
                 />
                 <select
+                  className="ingredient-select"
                   value={ingredientDraft.pantryItemId}
                   onChange={(e) => setIngredientDraft({ ...ingredientDraft, pantryItemId: e.target.value })}
                 >
                   <option value="" disabled>
                     Select pantry item
                   </option>
-                  {pantryItems
-                    .filter((item) => item.name.toLowerCase().includes(ingredientFilter.trim().toLowerCase()))
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
+                  {filteredPantryItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
                 </select>
                 <input
                   type="number"
@@ -516,11 +546,79 @@ function RecipeEditor({
                   placeholder="Quantity"
                   value={ingredientDraft.quantity}
                   onChange={(e) => setIngredientDraft({ ...ingredientDraft, quantity: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const qty = Number(ingredientDraft.quantity || 0);
+                    if (!recipe.id) {
+                      setIngredientError("Save the recipe first.");
+                      return;
+                    }
+                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+                      setIngredientError("Select a pantry item and enter a quantity > 0.");
+                      return;
+                    }
+                    setIngredientError(null);
+                    onAddIngredient(recipe.id, {
+                      pantryItemId: ingredientDraft.pantryItemId,
+                      quantity: qty,
+                      prepNote: ingredientDraft.prepNote || undefined,
+                      altGroup: ingredientDraft.altGroup.trim() || undefined
+                    });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                  }}
                 />
                 <input
                   placeholder="Prep note"
                   value={ingredientDraft.prepNote}
                   onChange={(e) => setIngredientDraft({ ...ingredientDraft, prepNote: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const qty = Number(ingredientDraft.quantity || 0);
+                    if (!recipe.id) {
+                      setIngredientError("Save the recipe first.");
+                      return;
+                    }
+                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+                      setIngredientError("Select a pantry item and enter a quantity > 0.");
+                      return;
+                    }
+                    setIngredientError(null);
+                    onAddIngredient(recipe.id, {
+                      pantryItemId: ingredientDraft.pantryItemId,
+                      quantity: qty,
+                      prepNote: ingredientDraft.prepNote || undefined,
+                      altGroup: ingredientDraft.altGroup.trim() || undefined
+                    });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                  }}
+                />
+                <input
+                  placeholder="Alt group"
+                  value={ingredientDraft.altGroup}
+                  onChange={(e) => setIngredientDraft({ ...ingredientDraft, altGroup: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const qty = Number(ingredientDraft.quantity || 0);
+                    if (!recipe.id) {
+                      setIngredientError("Save the recipe first.");
+                      return;
+                    }
+                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+                      setIngredientError("Select a pantry item and enter a quantity > 0.");
+                      return;
+                    }
+                    setIngredientError(null);
+                    onAddIngredient(recipe.id, {
+                      pantryItemId: ingredientDraft.pantryItemId,
+                      quantity: qty,
+                      prepNote: ingredientDraft.prepNote || undefined,
+                      altGroup: ingredientDraft.altGroup.trim() || undefined
+                    });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                  }}
                 />
                 <button
                   type="button"
@@ -538,9 +636,10 @@ function RecipeEditor({
                     onAddIngredient(recipe.id, {
                       pantryItemId: ingredientDraft.pantryItemId,
                       quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined
+                      prepNote: ingredientDraft.prepNote || undefined,
+                      altGroup: ingredientDraft.altGroup.trim() || undefined
                     });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "" });
+                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
                   }}
                 >
                   Add Ingredient
@@ -553,6 +652,7 @@ function RecipeEditor({
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Unit</th>
+                    <th>Alt group</th>
                     <th>Note</th>
                     <th>Remove</th>
                   </tr>
@@ -571,6 +671,12 @@ function RecipeEditor({
                         />
                       </td>
                       <td data-label="Unit">{pantryItems.find((p) => p.id === ing.pantryItemId)?.baseUnit || ""}</td>
+                      <td data-label="Alt group">
+                        <input
+                          value={ing.altGroup || ""}
+                          onChange={(e) => onUpdateIngredient(ing.id, { altGroup: e.target.value })}
+                        />
+                      </td>
                       <td data-label="Note">
                         <input
                           value={ing.prepNote || ""}

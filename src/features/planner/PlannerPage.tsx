@@ -30,6 +30,7 @@ export default function PlannerPage() {
   const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
   const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
   const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
+  const [copySourceDay, setCopySourceDay] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 }
@@ -384,6 +385,36 @@ export default function PlannerPage() {
     setAnchorDate(toISODate(new Date()));
   }, []);
 
+  const copyMealsForDay = useCallback(
+    async (sourceDate: string, targetDate: string) => {
+      const sourceMeals = meals.filter((meal) => meal.date === sourceDate);
+      if (!sourceMeals.length) {
+        alert("No meals to copy from that day.");
+        return;
+      }
+      if (!confirm(`Copy ${sourceMeals.length} meals to ${formatDateLabel(targetDate)}?`)) return;
+      await Promise.all(
+        sourceMeals.map((meal) =>
+          createPlannedMeal({
+            date: targetDate,
+            mealSlotId: meal.mealSlotId,
+            type: meal.type,
+            recipeId: meal.recipeId,
+            sourcePlannedMealId: meal.sourcePlannedMealId,
+            leftoverSourceMealId: meal.leftoverSourceMealId,
+            leftoverServingsRemaining: meal.leftoverServingsRemaining,
+            freeformTitle: meal.freeformTitle,
+            notes: meal.notes,
+            servingsPlanned: meal.servingsPlanned
+          })
+        )
+      );
+      setCopySourceDay(null);
+      await refreshMeals();
+    },
+    [meals, refreshMeals]
+  );
+
   const copyWeek = useCallback(
     async (sourceOffsetDays: number, targetOffsetDays: number) => {
       const currentRange = weekRange(anchorDate);
@@ -523,7 +554,24 @@ export default function PlannerPage() {
                     <tr>
                       <th>Slot</th>
                       {days.map((day) => (
-                        <th key={day}>{formatWeekdayLabel(day)}</th>
+                        <th key={day}>
+                          <div className="row" style={{ justifyContent: "space-between" }}>
+                            <span>{formatWeekdayLabel(day)}</span>
+                            {copySourceDay === day ? (
+                              <button className="secondary" onClick={() => setCopySourceDay(null)}>
+                                Copied
+                              </button>
+                            ) : copySourceDay ? (
+                              <button className="secondary" onClick={() => copyMealsForDay(copySourceDay, day)}>
+                                Paste
+                              </button>
+                            ) : (
+                              <button className="secondary" onClick={() => setCopySourceDay(day)}>
+                                Copy
+                              </button>
+                            )}
+                          </div>
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -610,7 +658,22 @@ export default function PlannerPage() {
               <div className="planner-week-cards">
                 {days.map((day) => (
                   <div key={day} className="card">
-                    <strong>{formatWeekdayLabel(day)}</strong>
+                    <div className="row" style={{ justifyContent: "space-between" }}>
+                      <strong>{formatWeekdayLabel(day)}</strong>
+                      {copySourceDay === day ? (
+                        <button className="secondary" onClick={() => setCopySourceDay(null)}>
+                          Copied
+                        </button>
+                      ) : copySourceDay ? (
+                        <button className="secondary" onClick={() => copyMealsForDay(copySourceDay, day)}>
+                          Paste
+                        </button>
+                      ) : (
+                        <button className="secondary" onClick={() => setCopySourceDay(day)}>
+                          Copy
+                        </button>
+                      )}
+                    </div>
                     {slots.map((slot) => (
                       <WeekSlotCard
                         key={`${day}-${slot.id}`}

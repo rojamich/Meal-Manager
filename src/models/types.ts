@@ -45,6 +45,7 @@ export interface RecipeIngredient {
   recipeId: string;
   pantryItemId: string;
   quantity: number;
+  altGroup?: string;
   prepNote?: string;
   createdAt: string;
   updatedAt: string;
@@ -121,7 +122,9 @@ export interface GroceryList {
 export interface GroceryLine {
   id: string;
   groceryListId: string;
-  pantryItemId: string;
+  pantryItemId?: string;
+  freeformLabel?: string;
+  category?: string;
   neededQty: number;
   fromPantryQty: number;
   toBuyQty: number;

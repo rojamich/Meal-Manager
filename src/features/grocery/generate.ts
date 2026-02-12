@@ -1,6 +1,7 @@
 import {
   GroceryLine,
-  GroceryList
+  GroceryList,
+  RecipeIngredient
 } from "../../models";
 import { listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import { listRecipes, listIngredients } from "../../db/repositories/recipeRepo";
@@ -30,6 +31,7 @@ export async function generateGroceryList(settings: GrocerySettings) {
 
   const neededByItem = new Map<string, number>();
   const usedForMap = new Map<string, Map<string, number>>();
+  const freeformLines: Omit<GroceryLine, "id">[] = [];
 
   for (const meal of meals) {
     if (meal.type !== "recipe" || !meal.recipeId) continue;
@@ -39,7 +41,17 @@ export async function generateGroceryList(settings: GrocerySettings) {
     const servings = meal.servingsPlanned ?? recipe.defaultServings;
     const factor = servings / recipe.defaultServings;
 
-    for (const ingredient of ingredients) {
+    const normalIngredients = ingredients.filter((ing) => !ing.altGroup?.trim());
+    const altGroupMap = new Map<string, RecipeIngredient[]>();
+    for (const ing of ingredients) {
+      const group = ing.altGroup?.trim();
+      if (!group) continue;
+      const list = altGroupMap.get(group) ?? [];
+      list.push(ing);
+      altGroupMap.set(group, list);
+    }
+
+    for (const ingredient of normalIngredients) {
       const qty = ingredient.quantity * factor;
       const prev = neededByItem.get(ingredient.pantryItemId) ?? 0;
       neededByItem.set(ingredient.pantryItemId, prev + qty);
@@ -49,6 +61,63 @@ export async function generateGroceryList(settings: GrocerySettings) {
       usedFor.set(usedLabel, (usedFor.get(usedLabel) ?? 0) + 1);
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
+
+    for (const [groupLabel, options] of altGroupMap.entries()) {
+      let availableOption: RecipeIngredient | undefined;
+      if (!settings.treatPantryAsEmpty) {
+        for (const option of options) {
+          const availableQty = await usableInventory(
+            option.pantryItemId,
+            settings.expiryBufferDays,
+            now,
+            settings.locationId
+          );
+          if (availableQty > 0) {
+            availableOption = option;
+            break;
+          }
+        }
+      }
+      if (availableOption) {
+        const item = pantryItems.find((p) => p.id === availableOption.pantryItemId);
+        const label = `${groupLabel}: using ${item?.name || "Option"} (in pantry)`;
+        freeformLines.push({
+          groceryListId: "",
+          freeformLabel: label,
+          category: item?.category || "other",
+          neededQty: 0,
+          fromPantryQty: 0,
+          toBuyQty: 0,
+          unit: item?.baseUnit || "count",
+          usedForJson: JSON.stringify({
+            [`${recipe.title} (${formatDateLong(meal.date)})`]: 1
+          }),
+          checked: false
+        });
+        continue;
+      }
+
+      const optionItems = options
+        .map((opt) => pantryItems.find((p) => p.id === opt.pantryItemId))
+        .filter(Boolean);
+      const optionNames = optionItems.map((item) => item?.name || "Option");
+      const category = optionItems[0]?.category || "other";
+      const unit = optionItems[0]?.baseUnit || "count";
+      const label = optionNames.join(" OR ");
+      freeformLines.push({
+        groceryListId: "",
+        freeformLabel: label,
+        category,
+        neededQty: 1,
+        fromPantryQty: 0,
+        toBuyQty: 1,
+        unit,
+        usedForJson: JSON.stringify({
+          [`${recipe.title} (${groupLabel} option)`]: 1
+        }),
+        checked: false
+      });
+    }
   }
 
   if (settings.includeEssentials) {
@@ -57,9 +126,26 @@ export async function generateGroceryList(settings: GrocerySettings) {
       const canIncludeByStay = !item.minStayDays || !settings.stayDays || settings.stayDays >= item.minStayDays;
       if (!canIncludeByStay) continue;
       if (!(item.alwaysInclude || (item.includeWhenPantryEmpty && settings.treatPantryAsEmpty))) continue;
-      if (!item.pantryItemId || !item.defaultQty) continue;
-      const prev = neededByItem.get(item.pantryItemId) ?? 0;
-      neededByItem.set(item.pantryItemId, prev + item.defaultQty);
+      if (item.pantryItemId && item.defaultQty) {
+        const prev = neededByItem.get(item.pantryItemId) ?? 0;
+        neededByItem.set(item.pantryItemId, prev + item.defaultQty);
+        const usedFor = usedForMap.get(item.pantryItemId) ?? new Map<string, number>();
+        usedFor.set("Essentials", (usedFor.get("Essentials") ?? 0) + 1);
+        usedForMap.set(item.pantryItemId, usedFor);
+      }
+      if (item.freeformLabel && item.defaultQty) {
+        freeformLines.push({
+          groceryListId: "",
+          freeformLabel: item.freeformLabel,
+          category: item.category || "other",
+          neededQty: item.defaultQty,
+          fromPantryQty: 0,
+          toBuyQty: item.defaultQty,
+          unit: "count",
+          usedForJson: JSON.stringify({ Essentials: 1 }),
+          checked: false
+        });
+      }
     }
   }
 
@@ -86,6 +172,8 @@ export async function generateGroceryList(settings: GrocerySettings) {
     });
   }
 
+  const allLines = [...lines, ...freeformLines];
+
   const listInput: Omit<GroceryList, "id" | "createdAt"> = {
     startDate: settings.startDate,
     endDate: settings.endDate,
@@ -94,7 +182,7 @@ export async function generateGroceryList(settings: GrocerySettings) {
   };
 
   const list = await createGroceryList(listInput);
-  const linesWithList = lines.map((line) => ({ ...line, groceryListId: list.id }));
+  const linesWithList = allLines.map((line) => ({ ...line, groceryListId: list.id }));
   const storedLines = await createGroceryLines(linesWithList);
 
   return { list, lines: storedLines, pantryItems };

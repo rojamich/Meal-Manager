@@ -168,6 +168,11 @@ button.danger:focus {
   z-index: 20;
 }
 
+.ingredient-select {
+  position: relative;
+  z-index: 2;
+}
+
 .muted {
   color: var(--muted);
 }

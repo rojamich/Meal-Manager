@@ -86,8 +86,8 @@ export default function GroceryPage() {
   const grouped = useMemo(() => {
     const map = new Map<string, GroceryLine[]>();
     for (const line of lines) {
-      const item = pantryItems.find((p) => p.id === line.pantryItemId);
-      const category = item?.category || "other";
+      const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
+      const category = line.category || item?.category || "other";
       const list = map.get(category) ?? [];
       list.push(line);
       map.set(category, list);
@@ -101,6 +101,7 @@ export default function GroceryPage() {
     let total = 0;
     let known = 0;
     for (const line of lines) {
+      if (!line.pantryItemId) continue;
       const itemPurchases = purchases.filter((p) => p.pantryItemId === line.pantryItemId);
       const byLocation = settings.locationId
         ? itemPurchases.filter((p) => p.locationId === settings.locationId)
@@ -125,8 +126,10 @@ export default function GroceryPage() {
   async function handleCopy() {
     const text = lines
       .map((line) => {
-        const item = pantryItems.find((p) => p.id === line.pantryItemId);
-        return `${item?.name} - ${line.toBuyQty} ${line.unit}`;
+        const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
+        const name = line.freeformLabel || item?.name || "Item";
+        const qtyText = line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-";
+        return `${name} - ${qtyText}`;
       })
       .join("\n");
     await copyText(text);
@@ -227,16 +230,16 @@ export default function GroceryPage() {
                     return nameA.localeCompare(nameB);
                   })
                   .map((line) => {
-                    const item = pantryItems.find((p) => p.id === line.pantryItemId);
+                    const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
                     const usedFor = JSON.parse(line.usedForJson || "{}");
                     const usedText = (Object.entries(usedFor) as [string, number][])
                       .map(([title, count]) => (count > 1 ? `${title} x${count}` : title))
                       .join(", ") || "-";
                     return (
                       <tr key={line.id}>
-                        <td data-label="Item">{item?.name}</td>
+                        <td data-label="Item">{line.freeformLabel || item?.name}</td>
                         <td data-label="To buy">
-                          {line.toBuyQty} {line.unit}
+                          {line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-"}
                         </td>
                         <td data-label="Used for">{usedText}</td>
                         <td data-label="Check">

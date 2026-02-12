@@ -22,6 +22,7 @@ const titleCase = (value: string) => value ? value.replace(/\b\w/g, (c) => c.toU
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([]);
   const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [editing, setEditing] = useState<PantryItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lots, setLots] = useState<InventoryLot[]>([]);
@@ -31,9 +32,12 @@ export default function PantryPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((item) => item.name.toLowerCase().includes(q));
-  }, [items, search]);
+    return items.filter((item) => {
+      const matchesSearch = !q || item.name.toLowerCase().includes(q);
+      const matchesCategory = categoryFilter === "all" || item.category === categoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [items, search, categoryFilter]);
 
   const refresh = useCallback(async () => {
     setItems([...(await listPantryItems())]);
@@ -118,6 +122,14 @@ export default function PantryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="all">All categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {titleCase(cat)}
+              </option>
+            ))}
+          </select>
           <button
             onClick={() =>
               setEditing({
