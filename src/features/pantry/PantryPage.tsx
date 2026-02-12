@@ -26,6 +26,7 @@ export default function PantryPage() {
   const [editing, setEditing] = useState<PantryItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lots, setLots] = useState<InventoryLot[]>([]);
+  const [lotError, setLotError] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string>("");
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [emptyLocationId, setEmptyLocationId] = useState<string>("");
@@ -45,14 +46,26 @@ export default function PantryPage() {
     setLocations([...(await listLocations())]);
   }, []);
 
+  function toISODateLocal(input: Date | string) {
+    if (typeof input === "string") return input.slice(0, 10);
+    const year = input.getFullYear();
+    const month = String(input.getMonth() + 1).padStart(2, "0");
+    const day = String(input.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function isOnOrAfter(aISO: string, bISO: string) {
+    return aISO >= bISO;
+  }
+
   async function loadLots(itemId: string, locationId?: string) {
     const all = await listInventoryLots(itemId);
-    const today = parseISODate(toISODate(new Date()));
+    const today = toISODateLocal(new Date());
     const active = all.filter((lot) => {
       if (lot.archivedAt) return false;
       if (locationId && lot.locationId !== locationId) return false;
       if (!lot.expiresAt) return true;
-      return parseISODate(lot.expiresAt) >= today;
+      return isOnOrAfter(toISODateLocal(lot.expiresAt), today);
     });
     setLots([...active]);
   }
@@ -93,10 +106,14 @@ export default function PantryPage() {
 
   async function addLot(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setLotError(null);
     if (!selectedItemId) return;
     const form = new FormData(e.currentTarget);
     const quantity = Number(form.get("quantity") || 0);
-    if (!quantity) return;
+    if (!quantity || quantity <= 0) {
+      setLotError("Enter a quantity greater than 0.");
+      return;
+    }
     await createInventoryLot({
       pantryItemId: selectedItemId,
       quantity,
@@ -106,6 +123,8 @@ export default function PantryPage() {
       notes: String(form.get("notes") || "") || undefined
     });
     e.currentTarget.reset();
+    const purchasedInput = e.currentTarget.querySelector<HTMLInputElement>('input[name="purchasedAt"]');
+    if (purchasedInput) purchasedInput.value = toISODate(new Date());
     await loadLots(selectedItemId, emptyLocationId || undefined);
   }
 
@@ -243,6 +262,7 @@ export default function PantryPage() {
                 <input name="notes" placeholder="Notes" />
                 <button type="submit">Add Lot</button>
               </div>
+              {lotError && <p className="muted">{lotError}</p>}
             </form>
           )}
           <table className="table">
@@ -271,6 +291,11 @@ export default function PantryPage() {
                   </td>
                 </tr>
               ))}
+              {selectedItemId && lots.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">No active lots.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

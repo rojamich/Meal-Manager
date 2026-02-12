@@ -17,6 +17,7 @@ export default function GroceryPage() {
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>("");
+  const [addedLotsCount, setAddedLotsCount] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -199,6 +200,7 @@ export default function GroceryPage() {
         await updateGroceryLine(line.id, { checked: false });
       })
     );
+    setAddedLotsCount(toAdd.length);
     await refresh(selectedListId);
   }
 
@@ -273,6 +275,7 @@ export default function GroceryPage() {
           </select>
           <button className="danger" onClick={handleDeleteList}>Delete list</button>
           <button className="secondary" onClick={handleAddCheckedToPantry}>Add checked to pantry</button>
+          {addedLotsCount > 0 && <span className="muted">Added {addedLotsCount} lots</span>}
           <button className="secondary" onClick={handleCopy}>Copy list</button>
           <button className="secondary" onClick={() => window.print()}>Print</button>
         </div>

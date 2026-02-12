@@ -10,7 +10,7 @@ import { listEssentialItems } from "../../db/repositories/essentialsRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
-import { formatDateLong, parseISODate } from "../../utils/date";
+import { formatDateLong } from "../../utils/date";
 
 export interface GrocerySettings {
   startDate: string;
@@ -20,6 +20,20 @@ export interface GrocerySettings {
   treatPantryAsEmpty: boolean;
   locationId?: string;
   stayDays?: number;
+}
+
+const DEBUG_CONSUMPTION = false;
+
+function toISODateLocal(input: Date | string) {
+  if (typeof input === "string") return input.slice(0, 10);
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, "0");
+  const day = String(input.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isOnOrAfter(aISO: string, bISO: string) {
+  return aISO >= bISO;
 }
 
 export async function buildGroceryLines(settings: GrocerySettings) {
@@ -71,13 +85,13 @@ export async function buildGroceryLines(settings: GrocerySettings) {
     }
 
     const isInPantryForDate = (pantryItemId: string, date: string) => {
-      const reqDate = parseISODate(date);
+      const reqDate = toISODateLocal(date);
       // "In pantry" means a non-expired lot with qty > 0 for that meal date.
       return activeLots.some((lot) => {
         if (lot.pantryItemId !== pantryItemId) return false;
         if (!lot.quantity || lot.quantity <= 0) return false;
         if (!lot.expiresAt) return true;
-        return parseISODate(lot.expiresAt) >= reqDate;
+        return isOnOrAfter(toISODateLocal(lot.expiresAt), reqDate);
       });
     };
 
@@ -169,16 +183,16 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       .filter((lot) => lot.pantryItemId === pantryItemId)
       .map((lot) => ({
         remaining: lot.quantity,
-        expiresAt: lot.expiresAt ? parseISODate(lot.expiresAt) : null
+        expiresAt: lot.expiresAt ? toISODateLocal(lot.expiresAt) : null
       }));
     let unmet = 0;
     for (const req of requirements) {
       let remainingNeed = req.qty;
-      const reqDate = parseISODate(req.date);
+      const reqDate = toISODateLocal(req.date);
       for (const lot of lots) {
         if (remainingNeed <= 0) break;
         if (lot.remaining <= 0) continue;
-        if (lot.expiresAt && lot.expiresAt < reqDate) continue;
+        if (lot.expiresAt && !isOnOrAfter(lot.expiresAt, reqDate)) continue;
         const used = Math.min(lot.remaining, remainingNeed);
         lot.remaining -= used;
         remainingNeed -= used;
@@ -187,6 +201,31 @@ export async function buildGroceryLines(settings: GrocerySettings) {
     }
     return unmet;
   };
+
+  if (DEBUG_CONSUMPTION) {
+    const demoLots = [
+      { remaining: 2, expiresAt: "2026-02-10" },
+      { remaining: 2, expiresAt: "2026-02-20" }
+    ];
+    const demoReqs = [
+      { date: "2026-02-09", qty: 2 },
+      { date: "2026-02-15", qty: 2 }
+    ];
+    let unmet = 0;
+    for (const req of demoReqs) {
+      let remainingNeed = req.qty;
+      for (const lot of demoLots) {
+        if (remainingNeed <= 0) break;
+        if (lot.remaining <= 0) continue;
+        if (lot.expiresAt && !isOnOrAfter(lot.expiresAt, req.date)) continue;
+        const used = Math.min(lot.remaining, remainingNeed);
+        lot.remaining -= used;
+        remainingNeed -= used;
+      }
+      if (remainingNeed > 0) unmet += remainingNeed;
+    }
+    console.log("[Grocery] demo unmet qty:", unmet);
+  }
 
   const lines: Omit<GroceryLine, "id">[] = [];
   for (const [pantryItemId, needed] of neededByItem.entries()) {
