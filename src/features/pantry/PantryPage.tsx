@@ -74,16 +74,20 @@ export default function PantryPage() {
     setLots([...active]);
   }
 
+  async function reloadLotsForCurrentView() {
+    if (!selectedItemId) {
+      setLots([]);
+      return;
+    }
+    await loadLots(selectedItemId, emptyLocationId || undefined);
+  }
+
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (selectedItemId) {
-      loadLots(selectedItemId, emptyLocationId || undefined);
-    } else {
-      setLots([]);
-    }
+    reloadLotsForCurrentView();
   }, [selectedItemId, emptyLocationId]);
 
   async function saveItem(form: PantryItem | Omit<PantryItem, "id" | "createdAt" | "updatedAt">) {
@@ -129,23 +133,22 @@ export default function PantryPage() {
       locationId: String(form.get("locationId") || "") || undefined,
       notes: String(form.get("notes") || "") || undefined
     });
-    e.currentTarget.reset();
-    const purchasedInput = e.currentTarget.querySelector<HTMLInputElement>('input[name="purchasedAt"]');
+    const formEl = e.currentTarget as HTMLFormElement | null;
+    formEl?.reset();
+    const purchasedInput = formEl?.querySelector<HTMLInputElement>('input[name="purchasedAt"]');
     if (purchasedInput) purchasedInput.value = toISODate(new Date());
-    await loadLots(selectedItemId, emptyLocationId || undefined);
+    await reloadLotsForCurrentView();
   }
 
   async function archiveLot(id: string) {
     await archiveInventoryLot(id);
-    await loadLots(selectedItemId, emptyLocationId || undefined);
+    await reloadLotsForCurrentView();
   }
 
   async function handleEmptyPantry() {
     if (!confirm("Archive all active lots for this location?")) return;
     await emptyPantry(emptyLocationId || undefined);
-    if (selectedItemId) {
-      await loadLots(selectedItemId, emptyLocationId || undefined);
-    }
+    await reloadLotsForCurrentView();
   }
 
   return (

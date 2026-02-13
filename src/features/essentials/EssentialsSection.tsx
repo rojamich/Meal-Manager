@@ -31,7 +31,8 @@ export default function EssentialsSection({ embedded = false }: { embedded?: boo
       alwaysInclude: Boolean(form.get("alwaysInclude")),
       minStayDays: Number(form.get("minStayDays") || 0) || undefined
     });
-    e.currentTarget.reset();
+    const formEl = e.currentTarget as HTMLFormElement | null;
+    formEl?.reset();
     await refresh();
   }
 
@@ -100,7 +101,7 @@ export default function EssentialsSection({ embedded = false }: { embedded?: boo
           ))}
         </tbody>
       </table>
-      <p>Note: Freeform essentials are stored but not included in generator yet.</p>
+      <p>Note: Essentials can be included automatically in grocery generation.</p>
     </>
   );
 

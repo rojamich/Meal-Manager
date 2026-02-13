@@ -141,7 +141,8 @@ export default function PlannerPage() {
       sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined
     };
     await createMealAndRefresh(payload);
-    e.currentTarget.reset();
+    const formEl = e.currentTarget as HTMLFormElement | null;
+    formEl?.reset();
   }
 
   async function removeMeal(id: string) {

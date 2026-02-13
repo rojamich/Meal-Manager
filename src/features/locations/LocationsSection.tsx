@@ -20,8 +20,14 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
     const form = new FormData(e.currentTarget);
     const name = String(form.get("name") || "").trim();
     const currencyCode = String(form.get("currencyCode") || "").trim();
+    const rateRaw = String(form.get("exchangeRateToUSD") || "").trim();
+    const rateValue = rateRaw ? Number(rateRaw) : undefined;
     if (!name || !currencyCode) {
       setError("Name and currency are required.");
+      return;
+    }
+    if (rateRaw && (!Number.isFinite(rateValue) || (rateValue ?? 0) <= 0)) {
+      setError("Exchange rate must be greater than 0.");
       return;
     }
     if (locations.some((loc) => loc.name.toLowerCase() === name.toLowerCase())) {
@@ -31,9 +37,10 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
     await createLocation({
       name,
       currencyCode,
-      exchangeRateToUSD: Number(form.get("exchangeRateToUSD") || 0) || undefined
+      exchangeRateToUSD: rateValue
     });
-    e.currentTarget.reset();
+    const formEl = e.currentTarget as HTMLFormElement | null;
+    formEl?.reset();
     setError(null);
     await refresh();
   }
@@ -54,7 +61,7 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
       <form className="row" onSubmit={addLocation}>
         <input name="name" placeholder="Name" required />
         <input name="currencyCode" placeholder="Currency" required />
-        <input name="exchangeRateToUSD" type="number" step="0.0001" placeholder="Rate to USD" />
+        <input name="exchangeRateToUSD" type="number" step="any" placeholder="Rate to USD" />
         <button type="submit">Add</button>
       </form>
       {error && <p className="muted">{error}</p>}
@@ -77,7 +84,17 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
                 <input value={loc.currencyCode} onChange={(e) => updateField(loc.id, "currencyCode", e.target.value)} />
               </td>
               <td data-label="Rate to USD">
-                <input type="number" step="0.0001" value={loc.exchangeRateToUSD || ""} onChange={(e) => updateField(loc.id, "exchangeRateToUSD", Number(e.target.value) || undefined)} />
+                <input
+                  type="number"
+                  step="any"
+                  value={loc.exchangeRateToUSD || ""}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const next = raw === "" ? undefined : Number(raw);
+                    if (raw !== "" && !Number.isFinite(next)) return;
+                    updateField(loc.id, "exchangeRateToUSD", next);
+                  }}
+                />
               </td>
               <td data-label="Actions">
                 <button className="danger" onClick={() => remove(loc.id)}>Delete</button>

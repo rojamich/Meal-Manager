@@ -33,7 +33,8 @@ export default function PricesSection({ embedded = false }: { embedded?: boolean
       store: String(form.get("store") || "") || undefined,
       date: String(form.get("date"))
     });
-    e.currentTarget.reset();
+    const formEl = e.currentTarget as HTMLFormElement | null;
+    formEl?.reset();
     await refresh();
   }
 

@@ -113,7 +113,7 @@ export default function GroceryPage() {
         delete next[line.id];
         return next;
       }
-      return { ...prev, [line.id]: String(line.toBuyQty || "") };
+      return { ...prev, [line.id]: normalizePurchaseOverride(String(line.toBuyQty || ""), line.unit) };
     });
     setLines(await listGroceryLines(selectedListId));
   }
@@ -140,6 +140,17 @@ export default function GroceryPage() {
   }, [lines, pantryItems]);
 
   const titleCase = useCallback((value: string) => (value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value), []);
+  const isCountUnit = useCallback((unit?: string) => unit === "count", []);
+  const normalizePurchaseOverride = useCallback(
+    (raw: string, unit?: string) => {
+      if (raw === "") return "";
+      const num = Number(raw);
+      if (!Number.isFinite(num)) return "";
+      if (isCountUnit(unit)) return String(Math.max(0, Math.round(num)));
+      return String(num);
+    },
+    [isCountUnit]
+  );
 
   const estimate = useMemo(() => {
     let total = 0;
@@ -212,7 +223,8 @@ export default function GroceryPage() {
         const item = pantryItems.find((p) => p.id === chosenId);
         if (!item) return;
         const override = purchaseOverrides[line.id];
-        const quantity = override ? Number(override) : line.toBuyQty;
+        let quantity = override !== undefined && override !== "" ? Number(override) : line.toBuyQty;
+        if (isCountUnit(item.baseUnit)) quantity = Math.round(quantity);
         if (!quantity || quantity <= 0) return;
         const expiresAt = item.defaultShelfLifeDays
           ? toISODate(addDays(today, item.defaultShelfLifeDays))
@@ -419,11 +431,14 @@ export default function GroceryPage() {
                           {line.checked && line.toBuyQty > 0 && (line.pantryItemId || line.altOptionsJson) ? (
                             <input
                               type="number"
-                              min="0.01"
-                              step="0.01"
+                              min="0"
+                              step={isCountUnit(line.unit) ? 1 : 0.01}
                               value={purchaseOverrides[line.id] ?? String(line.toBuyQty)}
                               onChange={(e) =>
-                                setPurchaseOverrides((prev) => ({ ...prev, [line.id]: e.target.value }))
+                                setPurchaseOverrides((prev) => ({
+                                  ...prev,
+                                  [line.id]: normalizePurchaseOverride(e.target.value, line.unit)
+                                }))
                               }
                             />
                           ) : (
