@@ -11,7 +11,16 @@ import {
 import { listRecipes } from "../../db/repositories/recipeRepo";
 import { formatDateLabel, parseISODate, toISODate, addDays, dateKey } from "../../utils/date";
 import { Link } from "react-router-dom";
-import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors
+} from "@dnd-kit/core";
 import { listLocations } from "../../db/repositories/locationRepo";
 import {
   applyWeekTemplateToWeek,
@@ -21,6 +30,7 @@ import {
 } from "../../db/repositories/weekTemplateRepo";
 
 export default function PlannerPage() {
+  const DEBUG_DND = false;
   const [view, setView] = useState<"week" | "month">("week");
   const [anchorDate, setAnchorDate] = useState(dateKey(new Date()));
   const [slots, setSlots] = useState<MealSlot[]>([]);
@@ -53,6 +63,9 @@ export default function PlannerPage() {
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
   const [pendingPasteMeals, setPendingPasteMeals] = useState<PlannedMeal[]>([]);
   const [dayActionDate, setDayActionDate] = useState("");
+  const [isMobileLayout, setIsMobileLayout] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 }
@@ -70,6 +83,12 @@ export default function PlannerPage() {
     listRecipes().then(setRecipes);
     listLocations().then(setLocations);
     listWeekTemplates().then(setTemplates);
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setIsMobileLayout(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
   const refreshMeals = useCallback(async () => {
@@ -618,6 +637,14 @@ export default function PlannerPage() {
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
+      if (DEBUG_DND) {
+        console.log("[DND] end", {
+          selectMode,
+          active: event.active?.id,
+          over: event.over?.id
+        });
+      }
+      if (selectMode) return;
       const { active, over } = event;
       if (!over) return;
       const overId = String(over.id);
@@ -657,7 +684,7 @@ export default function PlannerPage() {
         });
       }
     },
-    [createMealAndRefresh, mealsById]
+    [DEBUG_DND, createMealAndRefresh, mealsById, selectMode]
   );
 
   return (
@@ -807,6 +834,7 @@ export default function PlannerPage() {
             {pendingPasteMeals.length > 0 && (
               <span className="muted">Click a day+slot cell to paste {pendingPasteMeals.length} meals</span>
             )}
+            <span className="muted">Select mode ON: drag disabled</span>
           </div>
         )}
       </section>
@@ -815,236 +843,239 @@ export default function PlannerPage() {
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
         <div className="grid" style={{ overflowX: "auto" }}>
           {view === "week" ? (
-            <DndContext onDragEnd={handleDragEnd} sensors={sensors}>
-              <div className="planner-week-grid">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Slot</th>
-                      {days.map((day) => (
-                        <th key={day}>
-                          <div className="day-header">
-                            <span className="day-label">{formatWeekdayLabel(day)}</span>
-                            {selectMode && (
-                              <button className="secondary day-action" onClick={() => toggleSelectAllForDay(day)}>
-                                Select all
-                              </button>
-                            )}
-                            {copySourceDay === day ? (
-                              <button className="secondary day-action" onClick={() => setCopySourceDay(null)} disabled>
-                                Copied
-                              </button>
-                            ) : copySourceDay ? (
-                              <button className="secondary day-action" onClick={() => copyMealsForDay(copySourceDay, day)}>
-                                Paste
-                              </button>
-                            ) : (
-                              <button className="secondary day-action" onClick={() => setCopySourceDay(day)}>
-                                Copy
-                              </button>
-                            )}
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {slots.map((slot) => (
-                      <tr key={slot.id}>
-                        <td>{slot.name}</td>
+            <DndContext onDragEnd={handleDragEnd} sensors={sensors} collisionDetection={closestCenter}>
+              {!isMobileLayout ? (
+                <div className="planner-week-grid">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Slot</th>
                         {days.map((day) => (
-                          <WeekCell
-                            key={`${day}-${slot.id}`}
-                            day={day}
-                            slotId={slot.id}
-                            meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
-                            recipes={recipes}
-                            allMealsMap={mealsById}
-                            slots={slots}
-                            onRemove={removeMeal}
-                            onSetLeftovers={async (meal) => {
-                              setLeftoverEditMealId(meal.id);
-                              setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
-                            }}
-                            onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
-                            editingMealId={leftoverEditMealId}
-                            editValue={leftoverEditValue}
-                            onEditValue={setLeftoverEditValue}
-                            onSaveEdit={async (mealId) => {
-                              const value = Math.max(Number(leftoverEditValue || 0), 0);
-                              await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
-                              setMeals((prev: PlannedMeal[]) =>
-                                prev.map((m: PlannedMeal) =>
-                                  m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
-                                )
-                              );
-                              setLeftoverEditMealId(null);
-                            }}
-                            onCancelEdit={() => setLeftoverEditMealId(null)}
-                            onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
-                            activeMealId={activeMealActionsId}
-                            onClearActions={() => setActiveMealActionsId(null)}
-                            selectMode={selectMode}
-                            selectedMealIds={selectedMealIds}
-                            onToggleSelected={toggleMealSelected}
-                            onCellClick={async (date, mealSlotId) => {
-                              if (selectMode && pendingPasteMeals.length) {
-                                await pasteSelectedMeals(date, mealSlotId);
-                                return;
-                              }
-                            }}
-                            inlinePanel={
-                              activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
-                                <InlineAddPanel
-                                  recipes={recipes}
-                                  slots={slots}
-                                  recentPlanned={recentPlanned}
-                                  currentMeals={meals}
-                                  inlineType={inlineType}
-                                  setInlineType={setInlineType}
-                                  inlineRecipeId={inlineRecipeId}
-                                  setInlineRecipeId={setInlineRecipeId}
-                                  inlineServings={inlineServings}
-                                  setInlineServings={setInlineServings}
-                                  inlineLeftoverSource={inlineLeftoverSource}
-                                  setInlineLeftoverSource={setInlineLeftoverSource}
-                                  inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                                  setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                                  includeAnyRecent={includeAnyRecent}
-                                  setIncludeAnyRecent={setIncludeAnyRecent}
-                                  inlineFreeformTitle={inlineFreeformTitle}
-                                  setInlineFreeformTitle={setInlineFreeformTitle}
-                                  inlineNotes={inlineNotes}
-                                  setInlineNotes={setInlineNotes}
-                                  recipeSearch={recipeSearch}
-                                  setRecipeSearch={setRecipeSearch}
-                                  panelRef={panelRef}
-                                  onCancel={() => closePanel("inline-cancel")}
-                                  onSave={async () => {
-                                    const payload = buildInlinePayload();
-                                    if (!payload) return;
-                                    await createMealAndRefresh(payload);
-                                    resetInline();
-                                    closePanel("inline-save");
-                                  }}
-                                />
-                              ) : null
-                            }
-                          />
+                          <th key={day}>
+                            <div className="day-header">
+                              <span className="day-label">{formatWeekdayLabel(day)}</span>
+                              {selectMode && (
+                                <button className="secondary day-action" onClick={() => toggleSelectAllForDay(day)}>
+                                  Select all
+                                </button>
+                              )}
+                              {copySourceDay === day ? (
+                                <button className="secondary day-action" onClick={() => setCopySourceDay(null)} disabled>
+                                  Copied
+                                </button>
+                              ) : copySourceDay ? (
+                                <button className="secondary day-action" onClick={() => copyMealsForDay(copySourceDay, day)}>
+                                  Paste
+                                </button>
+                              ) : (
+                                <button className="secondary day-action" onClick={() => setCopySourceDay(day)}>
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="planner-week-cards">
-                {days.map((day) => (
-                  <div key={day} className="card">
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <strong>{formatWeekdayLabel(day)}</strong>
-                      {selectMode && (
-                        <button className="secondary" onClick={() => toggleSelectAllForDay(day)}>
-                          Select all
-                        </button>
-                      )}
-                      {copySourceDay === day ? (
-                        <button className="secondary" onClick={() => setCopySourceDay(null)} disabled>
-                          Copied
-                        </button>
-                      ) : copySourceDay ? (
-                        <button className="secondary" onClick={() => copyMealsForDay(copySourceDay, day)}>
-                          Paste
-                        </button>
-                      ) : (
-                        <button className="secondary" onClick={() => setCopySourceDay(day)}>
-                          Copy
-                        </button>
-                      )}
-                    </div>
-                    {slots.map((slot) => (
-                      <WeekSlotCard
-                        key={`${day}-${slot.id}`}
-                        day={day}
-                        slotId={slot.id}
-                        slotName={slot.name}
-                        meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
-                        recipes={recipes}
-                        allMealsMap={mealsById}
-                        slots={slots}
-                        onRemove={removeMeal}
-                        onSetLeftovers={async (meal) => {
-                          setLeftoverEditMealId(meal.id);
-                          setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
-                        }}
-                        onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
-                        editingMealId={leftoverEditMealId}
-                        editValue={leftoverEditValue}
-                        onEditValue={setLeftoverEditValue}
-                        onSaveEdit={async (mealId) => {
-                          const value = Math.max(Number(leftoverEditValue || 0), 0);
-                          await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
-                          setMeals((prev: PlannedMeal[]) =>
-                            prev.map((m: PlannedMeal) =>
-                              m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
-                            )
-                          );
-                          setLeftoverEditMealId(null);
-                        }}
-                        onCancelEdit={() => setLeftoverEditMealId(null)}
-                        onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
-                        activeMealId={activeMealActionsId}
-                        onClearActions={() => setActiveMealActionsId(null)}
-                        selectMode={selectMode}
-                        selectedMealIds={selectedMealIds}
-                        onToggleSelected={toggleMealSelected}
-                        onCellClick={async (date, mealSlotId) => {
-                          if (selectMode && pendingPasteMeals.length) {
-                            await pasteSelectedMeals(date, mealSlotId);
-                            return;
-                          }
-                        }}
-                        inlinePanel={
-                          activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
-                            <InlineAddPanel
+                    </thead>
+                    <tbody>
+                      {slots.map((slot) => (
+                        <tr key={slot.id}>
+                          <td>{slot.name}</td>
+                          {days.map((day) => (
+                            <WeekCell
+                              key={`${day}-${slot.id}`}
+                              day={day}
+                              slotId={slot.id}
+                              meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
                               recipes={recipes}
+                              allMealsMap={mealsById}
                               slots={slots}
-                              recentPlanned={recentPlanned}
-                              currentMeals={meals}
-                              inlineType={inlineType}
-                              setInlineType={setInlineType}
-                              inlineRecipeId={inlineRecipeId}
-                              setInlineRecipeId={setInlineRecipeId}
-                              inlineServings={inlineServings}
-                              setInlineServings={setInlineServings}
-                              inlineLeftoverSource={inlineLeftoverSource}
-                              setInlineLeftoverSource={setInlineLeftoverSource}
-                              inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                              setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                              includeAnyRecent={includeAnyRecent}
-                              setIncludeAnyRecent={setIncludeAnyRecent}
-                              inlineFreeformTitle={inlineFreeformTitle}
-                              setInlineFreeformTitle={setInlineFreeformTitle}
-                              inlineNotes={inlineNotes}
-                              setInlineNotes={setInlineNotes}
-                              recipeSearch={recipeSearch}
-                              setRecipeSearch={setRecipeSearch}
-                              panelRef={panelRef}
-                              onCancel={() => closePanel("inline-cancel-month")}
-                              onSave={async () => {
-                                const payload = buildInlinePayload();
-                                if (!payload) return;
-                                await createMealAndRefresh(payload);
-                                resetInline();
-                                closePanel("inline-save-month");
+                              onRemove={removeMeal}
+                              onSetLeftovers={async (meal) => {
+                                setLeftoverEditMealId(meal.id);
+                                setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
                               }}
+                              onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                              editingMealId={leftoverEditMealId}
+                              editValue={leftoverEditValue}
+                              onEditValue={setLeftoverEditValue}
+                              onSaveEdit={async (mealId) => {
+                                const value = Math.max(Number(leftoverEditValue || 0), 0);
+                                await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
+                                setMeals((prev: PlannedMeal[]) =>
+                                  prev.map((m: PlannedMeal) =>
+                                    m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
+                                  )
+                                );
+                                setLeftoverEditMealId(null);
+                              }}
+                              onCancelEdit={() => setLeftoverEditMealId(null)}
+                              onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
+                              activeMealId={activeMealActionsId}
+                              onClearActions={() => setActiveMealActionsId(null)}
+                              selectMode={selectMode}
+                              selectedMealIds={selectedMealIds}
+                              onToggleSelected={toggleMealSelected}
+                              onCellClick={async (date, mealSlotId) => {
+                                if (selectMode && pendingPasteMeals.length) {
+                                  await pasteSelectedMeals(date, mealSlotId);
+                                  return;
+                                }
+                              }}
+                              inlinePanel={
+                                activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
+                                  <InlineAddPanel
+                                    recipes={recipes}
+                                    slots={slots}
+                                    recentPlanned={recentPlanned}
+                                    currentMeals={meals}
+                                    inlineType={inlineType}
+                                    setInlineType={setInlineType}
+                                    inlineRecipeId={inlineRecipeId}
+                                    setInlineRecipeId={setInlineRecipeId}
+                                    inlineServings={inlineServings}
+                                    setInlineServings={setInlineServings}
+                                    inlineLeftoverSource={inlineLeftoverSource}
+                                    setInlineLeftoverSource={setInlineLeftoverSource}
+                                    inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
+                                    setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
+                                    includeAnyRecent={includeAnyRecent}
+                                    setIncludeAnyRecent={setIncludeAnyRecent}
+                                    inlineFreeformTitle={inlineFreeformTitle}
+                                    setInlineFreeformTitle={setInlineFreeformTitle}
+                                    inlineNotes={inlineNotes}
+                                    setInlineNotes={setInlineNotes}
+                                    recipeSearch={recipeSearch}
+                                    setRecipeSearch={setRecipeSearch}
+                                    panelRef={panelRef}
+                                    onCancel={() => closePanel("inline-cancel")}
+                                    onSave={async () => {
+                                      const payload = buildInlinePayload();
+                                      if (!payload) return;
+                                      await createMealAndRefresh(payload);
+                                      resetInline();
+                                      closePanel("inline-save");
+                                    }}
+                                  />
+                                ) : null
+                              }
                             />
-                          ) : null
-                        }
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="planner-week-cards">
+                  {days.map((day) => (
+                    <div key={day} className="card">
+                      <div className="row" style={{ justifyContent: "space-between" }}>
+                        <strong>{formatWeekdayLabel(day)}</strong>
+                        {selectMode && (
+                          <button className="secondary" onClick={() => toggleSelectAllForDay(day)}>
+                            Select all
+                          </button>
+                        )}
+                        {copySourceDay === day ? (
+                          <button className="secondary" onClick={() => setCopySourceDay(null)} disabled>
+                            Copied
+                          </button>
+                        ) : copySourceDay ? (
+                          <button className="secondary" onClick={() => copyMealsForDay(copySourceDay, day)}>
+                            Paste
+                          </button>
+                        ) : (
+                          <button className="secondary" onClick={() => setCopySourceDay(day)}>
+                            Copy
+                          </button>
+                        )}
+                      </div>
+                      {slots.map((slot) => (
+                        <WeekSlotCard
+                          key={`${day}-${slot.id}`}
+                          day={day}
+                          slotId={slot.id}
+                          slotName={slot.name}
+                          meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
+                          recipes={recipes}
+                          allMealsMap={mealsById}
+                          slots={slots}
+                          onRemove={removeMeal}
+                          onSetLeftovers={async (meal) => {
+                            setLeftoverEditMealId(meal.id);
+                            setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
+                          }}
+                          onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                          editingMealId={leftoverEditMealId}
+                          editValue={leftoverEditValue}
+                          onEditValue={setLeftoverEditValue}
+                          onSaveEdit={async (mealId) => {
+                            const value = Math.max(Number(leftoverEditValue || 0), 0);
+                            await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
+                            setMeals((prev: PlannedMeal[]) =>
+                              prev.map((m: PlannedMeal) =>
+                                m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
+                              )
+                            );
+                            setLeftoverEditMealId(null);
+                          }}
+                          onCancelEdit={() => setLeftoverEditMealId(null)}
+                          onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
+                          activeMealId={activeMealActionsId}
+                          onClearActions={() => setActiveMealActionsId(null)}
+                          selectMode={selectMode}
+                          selectedMealIds={selectedMealIds}
+                          onToggleSelected={toggleMealSelected}
+                          onCellClick={async (date, mealSlotId) => {
+                            if (selectMode && pendingPasteMeals.length) {
+                              await pasteSelectedMeals(date, mealSlotId);
+                              return;
+                            }
+                          }}
+                          inlinePanel={
+                            activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
+                              <InlineAddPanel
+                                recipes={recipes}
+                                slots={slots}
+                                recentPlanned={recentPlanned}
+                                currentMeals={meals}
+                                inlineType={inlineType}
+                                setInlineType={setInlineType}
+                                inlineRecipeId={inlineRecipeId}
+                                setInlineRecipeId={setInlineRecipeId}
+                                inlineServings={inlineServings}
+                                setInlineServings={setInlineServings}
+                                inlineLeftoverSource={inlineLeftoverSource}
+                                setInlineLeftoverSource={setInlineLeftoverSource}
+                                inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
+                                setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
+                                includeAnyRecent={includeAnyRecent}
+                                setIncludeAnyRecent={setIncludeAnyRecent}
+                                inlineFreeformTitle={inlineFreeformTitle}
+                                setInlineFreeformTitle={setInlineFreeformTitle}
+                                inlineNotes={inlineNotes}
+                                setInlineNotes={setInlineNotes}
+                                recipeSearch={recipeSearch}
+                                setRecipeSearch={setRecipeSearch}
+                                panelRef={panelRef}
+                                onCancel={() => closePanel("inline-cancel-month")}
+                                onSave={async () => {
+                                  const payload = buildInlinePayload();
+                                  if (!payload) return;
+                                  await createMealAndRefresh(payload);
+                                  resetInline();
+                                  closePanel("inline-save-month");
+                                }}
+                              />
+                            ) : null
+                          }
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </DndContext>
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
