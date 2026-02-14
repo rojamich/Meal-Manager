@@ -15,7 +15,7 @@ import {
   listInventoryLots
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { parseISODate, toISODate } from "../../utils/date";
+import { dateKey, parseISODate, toISODate } from "../../utils/date";
 
 const categories = ["produce", "dairy", "pantry", "freezer", "spices", "bakery", "protein", "other"];
 const titleCase = (value: string) => value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value;
@@ -47,29 +47,17 @@ export default function PantryPage() {
     setLocations([...(await listLocations())]);
   }, []);
 
-  function toISODateLocal(input: Date | string) {
-    if (typeof input === "string") return input.slice(0, 10);
-    const year = input.getFullYear();
-    const month = String(input.getMonth() + 1).padStart(2, "0");
-    const day = String(input.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-
-  function isOnOrAfter(aISO: string, bISO: string) {
-    return aISO >= bISO;
-  }
-
   async function loadLots(itemId: string, locationId?: string) {
     const all =
       itemId === "__ALL__"
         ? await listActiveLots(locationId)
         : await listInventoryLots(itemId);
-    const today = toISODateLocal(new Date());
+    const today = dateKey(new Date());
     const active = all.filter((lot) => {
       if (lot.archivedAt) return false;
       if (locationId && lot.locationId !== locationId) return false;
       if (!lot.expiresAt) return true;
-      return isOnOrAfter(toISODateLocal(lot.expiresAt), today);
+      return dateKey(lot.expiresAt) >= today;
     });
     setLots([...active]);
   }

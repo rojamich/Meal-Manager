@@ -154,6 +154,7 @@ export interface WeekTemplateDay {
 
 export interface WeekTemplate {
   id: string;
+  schemaVersion: number;
   name: string;
   locationId?: string;
   days: WeekTemplateDay[];

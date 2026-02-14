@@ -17,7 +17,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createPlannedMeal, listMealSlots } from "../../db/repositories/mealPlanRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { toISODate } from "../../utils/date";
+import { dateKey, toISODate } from "../../utils/date";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -33,6 +33,7 @@ export default function RecipesPage() {
   const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
+  const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
   const [mealSlots, setMealSlots] = useState<{ id: string; name: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
@@ -82,10 +83,10 @@ export default function RecipesPage() {
   }, [availabilityLocationId, recipes, pantryItems]);
 
   const makeableByRecipe = useMemo(() => {
-    const today = toISODate(new Date());
+    const asOf = dateKey(availabilityAsOfDate);
     const availability = new Map<string, number>();
     activeLots
-      .filter((lot) => !lot.expiresAt || lot.expiresAt >= today)
+      .filter((lot) => !lot.expiresAt || dateKey(lot.expiresAt) >= asOf)
       .forEach((lot) => {
         availability.set(lot.pantryItemId, (availability.get(lot.pantryItemId) ?? 0) + lot.quantity);
       });
@@ -130,7 +131,7 @@ export default function RecipesPage() {
       result.set(recipe.id, ok);
     });
     return result;
-  }, [activeLots, allIngredients, recipes]);
+  }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -312,6 +313,14 @@ export default function RecipesPage() {
               </option>
             ))}
           </select>
+          <label>
+            As of date
+            <input
+              type="date"
+              value={availabilityAsOfDate}
+              onChange={(e) => setAvailabilityAsOfDate(e.target.value)}
+            />
+          </label>
         </div>
         <table className="table">
           <thead>

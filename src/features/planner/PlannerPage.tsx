@@ -6,19 +6,23 @@ import {
   listPlannedMeals,
   createPlannedMeal,
   deletePlannedMeal,
-  deletePlannedMealsInRange,
   updatePlannedMeal
 } from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
-import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/date";
+import { formatDateLabel, parseISODate, toISODate, addDays, dateKey } from "../../utils/date";
 import { Link } from "react-router-dom";
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { createWeekTemplate, deleteWeekTemplate, listWeekTemplates } from "../../db/repositories/weekTemplateRepo";
+import {
+  applyWeekTemplateToWeek,
+  createWeekTemplate,
+  deleteWeekTemplate,
+  listWeekTemplates
+} from "../../db/repositories/weekTemplateRepo";
 
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
-  const [anchorDate, setAnchorDate] = useState(toISODate(new Date()));
+  const [anchorDate, setAnchorDate] = useState(dateKey(new Date()));
   const [slots, setSlots] = useState<MealSlot[]>([]);
   const [meals, setMeals] = useState<PlannedMeal[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -184,7 +188,7 @@ export default function PlannerPage() {
         } else {
           const today = new Date();
           const start = addDays(today, -30);
-          const recent = await listPlannedMeals(toISODate(start), toISODate(today));
+          const recent = await listPlannedMeals(dateKey(start), dateKey(today));
           const fallback = recent.find((m) => m.id === sourceId);
           if (fallback) {
             const remaining = Math.max((fallback.leftoverServingsRemaining ?? 0) + servingsUsed, 0);
@@ -217,7 +221,7 @@ export default function PlannerPage() {
       const range = weekRange(anchorDate);
       const rangeStart = parseISODate(range.start);
       const start = addDays(rangeStart, -14);
-      const recent = await listPlannedMeals(toISODate(start), range.start);
+      const recent = await listPlannedMeals(dateKey(start), dateKey(range.start));
       const normalized = recent.map((meal) => {
         if (meal.type !== "recipe") return meal;
         if (typeof meal.leftoverServingsRemaining === "number") return meal;
@@ -369,17 +373,17 @@ export default function PlannerPage() {
     (direction: -1 | 1) => {
       const base = parseISODate(anchorDate);
       if (view === "week") {
-        setAnchorDate(toISODate(addDays(base, 7 * direction)));
+        setAnchorDate(dateKey(addDays(base, 7 * direction)));
       } else {
         const next = new Date(base.getFullYear(), base.getMonth() + direction, base.getDate());
-        setAnchorDate(toISODate(next));
+        setAnchorDate(dateKey(next));
       }
     },
     [anchorDate, view]
   );
 
   const goToday = useCallback(() => {
-    setAnchorDate(toISODate(new Date()));
+    setAnchorDate(dateKey(new Date()));
   }, []);
 
   const refreshTemplates = useCallback(async () => {
@@ -392,14 +396,18 @@ export default function PlannerPage() {
   );
 
   const visibleTemplateList = useMemo(() => {
-    if (templateFilter === "all") return templates;
-    if (plannerLocationId) return templates.filter((t) => t.locationId === plannerLocationId);
-    return templates.filter((t) => !t.locationId);
+    const source =
+      templateFilter === "all"
+        ? templates
+        : plannerLocationId
+          ? templates.filter((t) => t.locationId === plannerLocationId)
+          : templates.filter((t) => !t.locationId);
+    return [...source].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [plannerLocationId, templateFilter, templates]);
 
   const saveWeekTemplate = useCallback(async () => {
     const week = weekRange(anchorDate);
-    const weekDays = Array.from({ length: 7 }, (_, i) => toISODate(addDays(parseISODate(week.start), i)));
+    const weekDays = Array.from({ length: 7 }, (_, i) => dateKey(addDays(parseISODate(week.start), i)));
     const days = weekDays.map((day, weekday) => {
       const dayMeals = meals
         .filter((meal) => meal.date === day)
@@ -431,24 +439,17 @@ export default function PlannerPage() {
     async (template: WeekTemplate) => {
       const week = weekRange(anchorDate);
       if (!confirm(`Apply template "${template.name}" to this week and overwrite existing meals?`)) return;
-      await deletePlannedMealsInRange(week.start, week.end);
-      const weekStart = parseISODate(week.start);
-      const payloads: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">[] = [];
-      template.days.forEach((day) => {
-        const targetDate = toISODate(addDays(weekStart, day.weekday));
-        day.meals.forEach((meal) => {
-          payloads.push({
-            ...meal,
-            date: targetDate
-          });
-        });
-      });
-      await Promise.all(payloads.map((payload) => createPlannedMeal(payload)));
+      await applyWeekTemplateToWeek(template, week.start, week.end);
       await refreshMeals();
       setShowTemplates(false);
     },
     [anchorDate, refreshMeals]
   );
+
+  const clearSelectState = useCallback(() => {
+    setPendingPasteMeals([]);
+    setSelectedMealIds([]);
+  }, []);
 
   const deleteTemplate = useCallback(
     async (id: string) => {
@@ -513,8 +514,8 @@ export default function PlannerPage() {
     for (const id of selectedMealIds) {
       await removeMeal(id);
     }
-    setSelectedMealIds([]);
-  }, [removeMeal, selectedMealIds]);
+    clearSelectState();
+  }, [clearSelectState, removeMeal, selectedMealIds]);
 
   const copySelectedMeals = useCallback(() => {
     if (!selectedMeals.length) return;
@@ -524,7 +525,7 @@ export default function PlannerPage() {
 
   const pasteSelectedMeals = useCallback(
     async (targetDate: string, targetSlotId: string) => {
-      if (!pendingPasteMeals.length) return;
+      if (!selectMode || !pendingPasteMeals.length) return;
       await Promise.all(
         pendingPasteMeals.map((meal) =>
           createPlannedMeal({
@@ -541,11 +542,10 @@ export default function PlannerPage() {
           })
         )
       );
-      setPendingPasteMeals([]);
-      setSelectedMealIds([]);
+      clearSelectState();
       await refreshMeals();
     },
-    [pendingPasteMeals, refreshMeals]
+    [clearSelectState, pendingPasteMeals, refreshMeals, selectMode]
   );
 
   const deleteDayMeals = useCallback(async () => {
@@ -556,14 +556,15 @@ export default function PlannerPage() {
     for (const id of ids) {
       await removeMeal(id);
     }
-  }, [dayActionDate, meals, removeMeal]);
+    clearSelectState();
+  }, [clearSelectState, dayActionDate, meals, removeMeal]);
 
   const copyWeek = useCallback(
     async (sourceOffsetDays: number, targetOffsetDays: number) => {
       const currentRange = weekRange(anchorDate);
       const sourceStart = addDays(parseISODate(currentRange.start), sourceOffsetDays);
       const sourceEnd = addDays(parseISODate(currentRange.end), sourceOffsetDays);
-      const sourceMeals = await listPlannedMeals(toISODate(sourceStart), toISODate(sourceEnd));
+      const sourceMeals = await listPlannedMeals(dateKey(sourceStart), dateKey(sourceEnd));
       const count = sourceMeals.length;
       if (!count) {
         alert("No meals to copy in the source week.");
@@ -573,7 +574,7 @@ export default function PlannerPage() {
       await Promise.all(
         sourceMeals.map((meal) =>
           createPlannedMeal({
-            date: toISODate(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
+            date: dateKey(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
             mealSlotId: meal.mealSlotId,
             type: meal.type,
             recipeId: meal.recipeId,
@@ -595,8 +596,8 @@ export default function PlannerPage() {
   const days = useMemo(() => {
     const list: string[] = [];
     let d = parseISODate(range.start);
-    while (toISODate(d) <= range.end) {
-      list.push(toISODate(d));
+    while (dateKey(d) <= dateKey(range.end)) {
+      list.push(dateKey(d));
       d = addDays(d, 1);
     }
     return list;
@@ -693,9 +694,9 @@ export default function PlannerPage() {
           </button>
           {view === "week" && (
             <button className={selectMode ? "" : "secondary"} onClick={() => {
-              setSelectMode((prev) => !prev);
-              setSelectedMealIds([]);
-              setPendingPasteMeals([]);
+              const next = !selectMode;
+              setSelectMode(next);
+              clearSelectState();
             }}>
               Select mode
             </button>
@@ -713,7 +714,7 @@ export default function PlannerPage() {
         </div>
         {showTemplates && (
           <div className="panel" style={{ marginTop: 12 }}>
-            <h3>Weekly Templates</h3>
+            <h3>Weekly Templates ({visibleTemplateList.length})</h3>
             <div className="row">
               <input
                 placeholder="Template name"
@@ -887,7 +888,7 @@ export default function PlannerPage() {
                             selectedMealIds={selectedMealIds}
                             onToggleSelected={toggleMealSelected}
                             onCellClick={async (date, mealSlotId) => {
-                              if (pendingPasteMeals.length) {
+                              if (selectMode && pendingPasteMeals.length) {
                                 await pasteSelectedMeals(date, mealSlotId);
                                 return;
                               }
@@ -997,7 +998,7 @@ export default function PlannerPage() {
                         selectedMealIds={selectedMealIds}
                         onToggleSelected={toggleMealSelected}
                         onCellClick={async (date, mealSlotId) => {
-                          if (pendingPasteMeals.length) {
+                          if (selectMode && pendingPasteMeals.length) {
                             await pasteSelectedMeals(date, mealSlotId);
                             return;
                           }
@@ -1847,12 +1848,12 @@ function tintFromAccent(accent: string) {
 function weekRange(anchorDate: string) {
   const start = parseISODate(anchorDate);
   const end = addDays(start, 6);
-  return { start: toISODate(start), end: toISODate(end) };
+  return { start: dateKey(start), end: dateKey(end) };
 }
 
 function monthRange(anchorDate: string) {
   const d = parseISODate(anchorDate);
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
   const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  return { start: toISODate(start), end: toISODate(end) };
+  return { start: dateKey(start), end: dateKey(end) };
 }
