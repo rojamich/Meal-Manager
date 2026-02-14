@@ -7,12 +7,17 @@ import {
   createRecipe,
   deleteIngredient,
   deleteRecipe,
+  listAllIngredients,
   listIngredients,
   listRecipes,
   updateIngredient,
   updateRecipe
 } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { listActiveLots } from "../../db/repositories/inventoryRepo";
+import { createPlannedMeal, listMealSlots } from "../../db/repositories/mealPlanRepo";
+import { listLocations } from "../../db/repositories/locationRepo";
+import { toISODate } from "../../utils/date";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -26,14 +31,23 @@ export default function RecipesPage() {
   const [maxCalories, setMaxCalories] = useState("");
   const [maxCost, setMaxCost] = useState("");
   const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
+  const [canMakeOnly, setCanMakeOnly] = useState(false);
+  const [availabilityLocationId, setAvailabilityLocationId] = useState("");
+  const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
+  const [mealSlots, setMealSlots] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [showFilters, setShowFilters] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
+  const [activeLots, setActiveLots] = useState<{ pantryItemId: string; quantity: number; expiresAt?: string }[]>([]);
   const location = useLocation();
 
   const refresh = useCallback(async () => {
     setRecipes([...(await listRecipes())]);
     setPantryItems([...(await listPantryItems())]);
+    setAllIngredients([...(await listAllIngredients())]);
+    setMealSlots([...(await listMealSlots())]);
+    setLocations([...(await listLocations())]);
   }, []);
 
   useEffect(() => {
@@ -55,6 +69,69 @@ export default function RecipesPage() {
     listIngredients(selected.id).then(setIngredients);
   }, [selected]);
 
+  useEffect(() => {
+    listActiveLots(availabilityLocationId || undefined).then((lots) => {
+      setActiveLots(
+        lots.map((lot) => ({
+          pantryItemId: lot.pantryItemId,
+          quantity: lot.quantity,
+          expiresAt: lot.expiresAt
+        }))
+      );
+    });
+  }, [availabilityLocationId, recipes, pantryItems]);
+
+  const makeableByRecipe = useMemo(() => {
+    const today = toISODate(new Date());
+    const availability = new Map<string, number>();
+    activeLots
+      .filter((lot) => !lot.expiresAt || lot.expiresAt >= today)
+      .forEach((lot) => {
+        availability.set(lot.pantryItemId, (availability.get(lot.pantryItemId) ?? 0) + lot.quantity);
+      });
+
+    const ingredientsByRecipe = new Map<string, RecipeIngredient[]>();
+    allIngredients.forEach((ing) => {
+      const list = ingredientsByRecipe.get(ing.recipeId) ?? [];
+      list.push(ing);
+      ingredientsByRecipe.set(ing.recipeId, list);
+    });
+
+    const result = new Map<string, boolean>();
+    recipes.forEach((recipe) => {
+      const recipeIngredients = ingredientsByRecipe.get(recipe.id) ?? [];
+      const grouped = new Map<string, RecipeIngredient[]>();
+      const plain: RecipeIngredient[] = [];
+      recipeIngredients.forEach((ing) => {
+        const group = ing.altGroup?.trim();
+        if (!group) plain.push(ing);
+        else {
+          const list = grouped.get(group) ?? [];
+          list.push(ing);
+          grouped.set(group, list);
+        }
+      });
+      let ok = true;
+      for (const ing of plain) {
+        if ((availability.get(ing.pantryItemId) ?? 0) < ing.quantity) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        for (const options of grouped.values()) {
+          const satisfied = options.some((opt) => (availability.get(opt.pantryItemId) ?? 0) >= opt.quantity);
+          if (!satisfied) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      result.set(recipe.id, ok);
+    });
+    return result;
+  }, [activeLots, allIngredients, recipes]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return recipes
@@ -69,7 +146,8 @@ export default function RecipesPage() {
           !maxCalories || (r.caloriesPerServing !== undefined && r.caloriesPerServing <= Number(maxCalories));
         const costOk =
           !maxCost || (r.estimatedCostPerServing !== undefined && r.estimatedCostPerServing <= Number(maxCost));
-        return matchesText && matchesMealType && caloriesOk && costOk;
+        const canMake = makeableByRecipe.get(r.id) ?? true;
+        return matchesText && matchesMealType && caloriesOk && costOk && (!canMakeOnly || canMake);
       })
       .sort((a, b) => {
         if (sortBy === "title") return a.title.localeCompare(b.title);
@@ -82,7 +160,7 @@ export default function RecipesPage() {
         const bVal = b.estimatedCostPerServing ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy, makeableByRecipe, canMakeOnly]);
 
   async function saveRecipe(recipe: Recipe | Omit<Recipe, "id" | "createdAt" | "updatedAt">) {
     if ("id" in recipe && recipe.id) {
@@ -141,6 +219,20 @@ export default function RecipesPage() {
   async function removeIngredient(id: string) {
     await deleteIngredient(id);
     if (selected) setIngredients(await listIngredients(selected.id));
+  }
+
+  async function addRecipeToPlanner(recipeId: string, date: string, mealSlotId: string, servingsPlanned?: number) {
+    const recipe = recipes.find((r) => r.id === recipeId);
+    if (!recipe) return;
+    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : recipe.defaultServings;
+    await createPlannedMeal({
+      date,
+      mealSlotId,
+      type: "recipe",
+      recipeId,
+      servingsPlanned: servings,
+      leftoverServingsRemaining: Math.max(servings - 1, 0)
+    });
   }
 
   return (
@@ -204,6 +296,22 @@ export default function RecipesPage() {
             <option value="calories">Sort: calories</option>
             <option value="cost">Sort: cost</option>
           </select>
+          <label>
+            <input
+              type="checkbox"
+              checked={canMakeOnly}
+              onChange={(e) => setCanMakeOnly(e.target.checked)}
+            />
+            Can make with pantry
+          </label>
+          <select value={availabilityLocationId} onChange={(e) => setAvailabilityLocationId(e.target.value)}>
+            <option value="">All locations</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.name}
+              </option>
+            ))}
+          </select>
         </div>
         <table className="table">
           <thead>
@@ -259,6 +367,8 @@ export default function RecipesPage() {
             onAddIngredient={addRecipeIngredient}
             onUpdateIngredient={updateRecipeIngredient}
             onDeleteIngredient={removeIngredient}
+            mealSlots={mealSlots}
+            onAddToPlanner={addRecipeToPlanner}
             onBack={() => setSelected(null)}
           />
         ) : (
@@ -277,6 +387,8 @@ function RecipeEditor({
   onAddIngredient,
   onUpdateIngredient,
   onDeleteIngredient,
+  mealSlots,
+  onAddToPlanner,
   onBack
 }: {
   recipe: Recipe;
@@ -286,6 +398,8 @@ function RecipeEditor({
   onAddIngredient: (recipeId: string, data: { pantryItemId: string; quantity: number; prepNote?: string; altGroup?: string }) => void;
   onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
   onDeleteIngredient: (id: string) => void;
+  mealSlots: { id: string; name: string }[];
+  onAddToPlanner: (recipeId: string, date: string, mealSlotId: string, servingsPlanned?: number) => Promise<void>;
   onBack: () => void;
 }) {
   const [form, setForm] = useState({
@@ -310,6 +424,10 @@ function RecipeEditor({
   const [ingredientError, setIngredientError] = useState<string | null>(null);
   const [noMatches, setNoMatches] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [plannerDate, setPlannerDate] = useState(toISODate(new Date()));
+  const [plannerSlotId, setPlannerSlotId] = useState("");
+  const [plannerServings, setPlannerServings] = useState("");
+  const [plannerMessage, setPlannerMessage] = useState("");
   const filteredPantryItems = useMemo(
     () =>
       pantryItems.filter((item) =>
@@ -356,7 +474,11 @@ function RecipeEditor({
     setIngredientFilter("");
     setIngredientError(null);
     setSavedAt(null);
-  }, [recipe]);
+    setPlannerDate(toISODate(new Date()));
+    setPlannerSlotId(mealSlots[0]?.id || "");
+    setPlannerServings("");
+    setPlannerMessage("");
+  }, [recipe, mealSlots]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -428,6 +550,13 @@ function RecipeEditor({
   function removeStep(index: number) {
     const next = form.steps.filter((_, i) => i !== index);
     setForm({ ...form, steps: next.length ? next : [""] });
+  }
+
+  async function handleAddToPlanner() {
+    if (!recipe.id || !plannerSlotId) return;
+    const servings = plannerServings ? Number(plannerServings) : undefined;
+    await onAddToPlanner(recipe.id, plannerDate, plannerSlotId, servings);
+    setPlannerMessage("Added to planner");
   }
 
   return (
@@ -723,6 +852,33 @@ function RecipeEditor({
             </>
           )}
         </div>
+        {recipe.id && (
+          <div className="panel">
+            <h3>Add to Planner</h3>
+            <div className="row">
+              <input type="date" value={plannerDate} onChange={(e) => setPlannerDate(e.target.value)} />
+              <select value={plannerSlotId} onChange={(e) => setPlannerSlotId(e.target.value)}>
+                <option value="">Select slot</option>
+                {mealSlots.map((slot) => (
+                  <option key={slot.id} value={slot.id}>
+                    {slot.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                placeholder="Servings"
+                value={plannerServings}
+                onChange={(e) => setPlannerServings(e.target.value)}
+              />
+              <button type="button" onClick={() => void handleAddToPlanner()} disabled={!plannerSlotId}>
+                Add to planner
+              </button>
+            </div>
+            {plannerMessage && <p className="muted">{plannerMessage}</p>}
+          </div>
+        )}
         <div>
           <strong>Steps</strong>
           {form.steps.map((step, idx) => (

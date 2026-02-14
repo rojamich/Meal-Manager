@@ -135,6 +135,31 @@ export interface GroceryLine {
   checked: boolean;
 }
 
+export interface WeekTemplateMeal {
+  mealSlotId: string;
+  type: PlannedMealType;
+  recipeId?: string;
+  sourcePlannedMealId?: string;
+  leftoverSourceMealId?: string;
+  leftoverServingsRemaining?: number;
+  freeformTitle?: string;
+  notes?: string;
+  servingsPlanned?: number;
+}
+
+export interface WeekTemplateDay {
+  weekday: number;
+  meals: WeekTemplateMeal[];
+}
+
+export interface WeekTemplate {
+  id: string;
+  name: string;
+  locationId?: string;
+  days: WeekTemplateDay[];
+  createdAt: string;
+}
+
 export interface ExportBundle {
   version: number;
   exportedAt: string;
@@ -150,5 +175,6 @@ export interface ExportBundle {
     purchaseEntries: PurchaseEntry[];
     groceryLists: GroceryList[];
     groceryLines: GroceryLine[];
+    weekTemplates: WeekTemplate[];
   };
 }

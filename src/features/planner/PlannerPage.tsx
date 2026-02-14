@@ -1,11 +1,20 @@
 import { RefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { MealSlot, PlannedMeal, Recipe } from "../../models";
-import { listMealSlots, listPlannedMeals, createPlannedMeal, deletePlannedMeal, updatePlannedMeal } from "../../db/repositories/mealPlanRepo";
+import { LocationProfile, MealSlot, PlannedMeal, Recipe, WeekTemplate } from "../../models";
+import {
+  listMealSlots,
+  listPlannedMeals,
+  createPlannedMeal,
+  deletePlannedMeal,
+  deletePlannedMealsInRange,
+  updatePlannedMeal
+} from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
 import { formatDateLabel, parseISODate, toISODate, addDays } from "../../utils/date";
 import { Link } from "react-router-dom";
 import { DndContext, DragEndEvent, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { listLocations } from "../../db/repositories/locationRepo";
+import { createWeekTemplate, deleteWeekTemplate, listWeekTemplates } from "../../db/repositories/weekTemplateRepo";
 
 export default function PlannerPage() {
   const [view, setView] = useState<"week" | "month">("week");
@@ -29,6 +38,17 @@ export default function PlannerPage() {
   const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
   const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
   const [copySourceDay, setCopySourceDay] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState<WeekTemplate[]>([]);
+  const [templateName, setTemplateName] = useState("");
+  const [templateLocationId, setTemplateLocationId] = useState("");
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
+  const [templateFilter, setTemplateFilter] = useState<"all" | "this">("all");
+  const [plannerLocationId, setPlannerLocationId] = useState("");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
+  const [pendingPasteMeals, setPendingPasteMeals] = useState<PlannedMeal[]>([]);
+  const [dayActionDate, setDayActionDate] = useState("");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 }
@@ -44,6 +64,8 @@ export default function PlannerPage() {
   useEffect(() => {
     listMealSlots().then(setSlots);
     listRecipes().then(setRecipes);
+    listLocations().then(setLocations);
+    listWeekTemplates().then(setTemplates);
   }, []);
 
   const refreshMeals = useCallback(async () => {
@@ -360,6 +382,83 @@ export default function PlannerPage() {
     setAnchorDate(toISODate(new Date()));
   }, []);
 
+  const refreshTemplates = useCallback(async () => {
+    setTemplates([...(await listWeekTemplates())]);
+  }, []);
+
+  const selectedMeals = useMemo(
+    () => meals.filter((meal) => selectedMealIds.includes(meal.id)),
+    [meals, selectedMealIds]
+  );
+
+  const visibleTemplateList = useMemo(() => {
+    if (templateFilter === "all") return templates;
+    if (plannerLocationId) return templates.filter((t) => t.locationId === plannerLocationId);
+    return templates.filter((t) => !t.locationId);
+  }, [plannerLocationId, templateFilter, templates]);
+
+  const saveWeekTemplate = useCallback(async () => {
+    const week = weekRange(anchorDate);
+    const weekDays = Array.from({ length: 7 }, (_, i) => toISODate(addDays(parseISODate(week.start), i)));
+    const days = weekDays.map((day, weekday) => {
+      const dayMeals = meals
+        .filter((meal) => meal.date === day)
+        .map((meal) => ({
+          mealSlotId: meal.mealSlotId,
+          type: meal.type,
+          recipeId: meal.recipeId,
+          sourcePlannedMealId: meal.sourcePlannedMealId,
+          leftoverSourceMealId: meal.leftoverSourceMealId,
+          leftoverServingsRemaining: meal.leftoverServingsRemaining,
+          freeformTitle: meal.freeformTitle,
+          notes: meal.notes,
+          servingsPlanned: meal.servingsPlanned
+        }));
+      return { weekday, meals: dayMeals };
+    });
+    const name = templateName.trim();
+    if (!name) return;
+    await createWeekTemplate({
+      name,
+      locationId: templateLocationId || undefined,
+      days
+    });
+    setTemplateName("");
+    await refreshTemplates();
+  }, [anchorDate, meals, refreshTemplates, templateLocationId, templateName]);
+
+  const applyTemplate = useCallback(
+    async (template: WeekTemplate) => {
+      const week = weekRange(anchorDate);
+      if (!confirm(`Apply template "${template.name}" to this week and overwrite existing meals?`)) return;
+      await deletePlannedMealsInRange(week.start, week.end);
+      const weekStart = parseISODate(week.start);
+      const payloads: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">[] = [];
+      template.days.forEach((day) => {
+        const targetDate = toISODate(addDays(weekStart, day.weekday));
+        day.meals.forEach((meal) => {
+          payloads.push({
+            ...meal,
+            date: targetDate
+          });
+        });
+      });
+      await Promise.all(payloads.map((payload) => createPlannedMeal(payload)));
+      await refreshMeals();
+      setShowTemplates(false);
+    },
+    [anchorDate, refreshMeals]
+  );
+
+  const deleteTemplate = useCallback(
+    async (id: string) => {
+      if (!confirm("Delete this template?")) return;
+      await deleteWeekTemplate(id);
+      await refreshTemplates();
+    },
+    [refreshTemplates]
+  );
+
   const copyMealsForDay = useCallback(
     async (sourceDate: string, targetDate: string) => {
       const sourceMeals = meals.filter((meal) => meal.date === sourceDate);
@@ -389,6 +488,75 @@ export default function PlannerPage() {
     },
     [meals, refreshMeals]
   );
+
+  const toggleMealSelected = useCallback((mealId: string) => {
+    setSelectedMealIds((prev) =>
+      prev.includes(mealId) ? prev.filter((id) => id !== mealId) : [...prev, mealId]
+    );
+  }, []);
+
+  const toggleSelectAllForDay = useCallback(
+    (day: string) => {
+      const dayMealIds = meals.filter((meal) => meal.date === day).map((meal) => meal.id);
+      setSelectedMealIds((prev) => {
+        const allSelected = dayMealIds.every((id) => prev.includes(id));
+        if (allSelected) return prev.filter((id) => !dayMealIds.includes(id));
+        return Array.from(new Set([...prev, ...dayMealIds]));
+      });
+    },
+    [meals]
+  );
+
+  const deleteSelectedMeals = useCallback(async () => {
+    if (!selectedMealIds.length) return;
+    if (!confirm(`Delete ${selectedMealIds.length} selected meals?`)) return;
+    for (const id of selectedMealIds) {
+      await removeMeal(id);
+    }
+    setSelectedMealIds([]);
+  }, [removeMeal, selectedMealIds]);
+
+  const copySelectedMeals = useCallback(() => {
+    if (!selectedMeals.length) return;
+    setPendingPasteMeals(selectedMeals);
+    alert("Select a target day and slot to paste.");
+  }, [selectedMeals]);
+
+  const pasteSelectedMeals = useCallback(
+    async (targetDate: string, targetSlotId: string) => {
+      if (!pendingPasteMeals.length) return;
+      await Promise.all(
+        pendingPasteMeals.map((meal) =>
+          createPlannedMeal({
+            date: targetDate,
+            mealSlotId: targetSlotId,
+            type: meal.type,
+            recipeId: meal.recipeId,
+            sourcePlannedMealId: meal.sourcePlannedMealId,
+            leftoverSourceMealId: meal.leftoverSourceMealId,
+            leftoverServingsRemaining: meal.leftoverServingsRemaining,
+            freeformTitle: meal.freeformTitle,
+            notes: meal.notes,
+            servingsPlanned: meal.servingsPlanned
+          })
+        )
+      );
+      setPendingPasteMeals([]);
+      setSelectedMealIds([]);
+      await refreshMeals();
+    },
+    [pendingPasteMeals, refreshMeals]
+  );
+
+  const deleteDayMeals = useCallback(async () => {
+    if (!dayActionDate) return;
+    const ids = meals.filter((meal) => meal.date === dayActionDate).map((meal) => meal.id);
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} meals for ${formatDateLabel(dayActionDate)}?`)) return;
+    for (const id of ids) {
+      await removeMeal(id);
+    }
+  }, [dayActionDate, meals, removeMeal]);
 
   const copyWeek = useCallback(
     async (sourceOffsetDays: number, targetOffsetDays: number) => {
@@ -433,6 +601,13 @@ export default function PlannerPage() {
     }
     return list;
   }, [range.start, range.end]);
+
+  useEffect(() => {
+    if (!days.length) return;
+    if (!dayActionDate || !days.includes(dayActionDate)) {
+      setDayActionDate(days[0]);
+    }
+  }, [dayActionDate, days]);
 
   const mealsById = useMemo(() => {
     const map = new Map<string, PlannedMeal>();
@@ -505,6 +680,26 @@ export default function PlannerPage() {
             Month
           </button>
           <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
+          <select value={plannerLocationId} onChange={(e) => setPlannerLocationId(e.target.value)}>
+            <option value="">No location</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.name}
+              </option>
+            ))}
+          </select>
+          <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
+            Templates
+          </button>
+          {view === "week" && (
+            <button className={selectMode ? "" : "secondary"} onClick={() => {
+              setSelectMode((prev) => !prev);
+              setSelectedMealIds([]);
+              setPendingPasteMeals([]);
+            }}>
+              Select mode
+            </button>
+          )}
           {view === "week" && (
             <>
               <button className="secondary" onClick={() => copyWeek(-7, 0)}>
@@ -516,6 +711,103 @@ export default function PlannerPage() {
             </>
           )}
         </div>
+        {showTemplates && (
+          <div className="panel" style={{ marginTop: 12 }}>
+            <h3>Weekly Templates</h3>
+            <div className="row">
+              <input
+                placeholder="Template name"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+              />
+              <select value={templateLocationId} onChange={(e) => setTemplateLocationId(e.target.value)}>
+                <option value="">No location</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={() => void saveWeekTemplate()}>Create from current week</button>
+            </div>
+            <div className="row">
+              <label>
+                <input
+                  type="radio"
+                  name="templateFilter"
+                  checked={templateFilter === "all"}
+                  onChange={() => setTemplateFilter("all")}
+                />
+                All
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="templateFilter"
+                  checked={templateFilter === "this"}
+                  onChange={() => setTemplateFilter("this")}
+                />
+                This location
+              </label>
+            </div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Location</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTemplateList.map((template) => (
+                  <tr key={template.id}>
+                    <td>{template.name}</td>
+                    <td>{locations.find((loc) => loc.id === template.locationId)?.name || "No location"}</td>
+                    <td className="row">
+                      <button className="secondary" onClick={() => void applyTemplate(template)}>
+                        Apply
+                      </button>
+                      <button className="danger" onClick={() => void deleteTemplate(template.id)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!visibleTemplateList.length && (
+                  <tr>
+                    <td colSpan={3} className="muted">
+                      No templates.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {view === "week" && selectMode && (
+          <div className="row" style={{ marginTop: 12 }}>
+            <span className="muted">{selectedMealIds.length} selected</span>
+            <button className="danger" onClick={() => void deleteSelectedMeals()} disabled={!selectedMealIds.length}>
+              Delete selected
+            </button>
+            <button className="secondary" onClick={copySelectedMeals} disabled={!selectedMealIds.length}>
+              Copy selected
+            </button>
+            <select value={dayActionDate} onChange={(e) => setDayActionDate(e.target.value)}>
+              {days.map((day) => (
+                <option key={day} value={day}>
+                  {formatWeekdayLabel(day)}
+                </option>
+              ))}
+            </select>
+            <button className="danger" onClick={() => void deleteDayMeals()}>
+              Delete day
+            </button>
+            {pendingPasteMeals.length > 0 && (
+              <span className="muted">Click a day+slot cell to paste {pendingPasteMeals.length} meals</span>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="panel">
@@ -532,6 +824,11 @@ export default function PlannerPage() {
                         <th key={day}>
                           <div className="day-header">
                             <span className="day-label">{formatWeekdayLabel(day)}</span>
+                            {selectMode && (
+                              <button className="secondary day-action" onClick={() => toggleSelectAllForDay(day)}>
+                                Select all
+                              </button>
+                            )}
                             {copySourceDay === day ? (
                               <button className="secondary day-action" onClick={() => setCopySourceDay(null)} disabled>
                                 Copied
@@ -586,6 +883,15 @@ export default function PlannerPage() {
                             onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
                             activeMealId={activeMealActionsId}
                             onClearActions={() => setActiveMealActionsId(null)}
+                            selectMode={selectMode}
+                            selectedMealIds={selectedMealIds}
+                            onToggleSelected={toggleMealSelected}
+                            onCellClick={async (date, mealSlotId) => {
+                              if (pendingPasteMeals.length) {
+                                await pasteSelectedMeals(date, mealSlotId);
+                                return;
+                              }
+                            }}
                             inlinePanel={
                               activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
                                 <InlineAddPanel
@@ -635,6 +941,11 @@ export default function PlannerPage() {
                   <div key={day} className="card">
                     <div className="row" style={{ justifyContent: "space-between" }}>
                       <strong>{formatWeekdayLabel(day)}</strong>
+                      {selectMode && (
+                        <button className="secondary" onClick={() => toggleSelectAllForDay(day)}>
+                          Select all
+                        </button>
+                      )}
                       {copySourceDay === day ? (
                         <button className="secondary" onClick={() => setCopySourceDay(null)} disabled>
                           Copied
@@ -682,6 +993,15 @@ export default function PlannerPage() {
                         onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
                         activeMealId={activeMealActionsId}
                         onClearActions={() => setActiveMealActionsId(null)}
+                        selectMode={selectMode}
+                        selectedMealIds={selectedMealIds}
+                        onToggleSelected={toggleMealSelected}
+                        onCellClick={async (date, mealSlotId) => {
+                          if (pendingPasteMeals.length) {
+                            await pasteSelectedMeals(date, mealSlotId);
+                            return;
+                          }
+                        }}
                         inlinePanel={
                           activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
                             <InlineAddPanel
@@ -1087,7 +1407,11 @@ function WeekCell({
   inlinePanel,
   onActivateMeal,
   activeMealId,
-  onClearActions
+  onClearActions,
+  selectMode,
+  selectedMealIds,
+  onToggleSelected,
+  onCellClick
 }: {
   day: string;
   slotId: string;
@@ -1107,6 +1431,10 @@ function WeekCell({
   onActivateMeal: (mealId: string) => void;
   activeMealId: string | null;
   onClearActions: () => void;
+  selectMode: boolean;
+  selectedMealIds: string[];
+  onToggleSelected: (mealId: string) => void;
+  onCellClick: (day: string, slotId: string) => void | Promise<void>;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
@@ -1131,7 +1459,14 @@ function WeekCell({
     };
 
   return (
-    <td ref={setNodeRef} style={{ background: isOver ? "#e0f2fe" : undefined }} onClick={onClearActions}>
+    <td
+      ref={setNodeRef}
+      style={{ background: isOver ? "#e0f2fe" : undefined }}
+      onClick={() => {
+        onClearActions();
+        void onCellClick(day, slotId);
+      }}
+    >
       {meals.map((meal) => (
         <DraggableMeal
           key={meal.id}
@@ -1148,6 +1483,10 @@ function WeekCell({
           onCancelEdit={onCancelEdit}
           onActivate={() => onActivateMeal(meal.id)}
           isActionsOpen={activeMealId === meal.id}
+          selectMode={selectMode}
+          selected={selectedMealIds.includes(meal.id)}
+          onToggleSelected={() => onToggleSelected(meal.id)}
+          dragDisabled={selectMode}
         />
       ))}
       {meals.length === 0 && (
@@ -1179,7 +1518,11 @@ function WeekSlotCard({
   inlinePanel,
   onActivateMeal,
   activeMealId,
-  onClearActions
+  onClearActions,
+  selectMode,
+  selectedMealIds,
+  onToggleSelected,
+  onCellClick
 }: {
   day: string;
   slotId: string;
@@ -1200,6 +1543,10 @@ function WeekSlotCard({
   onActivateMeal: (mealId: string) => void;
   activeMealId: string | null;
   onClearActions: () => void;
+  selectMode: boolean;
+  selectedMealIds: string[];
+  onToggleSelected: (mealId: string) => void;
+  onCellClick: (day: string, slotId: string) => void | Promise<void>;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
@@ -1228,7 +1575,10 @@ function WeekSlotCard({
       ref={setNodeRef}
       className="card"
       style={{ marginTop: 10, background: isOver ? "#e0f2fe" : undefined }}
-      onClick={onClearActions}
+      onClick={() => {
+        onClearActions();
+        void onCellClick(day, slotId);
+      }}
     >
       <strong>{slotName}</strong>
       {meals.map((meal) => (
@@ -1247,6 +1597,10 @@ function WeekSlotCard({
           onCancelEdit={onCancelEdit}
           onActivate={() => onActivateMeal(meal.id)}
           isActionsOpen={activeMealId === meal.id}
+          selectMode={selectMode}
+          selected={selectedMealIds.includes(meal.id)}
+          onToggleSelected={() => onToggleSelected(meal.id)}
+          dragDisabled={selectMode}
         />
       ))}
       {meals.length === 0 && (
@@ -1272,7 +1626,11 @@ function DraggableMeal({
   onSaveEdit,
   onCancelEdit,
   onActivate,
-  isActionsOpen
+  isActionsOpen,
+  selectMode,
+  selected,
+  onToggleSelected,
+  dragDisabled
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
@@ -1287,9 +1645,14 @@ function DraggableMeal({
   onCancelEdit: () => void;
   onActivate: () => void;
   isActionsOpen: boolean;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelected: () => void;
+  dragDisabled: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `meal:${meal.id}`
+    id: `meal:${meal.id}`,
+    disabled: dragDisabled
   });
   const style = {
     opacity: isDragging ? 0.6 : 1,
@@ -1313,19 +1676,30 @@ function DraggableMeal({
       }}
       onClick={(e) => {
         e.stopPropagation();
+        if (selectMode) return;
         onActivate();
       }}
     >
-      <button
-        className="drag-handle"
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label="Drag meal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        ::
-      </button>
+      {selectMode ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelected()}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Select meal"
+        />
+      ) : (
+        <button
+          className="drag-handle"
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label="Drag meal"
+          onClick={(e) => e.stopPropagation()}
+        >
+          ::
+        </button>
+      )}
       <span
         title={meal.type === "leftover" ? sourceInfo : undefined}
         tabIndex={meal.type === "leftover" ? 0 : -1}
@@ -1339,6 +1713,7 @@ function DraggableMeal({
             mealId={meal.id}
             remaining={meal.leftoverServingsRemaining}
             onClick={() => onSetLeftovers(meal)}
+            disabled={selectMode}
           />
           {remaining > 1 && (
             <span className="leftover-remaining">
@@ -1398,13 +1773,15 @@ function DraggableMeal({
 function LeftoverBadge({
   mealId,
   remaining,
-  onClick
+  onClick,
+  disabled = false
 }: {
   mealId: string;
   remaining?: number;
   onClick: () => void;
+  disabled?: boolean;
 }) {
-  const canDrag = typeof remaining === "number" && remaining > 0;
+  const canDrag = !disabled && typeof remaining === "number" && remaining > 0;
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: `leftover:${mealId}`,
     disabled: !canDrag

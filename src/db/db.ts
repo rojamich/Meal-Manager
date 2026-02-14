@@ -11,6 +11,7 @@ import {
   PurchaseEntry,
   GroceryList,
   GroceryLine,
+  WeekTemplate,
   ExportBundle
 } from "../models";
 
@@ -26,6 +27,7 @@ class MealDb extends Dexie {
   purchaseEntries!: Table<PurchaseEntry, string>;
   groceryLists!: Table<GroceryList, string>;
   groceryLines!: Table<GroceryLine, string>;
+  weekTemplates!: Table<WeekTemplate, string>;
 
   constructor() {
     super("meal-manager-db");
@@ -55,7 +57,8 @@ class MealDb extends Dexie {
         locationProfiles: "id, name",
         purchaseEntries: "id, pantryItemId, locationId, date",
         groceryLists: "id, createdAt, startDate, endDate, locationId",
-        groceryLines: "id, groceryListId, pantryItemId, checked"
+        groceryLines: "id, groceryListId, pantryItemId, checked",
+        weekTemplates: "id, name, locationId, createdAt"
       })
       .upgrade(async (tx) => {
         const now = new Date().toISOString();
@@ -63,6 +66,21 @@ class MealDb extends Dexie {
           if (!list.createdAt) list.createdAt = now;
         });
       });
+
+    this.version(3).stores({
+      pantryItems: "id, name, category",
+      inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+      recipes: "id, title",
+      recipeIngredients: "id, recipeId, pantryItemId",
+      mealSlots: "id, sortOrder",
+      plannedMeals: "id, date, mealSlotId, type, recipeId",
+      essentialItems: "id, pantryItemId, category",
+      locationProfiles: "id, name",
+      purchaseEntries: "id, pantryItemId, locationId, date",
+      groceryLists: "id, createdAt, startDate, endDate, locationId",
+      groceryLines: "id, groceryListId, pantryItemId, checked",
+      weekTemplates: "id, name, locationId, createdAt"
+    });
   }
 }
 
@@ -100,7 +118,8 @@ export async function exportAll(): Promise<ExportBundle> {
       locationProfiles: await db.locationProfiles.toArray(),
       purchaseEntries: await db.purchaseEntries.toArray(),
       groceryLists: await db.groceryLists.toArray(),
-      groceryLines: await db.groceryLines.toArray()
+      groceryLines: await db.groceryLines.toArray(),
+      weekTemplates: await db.weekTemplates.toArray()
     }
   };
   return bundle;
@@ -120,7 +139,8 @@ export async function importAll(bundle: ExportBundle, replaceAll = true) {
       db.locationProfiles,
       db.purchaseEntries,
       db.groceryLists,
-      db.groceryLines
+      db.groceryLines,
+      db.weekTemplates
     ],
     async () => {
       if (replaceAll) {
@@ -135,6 +155,7 @@ export async function importAll(bundle: ExportBundle, replaceAll = true) {
         await db.purchaseEntries.clear();
         await db.groceryLists.clear();
         await db.groceryLines.clear();
+        await db.weekTemplates.clear();
       }
       await db.pantryItems.bulkAdd(bundle.data.pantryItems);
       await db.inventoryLots.bulkAdd(bundle.data.inventoryLots);
@@ -147,6 +168,7 @@ export async function importAll(bundle: ExportBundle, replaceAll = true) {
       await db.purchaseEntries.bulkAdd(bundle.data.purchaseEntries);
       await db.groceryLists.bulkAdd(bundle.data.groceryLists);
       await db.groceryLines.bulkAdd(bundle.data.groceryLines);
+      await db.weekTemplates.bulkAdd(bundle.data.weekTemplates || []);
     }
   );
   await seedDefaults();

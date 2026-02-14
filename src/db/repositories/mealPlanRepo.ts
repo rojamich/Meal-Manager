@@ -31,3 +31,12 @@ export async function updatePlannedMeal(id: string, changes: Partial<PlannedMeal
 export async function deletePlannedMeal(id: string) {
   await db.plannedMeals.delete(id);
 }
+
+export async function deletePlannedMealsInRange(startDate: string, endDate: string) {
+  const all = await db.plannedMeals.toArray();
+  const ids = all
+    .filter((meal) => meal.date >= startDate && meal.date <= endDate)
+    .map((meal) => meal.id);
+  if (!ids.length) return;
+  await db.plannedMeals.bulkDelete(ids);
+}

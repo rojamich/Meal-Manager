@@ -14,6 +14,10 @@ export async function listIngredients(recipeId: string) {
   return db.recipeIngredients.where("recipeId").equals(recipeId).toArray();
 }
 
+export async function listAllIngredients() {
+  return db.recipeIngredients.toArray();
+}
+
 export async function createRecipe(input: Omit<Recipe, "id" | "createdAt" | "updatedAt">) {
   const now = new Date().toISOString();
   const recipe: Recipe = {
