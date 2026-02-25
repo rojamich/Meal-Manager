@@ -41,7 +41,8 @@ export default function PlannerPage() {
   const [inlineRecipeId, setInlineRecipeId] = useState("");
   const [inlineServings, setInlineServings] = useState("");
   const [inlineLeftoverSource, setInlineLeftoverSource] = useState("");
-  const [inlineLeftoverServingsUsed, setInlineLeftoverServingsUsed] = useState("1");
+  const [plannerPeopleCount, setPlannerPeopleCount] = useState("2");
+  const [inlineLeftoverServingsUsed, setInlineLeftoverServingsUsed] = useState("2");
   const [includeAnyRecent, setIncludeAnyRecent] = useState(false);
   const [inlineFreeformTitle, setInlineFreeformTitle] = useState("");
   const [inlineNotes, setInlineNotes] = useState("");
@@ -163,9 +164,12 @@ export default function PlannerPage() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const type = String(form.get("type")) as PlannedMeal["type"];
+    const peopleCount = Math.max(Number(form.get("peopleCount") || plannerPeopleCount || 2), 1);
     const recipeId = type === "recipe" ? String(form.get("recipeId")) : undefined;
-    const recipeDefault = recipes.find((r) => r.id === recipeId)?.defaultServings ?? 1;
-    const servings = type === "recipe" ? Number(form.get("servingsPlanned") || recipeDefault) : undefined;
+    const servings =
+      type === "recipe" ? Math.max(Number(form.get("servingsPlanned") || peopleCount), 1) : undefined;
+    const leftoverServings =
+      type === "leftover" ? Math.max(Number(form.get("servingsPlanned") || peopleCount), 1) : undefined;
     const payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> = {
       date: String(form.get("date")),
       mealSlotId: String(form.get("mealSlotId")),
@@ -175,7 +179,9 @@ export default function PlannerPage() {
       notes: String(form.get("notes") || "") || undefined,
       servingsPlanned: type === "recipe" ? servings : undefined,
       leftoverServingsRemaining: type === "recipe" ? Math.max((servings ?? 1) - 1, 0) : undefined,
-      sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined
+      sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
+      leftoverSourceMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
+      ...(type === "leftover" ? { servingsPlanned: leftoverServings } : null)
     };
     await createMealAndRefresh(payload);
     const formEl = e.currentTarget as HTMLFormElement | null;
@@ -216,14 +222,14 @@ export default function PlannerPage() {
   const resetInline = useCallback(() => {
     setInlineType("recipe");
     setInlineRecipeId("");
-    setInlineServings("");
+    setInlineServings(plannerPeopleCount);
     setInlineLeftoverSource("");
-    setInlineLeftoverServingsUsed("1");
+    setInlineLeftoverServingsUsed(plannerPeopleCount);
     setIncludeAnyRecent(false);
     setInlineFreeformTitle("");
     setInlineNotes("");
     setRecipeSearch("");
-  }, []);
+  }, [plannerPeopleCount]);
 
   const openInlineAdd = useCallback(
     async (slot: { date: string; mealSlotId: string }) => {
@@ -263,7 +269,7 @@ export default function PlannerPage() {
     if (inlineType === "recipe") {
       const recipe = recipes.find((r) => r.id === inlineRecipeId);
       if (!recipe) return null;
-      const servings = inlineServings ? Number(inlineServings) : recipe.defaultServings;
+      const servings = Math.max(Number(inlineServings || plannerPeopleCount || recipe.defaultServings || 1), 1);
       return {
         date: activeSlot.date,
         mealSlotId: activeSlot.mealSlotId,
@@ -276,7 +282,7 @@ export default function PlannerPage() {
     }
     if (inlineType === "leftover") {
       if (!inlineLeftoverSource) return null;
-      const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || 1), 1);
+      const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || plannerPeopleCount || 1), 1);
       if (inlineLeftoverSource.startsWith("meal:")) {
         const mealId = inlineLeftoverSource.slice(5);
         const source = meals.find((m) => m.id === mealId);
@@ -331,6 +337,7 @@ export default function PlannerPage() {
     inlineRecipeId,
     inlineServings,
     inlineType,
+    plannerPeopleCount,
     recipes,
     meals
   ]);
@@ -672,11 +679,11 @@ export default function PlannerPage() {
           type: "leftover",
           leftoverSourceMealId: source.id,
           sourcePlannedMealId: source.id,
-          servingsPlanned: 1
+          servingsPlanned: Math.max(Math.min(remaining, Number(plannerPeopleCount || 1)), 1)
         });
       }
     },
-    [DEBUG_DND, createMealAndRefresh, mealsById, selectMode]
+    [DEBUG_DND, createMealAndRefresh, mealsById, plannerPeopleCount, selectMode]
   );
 
   return (
@@ -708,6 +715,24 @@ export default function PlannerPage() {
               </option>
             ))}
           </select>
+          <label className="row" style={{ gap: 6 }}>
+            People
+            <select
+              value={plannerPeopleCount}
+              onChange={(e) => {
+                const next = String(Math.max(Number(e.target.value || 2), 1));
+                setPlannerPeopleCount(next);
+                if (!inlineServings) setInlineServings(next);
+                if (!inlineLeftoverServingsUsed) setInlineLeftoverServingsUsed(next);
+              }}
+            >
+              {[1, 2, 3, 4, 5, 6].map((count) => (
+                <option key={count} value={String(count)}>
+                  {count}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
             Templates
           </button>
@@ -927,6 +952,8 @@ export default function PlannerPage() {
                                     setInlineRecipeId={setInlineRecipeId}
                                     inlineServings={inlineServings}
                                     setInlineServings={setInlineServings}
+                                    plannerPeopleCount={plannerPeopleCount}
+                                    setPlannerPeopleCount={setPlannerPeopleCount}
                                     inlineLeftoverSource={inlineLeftoverSource}
                                     setInlineLeftoverSource={setInlineLeftoverSource}
                                     inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -1038,6 +1065,8 @@ export default function PlannerPage() {
                                 setInlineRecipeId={setInlineRecipeId}
                                 inlineServings={inlineServings}
                                 setInlineServings={setInlineServings}
+                                plannerPeopleCount={plannerPeopleCount}
+                                setPlannerPeopleCount={setPlannerPeopleCount}
                                 inlineLeftoverSource={inlineLeftoverSource}
                                 setInlineLeftoverSource={setInlineLeftoverSource}
                                 inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -1105,6 +1134,8 @@ export default function PlannerPage() {
                           setInlineRecipeId={setInlineRecipeId}
                           inlineServings={inlineServings}
                           setInlineServings={setInlineServings}
+                          plannerPeopleCount={plannerPeopleCount}
+                          setPlannerPeopleCount={setPlannerPeopleCount}
                           inlineLeftoverSource={inlineLeftoverSource}
                           setInlineLeftoverSource={setInlineLeftoverSource}
                           inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -1155,13 +1186,20 @@ export default function PlannerPage() {
             </select>
           </div>
           <div className="row">
+            <select name="peopleCount" defaultValue={plannerPeopleCount}>
+              {[1, 2, 3, 4, 5, 6].map((count) => (
+                <option key={count} value={count}>
+                  {count} {count === 1 ? "person" : "people"}
+                </option>
+              ))}
+            </select>
             <select name="recipeId" defaultValue="">
               <option value="">Select recipe</option>
               {recipes.map((recipe) => (
                 <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
               ))}
             </select>
-            <input type="number" name="servingsPlanned" placeholder="Servings planned" />
+            <input type="number" min="1" name="servingsPlanned" defaultValue={plannerPeopleCount} placeholder="Servings planned" />
             <input name="freeformTitle" placeholder="Freeform title" />
             <input name="sourcePlannedMealId" placeholder="Leftover source meal id" />
           </div>
@@ -1184,6 +1222,8 @@ function InlineAddPanel({
   setInlineRecipeId,
   inlineServings,
   setInlineServings,
+  plannerPeopleCount,
+  setPlannerPeopleCount,
   inlineLeftoverSource,
   setInlineLeftoverSource,
   inlineLeftoverServingsUsed,
@@ -1210,6 +1250,8 @@ function InlineAddPanel({
   setInlineRecipeId: (value: string) => void;
   inlineServings: string;
   setInlineServings: (value: string) => void;
+  plannerPeopleCount: string;
+  setPlannerPeopleCount: (value: string) => void;
   inlineLeftoverSource: string;
   setInlineLeftoverSource: (value: string) => void;
   inlineLeftoverServingsUsed: string;
@@ -1281,6 +1323,22 @@ function InlineAddPanel({
           <option value="leftover">Leftover</option>
           <option value="freeform">Freeform</option>
         </select>
+        <select
+          value={plannerPeopleCount}
+          onChange={(e) => {
+            const next = String(Math.max(Number(e.target.value || 2), 1));
+            setPlannerPeopleCount(next);
+            setInlineServings(next);
+            setInlineLeftoverServingsUsed(next);
+          }}
+          aria-label="People"
+        >
+          {[1, 2, 3, 4, 5, 6].map((count) => (
+            <option key={count} value={String(count)}>
+              {count} {count === 1 ? "person" : "people"}
+            </option>
+          ))}
+        </select>
         <button className="secondary" onClick={onCancel}>Cancel</button>
       </div>
 
@@ -1303,8 +1361,7 @@ function InlineAddPanel({
                 onChange={(e) => {
                   const nextId = e.target.value;
                   setInlineRecipeId(nextId);
-                  const recipe = recipes.find((r) => r.id === nextId);
-                  if (recipe) setInlineServings(String(recipe.defaultServings));
+                  if (nextId) setInlineServings(plannerPeopleCount);
                 }}
               >
                 <option value="">Select recipe</option>
@@ -1316,6 +1373,7 @@ function InlineAddPanel({
               </select>
               <input
                 type="number"
+                min="1"
                 placeholder="Servings"
                 value={inlineServings}
                 onChange={(e) => setInlineServings(e.target.value)}
@@ -1357,7 +1415,7 @@ function InlineAddPanel({
               <input
                 type="number"
                 min="1"
-                placeholder="Servings used"
+                placeholder="People / servings used"
                 value={inlineLeftoverServingsUsed}
                 onChange={(e) => setInlineLeftoverServingsUsed(e.target.value)}
               />
