@@ -18,8 +18,13 @@ import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createPlannedMeal, listMealSlots } from "../../db/repositories/mealPlanRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey, toISODate } from "../../utils/date";
+import { getHouseholdSize } from "../settings/preferences";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
+
+function recipeBaseServings(recipe: Recipe) {
+  return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 2, 1);
+}
 
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -225,14 +230,15 @@ export default function RecipesPage() {
   async function addRecipeToPlanner(recipeId: string, date: string, mealSlotId: string, servingsPlanned?: number) {
     const recipe = recipes.find((r) => r.id === recipeId);
     if (!recipe) return;
-    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : recipe.defaultServings;
+    const householdSize = getHouseholdSize();
+    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : householdSize;
     await createPlannedMeal({
       date,
       mealSlotId,
       type: "recipe",
       recipeId,
       servingsPlanned: servings,
-      leftoverServingsRemaining: Math.max(servings - 1, 0)
+      leftoverServingsRemaining: Math.max(servings - householdSize, 0)
     });
   }
 
@@ -249,6 +255,7 @@ export default function RecipesPage() {
               setSelected({
                 id: "",
                 title: "",
+                baseServings: 2,
                 defaultServings: 2,
                 mealTypes: [],
                 tags: [],
@@ -352,7 +359,7 @@ export default function RecipesPage() {
                     <span key={type} className="tag">{type}</span>
                   ))}
                 </td>
-                <td data-label="Servings">{recipe.defaultServings}</td>
+                <td data-label="Servings">{recipeBaseServings(recipe)}</td>
                 <td data-label="Calories">{recipe.caloriesPerServing ?? "-"}</td>
                 <td data-label="Cost">{recipe.estimatedCostPerServing ?? "-"}</td>
                 <td data-label="Actions">
@@ -414,7 +421,7 @@ function RecipeEditor({
   const [form, setForm] = useState({
     title: recipe.title,
     url: recipe.url || "",
-    defaultServings: recipe.defaultServings || 2,
+    baseServings: recipe.baseServings ?? recipe.defaultServings ?? 2,
     mealTypes: recipe.mealTypes || [],
     tags: recipe.tags.join(", "),
     notes: recipe.notes || "",
@@ -470,7 +477,7 @@ function RecipeEditor({
     setForm({
       title: recipe.title,
       url: recipe.url || "",
-      defaultServings: recipe.defaultServings || 2,
+      baseServings: recipe.baseServings ?? recipe.defaultServings ?? 2,
       mealTypes: recipe.mealTypes || [],
       tags: recipe.tags.join(", "),
       notes: recipe.notes || "",
@@ -494,7 +501,8 @@ function RecipeEditor({
     const payload = {
       title: form.title.trim(),
       url: form.url || undefined,
-      defaultServings: Number(form.defaultServings),
+      baseServings: Math.max(Number(form.baseServings) || 1, 1),
+      defaultServings: Math.max(Number(form.baseServings) || 1, 1),
       mealTypes: form.mealTypes,
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       notes: form.notes || undefined,
@@ -519,7 +527,8 @@ function RecipeEditor({
               ...recipe,
               title: form.title.trim(),
               url: form.url || undefined,
-              defaultServings: Number(form.defaultServings),
+              baseServings: Math.max(Number(form.baseServings) || 1, 1),
+              defaultServings: Math.max(Number(form.baseServings) || 1, 1),
               mealTypes: form.mealTypes,
               tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
               notes: form.notes || undefined,
@@ -531,7 +540,8 @@ function RecipeEditor({
           : {
               title: form.title.trim(),
               url: form.url || undefined,
-              defaultServings: Number(form.defaultServings),
+              baseServings: Math.max(Number(form.baseServings) || 1, 1),
+              defaultServings: Math.max(Number(form.baseServings) || 1, 1),
               mealTypes: form.mealTypes,
               tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
               notes: form.notes || undefined,
@@ -594,9 +604,10 @@ function RecipeEditor({
           <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="URL" />
           <input
             type="number"
-            value={form.defaultServings}
-            onChange={(e) => setForm({ ...form, defaultServings: Number(e.target.value) })}
-            placeholder="Default servings"
+            min="1"
+            value={form.baseServings}
+            onChange={(e) => setForm({ ...form, baseServings: Number(e.target.value) })}
+            placeholder="Base servings"
           />
         </div>
         <div className="row">

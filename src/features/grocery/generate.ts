@@ -61,8 +61,9 @@ export async function buildGroceryLines(settings: GrocerySettings) {
     const recipe = recipeMap.get(meal.recipeId);
     if (!recipe) continue;
     const ingredients = await listIngredients(recipe.id);
-    const servings = meal.servingsPlanned ?? recipe.defaultServings;
-    const factor = servings / recipe.defaultServings;
+    const recipeBaseServings = Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
+    const servings = meal.servingsPlanned ?? recipeBaseServings;
+    const factor = servings / recipeBaseServings;
 
     const normalIngredients = ingredients.filter((ing) => !ing.altGroup?.trim());
     const altGroupMap = new Map<string, RecipeIngredient[]>();
@@ -127,6 +128,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       const optionItems = options
         .map((opt) => pantryItems.find((p) => p.id === opt.pantryItemId))
         .filter(Boolean);
+      const qty = (options[0]?.quantity ?? 1) * factor;
       const optionNames = optionItems.map((item) => item?.name || "Option");
       const category = optionItems[0]?.category || "other";
       const unit = optionItems[0]?.baseUnit || "count";
@@ -137,9 +139,9 @@ export async function buildGroceryLines(settings: GrocerySettings) {
         category,
         altGroupLabel: groupLabel,
         altOptionsJson: JSON.stringify(options.map((opt) => opt.pantryItemId)),
-        neededQty: 1,
+        neededQty: qty,
         fromPantryQty: 0,
-        toBuyQty: 1,
+        toBuyQty: qty,
         unit,
         usedForJson: JSON.stringify({
           [`${recipe.title} (${groupLabel} option)`]: 1

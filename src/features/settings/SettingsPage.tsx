@@ -4,9 +4,11 @@ import EssentialsSection from "../essentials/EssentialsSection";
 import LocationsSection from "../locations/LocationsSection";
 import PricesSection from "../prices/PricesSection";
 import { exportAll, importAll } from "../../db/db";
+import { getHouseholdSize, setHouseholdSize } from "./preferences";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
+  const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
 
   async function handleExport() {
     const bundle = await exportAll();
@@ -35,6 +37,25 @@ export default function SettingsPage() {
 
   return (
     <div className="grid">
+      <details className="panel" open>
+        <summary>Planner Defaults</summary>
+        <label>
+          Household size
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={householdSize}
+            onChange={(e) => {
+              const next = Math.max(Number(e.target.value || 2), 1);
+              setHouseholdSizeState(next);
+              setHouseholdSize(next);
+            }}
+          />
+        </label>
+        <p className="muted">Used for default planned servings and leftover calculations.</p>
+      </details>
+
       <details className="panel" open>
         <summary>Backup</summary>
         <div className="row">

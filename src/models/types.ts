@@ -28,6 +28,7 @@ export interface Recipe {
   id: string;
   title: string;
   url?: string;
+  baseServings: number;
   defaultServings: number;
   mealTypes: string[];
   tags: string[];

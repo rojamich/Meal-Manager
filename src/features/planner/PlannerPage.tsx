@@ -28,6 +28,7 @@ import {
   deleteWeekTemplate,
   listWeekTemplates
 } from "../../db/repositories/weekTemplateRepo";
+import { getHouseholdSize } from "../settings/preferences";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
@@ -41,8 +42,8 @@ export default function PlannerPage() {
   const [inlineRecipeId, setInlineRecipeId] = useState("");
   const [inlineServings, setInlineServings] = useState("");
   const [inlineLeftoverSource, setInlineLeftoverSource] = useState("");
-  const [plannerPeopleCount, setPlannerPeopleCount] = useState("2");
-  const [inlineLeftoverServingsUsed, setInlineLeftoverServingsUsed] = useState("2");
+  const [householdSize] = useState<number>(getHouseholdSize());
+  const [inlineLeftoverServingsUsed, setInlineLeftoverServingsUsed] = useState("1");
   const [includeAnyRecent, setIncludeAnyRecent] = useState(false);
   const [inlineFreeformTitle, setInlineFreeformTitle] = useState("");
   const [inlineNotes, setInlineNotes] = useState("");
@@ -90,9 +91,9 @@ export default function PlannerPage() {
     const normalized = data.map((meal) => {
       if (meal.type !== "recipe") return meal;
       if (typeof meal.leftoverServingsRemaining === "number") return meal;
-      const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+      const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.baseServings ?? recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
       const servings = meal.servingsPlanned ?? recipeDefault;
-      return { ...meal, leftoverServingsRemaining: Math.max(servings - 1, 0) };
+      return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
     });
     const toPersist = normalized.filter(
       (meal, idx) =>
@@ -109,7 +110,7 @@ export default function PlannerPage() {
     }
     setMeals([...normalized]);
     return normalized;
-  }, [anchorDate, recipes, view]);
+  }, [anchorDate, householdSize, recipes, view]);
 
   useEffect(() => {
     refreshMeals();
@@ -130,7 +131,11 @@ export default function PlannerPage() {
           const originalRemaining =
             typeof source?.leftoverServingsRemaining === "number"
               ? source.leftoverServingsRemaining
-              : Math.max(sourceServings - 1, 0);
+              : Math.max(sourceServings - householdSize, 0);
+          if (originalRemaining < servingsUsed) {
+            alert(`Only ${originalRemaining} leftover servings remaining.`);
+            return undefined;
+          }
           const nextRemaining = Math.max(originalRemaining - servingsUsed, 0);
           try {
             await updatePlannedMeal(sourceId, { leftoverServingsRemaining: nextRemaining });
@@ -157,19 +162,18 @@ export default function PlannerPage() {
       await refreshMeals();
       return created;
     },
-    [anchorDate, meals, refreshMeals, view]
+    [anchorDate, householdSize, meals, refreshMeals, view]
   );
 
   async function addMeal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const type = String(form.get("type")) as PlannedMeal["type"];
-    const peopleCount = Math.max(Number(form.get("peopleCount") || plannerPeopleCount || 2), 1);
     const recipeId = type === "recipe" ? String(form.get("recipeId")) : undefined;
     const servings =
-      type === "recipe" ? Math.max(Number(form.get("servingsPlanned") || peopleCount), 1) : undefined;
+      type === "recipe" ? Math.max(Number(form.get("servingsPlanned") || householdSize), 1) : undefined;
     const leftoverServings =
-      type === "leftover" ? Math.max(Number(form.get("servingsPlanned") || peopleCount), 1) : undefined;
+      type === "leftover" ? Math.max(Number(form.get("servingsPlanned") || 1), 1) : undefined;
     const payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> = {
       date: String(form.get("date")),
       mealSlotId: String(form.get("mealSlotId")),
@@ -178,14 +182,17 @@ export default function PlannerPage() {
       freeformTitle: type === "freeform" ? String(form.get("freeformTitle")) : undefined,
       notes: String(form.get("notes") || "") || undefined,
       servingsPlanned: type === "recipe" ? servings : undefined,
-      leftoverServingsRemaining: type === "recipe" ? Math.max((servings ?? 1) - 1, 0) : undefined,
+      leftoverServingsRemaining: type === "recipe" ? Math.max((servings ?? 1) - householdSize, 0) : undefined,
       sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
       leftoverSourceMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
       ...(type === "leftover" ? { servingsPlanned: leftoverServings } : null)
     };
-    await createMealAndRefresh(payload);
+    const created = await createMealAndRefresh(payload);
+    if (!created) return;
     const formEl = e.currentTarget as HTMLFormElement | null;
     formEl?.reset();
+    const servingsInput = formEl?.elements.namedItem("servingsPlanned") as HTMLInputElement | null;
+    if (servingsInput) servingsInput.value = String(householdSize);
   }
 
   async function removeMeal(id: string) {
@@ -197,7 +204,8 @@ export default function PlannerPage() {
       if (sourceId) {
         const source = meals.find((m) => m.id === sourceId);
         if (source) {
-          const remaining = Math.max((source.leftoverServingsRemaining ?? 0) + servingsUsed, 0);
+          const sourceDefaultRemaining = Math.max((source.servingsPlanned ?? 1) - householdSize, 0);
+          const remaining = Math.max((source.leftoverServingsRemaining ?? sourceDefaultRemaining) + servingsUsed, 0);
           await updatePlannedMeal(source.id, { leftoverServingsRemaining: remaining });
           setMeals((prev: PlannedMeal[]) =>
             prev.map((m: PlannedMeal) => (m.id === source.id ? { ...m, leftoverServingsRemaining: remaining } : m))
@@ -208,7 +216,8 @@ export default function PlannerPage() {
           const recent = await listPlannedMeals(dateKey(start), dateKey(today));
           const fallback = recent.find((m) => m.id === sourceId);
           if (fallback) {
-            const remaining = Math.max((fallback.leftoverServingsRemaining ?? 0) + servingsUsed, 0);
+            const fallbackDefaultRemaining = Math.max((fallback.servingsPlanned ?? 1) - householdSize, 0);
+            const remaining = Math.max((fallback.leftoverServingsRemaining ?? fallbackDefaultRemaining) + servingsUsed, 0);
             await updatePlannedMeal(fallback.id, { leftoverServingsRemaining: remaining });
           }
         }
@@ -222,14 +231,14 @@ export default function PlannerPage() {
   const resetInline = useCallback(() => {
     setInlineType("recipe");
     setInlineRecipeId("");
-    setInlineServings(plannerPeopleCount);
+    setInlineServings(String(householdSize));
     setInlineLeftoverSource("");
-    setInlineLeftoverServingsUsed(plannerPeopleCount);
+    setInlineLeftoverServingsUsed("1");
     setIncludeAnyRecent(false);
     setInlineFreeformTitle("");
     setInlineNotes("");
     setRecipeSearch("");
-  }, [plannerPeopleCount]);
+  }, [householdSize]);
 
   const openInlineAdd = useCallback(
     async (slot: { date: string; mealSlotId: string }) => {
@@ -242,9 +251,9 @@ export default function PlannerPage() {
       const normalized = recent.map((meal) => {
         if (meal.type !== "recipe") return meal;
         if (typeof meal.leftoverServingsRemaining === "number") return meal;
-        const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+        const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.baseServings ?? recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
         const servings = meal.servingsPlanned ?? recipeDefault;
-        return { ...meal, leftoverServingsRemaining: Math.max(servings - 1, 0) };
+        return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
       });
       const toPersist = normalized.filter(
         (meal, idx) =>
@@ -261,7 +270,7 @@ export default function PlannerPage() {
       }
       setRecentPlanned([...normalized]);
     },
-    [anchorDate, recipes, resetInline]
+    [anchorDate, householdSize, recipes, resetInline]
   );
 
   const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
@@ -269,20 +278,20 @@ export default function PlannerPage() {
     if (inlineType === "recipe") {
       const recipe = recipes.find((r) => r.id === inlineRecipeId);
       if (!recipe) return null;
-      const servings = Math.max(Number(inlineServings || plannerPeopleCount || recipe.defaultServings || 1), 1);
+      const servings = Math.max(Number(inlineServings || householdSize || 1), 1);
       return {
         date: activeSlot.date,
         mealSlotId: activeSlot.mealSlotId,
         type: "recipe",
         recipeId: recipe.id,
         servingsPlanned: servings,
-        leftoverServingsRemaining: Math.max(servings - 1, 0),
+        leftoverServingsRemaining: Math.max(servings - householdSize, 0),
         notes: inlineNotes || undefined
       };
     }
     if (inlineType === "leftover") {
       if (!inlineLeftoverSource) return null;
-      const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || plannerPeopleCount || 1), 1);
+      const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || 1), 1);
       if (inlineLeftoverSource.startsWith("meal:")) {
         const mealId = inlineLeftoverSource.slice(5);
         const source = meals.find((m) => m.id === mealId);
@@ -290,10 +299,10 @@ export default function PlannerPage() {
         const effectiveRemaining =
           typeof source?.leftoverServingsRemaining === "number"
             ? source.leftoverServingsRemaining
-            : Math.max(sourceServings - 1, 0);
+            : Math.max(sourceServings - householdSize, 0);
         const remaining = effectiveRemaining;
-        if (remaining <= 0) {
-          alert("No leftovers remaining");
+        if (remaining < servingsUsed) {
+          alert(remaining <= 0 ? "No leftovers remaining" : `Only ${remaining} leftover servings remaining`);
           return null;
         }
         return {
@@ -337,7 +346,7 @@ export default function PlannerPage() {
     inlineRecipeId,
     inlineServings,
     inlineType,
-    plannerPeopleCount,
+    householdSize,
     recipes,
     meals
   ]);
@@ -668,7 +677,7 @@ export default function PlannerPage() {
         const sourceId = activeId.slice(9);
         const source = mealsById.get(sourceId);
         if (!source) return;
-        const remaining = source.leftoverServingsRemaining ?? 0;
+        const remaining = source.leftoverServingsRemaining ?? Math.max((source.servingsPlanned ?? 1) - householdSize, 0);
         if (remaining <= 0) {
           alert("No leftovers remaining");
           return;
@@ -679,11 +688,11 @@ export default function PlannerPage() {
           type: "leftover",
           leftoverSourceMealId: source.id,
           sourcePlannedMealId: source.id,
-          servingsPlanned: Math.max(Math.min(remaining, Number(plannerPeopleCount || 1)), 1)
+          servingsPlanned: 1
         });
       }
     },
-    [DEBUG_DND, createMealAndRefresh, mealsById, plannerPeopleCount, selectMode]
+    [DEBUG_DND, createMealAndRefresh, mealsById, selectMode]
   );
 
   return (
@@ -715,24 +724,6 @@ export default function PlannerPage() {
               </option>
             ))}
           </select>
-          <label className="row" style={{ gap: 6 }}>
-            People
-            <select
-              value={plannerPeopleCount}
-              onChange={(e) => {
-                const next = String(Math.max(Number(e.target.value || 2), 1));
-                setPlannerPeopleCount(next);
-                if (!inlineServings) setInlineServings(next);
-                if (!inlineLeftoverServingsUsed) setInlineLeftoverServingsUsed(next);
-              }}
-            >
-              {[1, 2, 3, 4, 5, 6].map((count) => (
-                <option key={count} value={String(count)}>
-                  {count}
-                </option>
-              ))}
-            </select>
-          </label>
           <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
             Templates
           </button>
@@ -952,8 +943,7 @@ export default function PlannerPage() {
                                     setInlineRecipeId={setInlineRecipeId}
                                     inlineServings={inlineServings}
                                     setInlineServings={setInlineServings}
-                                    plannerPeopleCount={plannerPeopleCount}
-                                    setPlannerPeopleCount={setPlannerPeopleCount}
+                                    householdSize={householdSize}
                                     inlineLeftoverSource={inlineLeftoverSource}
                                     setInlineLeftoverSource={setInlineLeftoverSource}
                                     inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -971,7 +961,8 @@ export default function PlannerPage() {
                                     onSave={async () => {
                                       const payload = buildInlinePayload();
                                       if (!payload) return;
-                                      await createMealAndRefresh(payload);
+                                      const created = await createMealAndRefresh(payload);
+                                      if (!created) return;
                                       resetInline();
                                       closePanel("inline-save");
                                     }}
@@ -1065,8 +1056,7 @@ export default function PlannerPage() {
                                 setInlineRecipeId={setInlineRecipeId}
                                 inlineServings={inlineServings}
                                 setInlineServings={setInlineServings}
-                                plannerPeopleCount={plannerPeopleCount}
-                                setPlannerPeopleCount={setPlannerPeopleCount}
+                                householdSize={householdSize}
                                 inlineLeftoverSource={inlineLeftoverSource}
                                 setInlineLeftoverSource={setInlineLeftoverSource}
                                 inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -1084,7 +1074,8 @@ export default function PlannerPage() {
                                 onSave={async () => {
                                   const payload = buildInlinePayload();
                                   if (!payload) return;
-                                  await createMealAndRefresh(payload);
+                                  const created = await createMealAndRefresh(payload);
+                                  if (!created) return;
                                   resetInline();
                                   closePanel("inline-save-month");
                                 }}
@@ -1134,8 +1125,7 @@ export default function PlannerPage() {
                           setInlineRecipeId={setInlineRecipeId}
                           inlineServings={inlineServings}
                           setInlineServings={setInlineServings}
-                          plannerPeopleCount={plannerPeopleCount}
-                          setPlannerPeopleCount={setPlannerPeopleCount}
+                          householdSize={householdSize}
                           inlineLeftoverSource={inlineLeftoverSource}
                           setInlineLeftoverSource={setInlineLeftoverSource}
                           inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
@@ -1153,7 +1143,8 @@ export default function PlannerPage() {
                           onSave={async () => {
                             const payload = buildInlinePayload();
                             if (!payload) return;
-                            await createMealAndRefresh(payload);
+                            const created = await createMealAndRefresh(payload);
+                            if (!created) return;
                             resetInline();
                             closePanel("inline-save-mobile");
                           }}
@@ -1186,20 +1177,13 @@ export default function PlannerPage() {
             </select>
           </div>
           <div className="row">
-            <select name="peopleCount" defaultValue={plannerPeopleCount}>
-              {[1, 2, 3, 4, 5, 6].map((count) => (
-                <option key={count} value={count}>
-                  {count} {count === 1 ? "person" : "people"}
-                </option>
-              ))}
-            </select>
             <select name="recipeId" defaultValue="">
               <option value="">Select recipe</option>
               {recipes.map((recipe) => (
                 <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
               ))}
             </select>
-            <input type="number" min="1" name="servingsPlanned" defaultValue={plannerPeopleCount} placeholder="Servings planned" />
+            <input type="number" min="1" name="servingsPlanned" defaultValue={householdSize} placeholder="Servings planned" />
             <input name="freeformTitle" placeholder="Freeform title" />
             <input name="sourcePlannedMealId" placeholder="Leftover source meal id" />
           </div>
@@ -1222,8 +1206,7 @@ function InlineAddPanel({
   setInlineRecipeId,
   inlineServings,
   setInlineServings,
-  plannerPeopleCount,
-  setPlannerPeopleCount,
+  householdSize,
   inlineLeftoverSource,
   setInlineLeftoverSource,
   inlineLeftoverServingsUsed,
@@ -1250,8 +1233,7 @@ function InlineAddPanel({
   setInlineRecipeId: (value: string) => void;
   inlineServings: string;
   setInlineServings: (value: string) => void;
-  plannerPeopleCount: string;
-  setPlannerPeopleCount: (value: string) => void;
+  householdSize: number;
   inlineLeftoverSource: string;
   setInlineLeftoverSource: (value: string) => void;
   inlineLeftoverServingsUsed: string;
@@ -1282,7 +1264,7 @@ function InlineAddPanel({
   const effectiveRemaining = (meal: PlannedMeal) => {
     if (typeof meal.leftoverServingsRemaining === "number") return meal.leftoverServingsRemaining;
     if (meal.type !== "recipe") return 0;
-    return Math.max((meal.servingsPlanned ?? 1) - 1, 0);
+    return Math.max((meal.servingsPlanned ?? 1) - householdSize, 0);
   };
   const recentMealOptions = mergedMeals
     .filter((meal) => (includeAnyRecent || meal.type === "recipe") && effectiveRemaining(meal) > 0)
@@ -1323,22 +1305,6 @@ function InlineAddPanel({
           <option value="leftover">Leftover</option>
           <option value="freeform">Freeform</option>
         </select>
-        <select
-          value={plannerPeopleCount}
-          onChange={(e) => {
-            const next = String(Math.max(Number(e.target.value || 2), 1));
-            setPlannerPeopleCount(next);
-            setInlineServings(next);
-            setInlineLeftoverServingsUsed(next);
-          }}
-          aria-label="People"
-        >
-          {[1, 2, 3, 4, 5, 6].map((count) => (
-            <option key={count} value={String(count)}>
-              {count} {count === 1 ? "person" : "people"}
-            </option>
-          ))}
-        </select>
         <button className="secondary" onClick={onCancel}>Cancel</button>
       </div>
 
@@ -1361,7 +1327,7 @@ function InlineAddPanel({
                 onChange={(e) => {
                   const nextId = e.target.value;
                   setInlineRecipeId(nextId);
-                  if (nextId) setInlineServings(plannerPeopleCount);
+                  if (nextId && !inlineServings) setInlineServings(String(householdSize));
                 }}
               >
                 <option value="">Select recipe</option>
@@ -1415,7 +1381,7 @@ function InlineAddPanel({
               <input
                 type="number"
                 min="1"
-                placeholder="People / servings used"
+                placeholder="Servings used"
                 value={inlineLeftoverServingsUsed}
                 onChange={(e) => setInlineLeftoverServingsUsed(e.target.value)}
               />
@@ -1457,7 +1423,7 @@ function MealLabel({
     const remaining =
       typeof meal.leftoverServingsRemaining === "number"
         ? meal.leftoverServingsRemaining
-        : Math.max((meal.servingsPlanned ?? 1) - 1, 0);
+        : 0;
     return (
       <span>
         {recipe?.title || "Recipe"}
@@ -1743,7 +1709,7 @@ function DraggableMeal({
   const remaining =
     typeof meal.leftoverServingsRemaining === "number"
       ? meal.leftoverServingsRemaining
-      : Math.max((meal.servingsPlanned ?? 1) - 1, 0);
+      : 0;
 
   return (
     <div
@@ -1793,16 +1759,10 @@ function DraggableMeal({
         <>
           <LeftoverBadge
             mealId={meal.id}
-            remaining={meal.leftoverServingsRemaining}
+            remaining={remaining}
             onClick={() => onSetLeftovers(meal)}
             disabled={selectMode}
           />
-          {remaining > 1 && (
-            <span className="leftover-remaining">
-              <span className="desktop-only">{remaining} left</span>
-              <span className="mobile-only">{remaining}</span>
-            </span>
-          )}
         </>
       )}
       <button
@@ -1880,11 +1840,11 @@ function LeftoverBadge({
         style={{ opacity: 0.6 }}
         title="Set leftovers"
       >
-        L
+        {typeof remaining === "number" ? `${remaining} left` : "Leftovers"}
       </button>
     );
   }
-  const label = `(${remaining})`;
+  const label = `${remaining} left`;
   return (
     <button
       ref={setNodeRef}
