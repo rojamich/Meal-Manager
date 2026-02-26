@@ -104,6 +104,37 @@ class MealDb extends Dexie {
           recipe.defaultServings = servings;
         });
       });
+
+    this.version(5)
+      .stores({
+        pantryItems: "id, name, category",
+        inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+        recipes: "id, title",
+        recipeIngredients: "id, recipeId, pantryItemId",
+        mealSlots: "id, sortOrder",
+        plannedMeals: "id, date, mealSlotId, type, recipeId",
+        essentialItems: "id, pantryItemId, category",
+        locationProfiles: "id, name",
+        purchaseEntries: "id, pantryItemId, locationId, date",
+        groceryLists: "id, createdAt, startDate, endDate, locationId",
+        groceryLines: "id, groceryListId, pantryItemId, checked",
+        weekTemplates: "id, name, locationId, createdAt"
+      })
+      .upgrade(async (tx) => {
+        await tx.table("recipes").toCollection().modify((recipe: any) => {
+          if (recipe.calories === undefined && recipe.caloriesPerServing !== undefined) {
+            recipe.calories = Number.isFinite(Number(recipe.caloriesPerServing))
+              ? Number(recipe.caloriesPerServing)
+              : undefined;
+          }
+          if (recipe.proteinGrams !== undefined && !Number.isFinite(Number(recipe.proteinGrams))) {
+            recipe.proteinGrams = undefined;
+          }
+          if (recipe.timeMinutes !== undefined && !Number.isFinite(Number(recipe.timeMinutes))) {
+            recipe.timeMinutes = undefined;
+          }
+        });
+      });
   }
 }
 

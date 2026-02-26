@@ -26,6 +26,18 @@ function recipeBaseServings(recipe: Recipe) {
   return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 2, 1);
 }
 
+function recipeCalories(recipe: Recipe) {
+  return recipe.calories ?? recipe.caloriesPerServing;
+}
+
+function recipeMetaSummary(recipe: Recipe) {
+  const parts: string[] = [];
+  if (recipeCalories(recipe) !== undefined) parts.push(`${recipeCalories(recipe)} cal`);
+  if (recipe.proteinGrams !== undefined) parts.push(`${recipe.proteinGrams}g protein`);
+  if (recipe.timeMinutes !== undefined) parts.push(`${recipe.timeMinutes} min`);
+  return parts.join(" • ") || "-";
+}
+
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
@@ -149,7 +161,7 @@ export default function RecipesPage() {
         const matchesMealType =
           mealTypeFilters.length === 0 || r.mealTypes?.some((type) => mealTypeFilters.includes(type));
         const caloriesOk =
-          !maxCalories || (r.caloriesPerServing !== undefined && r.caloriesPerServing <= Number(maxCalories));
+          !maxCalories || (recipeCalories(r) !== undefined && (recipeCalories(r) as number) <= Number(maxCalories));
         const costOk =
           !maxCost || (r.estimatedCostPerServing !== undefined && r.estimatedCostPerServing <= Number(maxCost));
         const canMake = makeableByRecipe.get(r.id) ?? true;
@@ -158,8 +170,8 @@ export default function RecipesPage() {
       .sort((a, b) => {
         if (sortBy === "title") return a.title.localeCompare(b.title);
         if (sortBy === "calories") {
-          const aVal = a.caloriesPerServing ?? Number.MAX_VALUE;
-          const bVal = b.caloriesPerServing ?? Number.MAX_VALUE;
+          const aVal = recipeCalories(a) ?? Number.MAX_VALUE;
+          const bVal = recipeCalories(b) ?? Number.MAX_VALUE;
           return aVal - bVal;
         }
         const aVal = a.estimatedCostPerServing ?? Number.MAX_VALUE;
@@ -261,7 +273,10 @@ export default function RecipesPage() {
                 tags: [],
                 notes: "",
                 steps: [""],
+                calories: undefined,
                 caloriesPerServing: undefined,
+                proteinGrams: undefined,
+                timeMinutes: undefined,
                 estimatedCostPerServing: undefined,
                 imageUrl: "",
                 createdAt: "",
@@ -336,7 +351,7 @@ export default function RecipesPage() {
               <th>Title</th>
               <th>Meal types</th>
               <th>Servings</th>
-              <th>Calories</th>
+              <th>Metadata</th>
               <th>Cost</th>
               <th></th>
             </tr>
@@ -360,7 +375,7 @@ export default function RecipesPage() {
                   ))}
                 </td>
                 <td data-label="Servings">{recipeBaseServings(recipe)}</td>
-                <td data-label="Calories">{recipe.caloriesPerServing ?? "-"}</td>
+                <td data-label="Metadata">{recipeMetaSummary(recipe)}</td>
                 <td data-label="Cost">{recipe.estimatedCostPerServing ?? "-"}</td>
                 <td data-label="Actions">
                   <button className="danger" onClick={() => removeRecipe(recipe.id)}>
@@ -426,7 +441,9 @@ function RecipeEditor({
     tags: recipe.tags.join(", "),
     notes: recipe.notes || "",
     steps: recipe.steps.length ? recipe.steps : [""],
-    caloriesPerServing: recipe.caloriesPerServing?.toString() || "",
+    calories: (recipe.calories ?? recipe.caloriesPerServing)?.toString() || "",
+    proteinGrams: recipe.proteinGrams?.toString() || "",
+    timeMinutes: recipe.timeMinutes?.toString() || "",
     estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
     imageUrl: recipe.imageUrl || ""
   });
@@ -482,7 +499,9 @@ function RecipeEditor({
       tags: recipe.tags.join(", "),
       notes: recipe.notes || "",
       steps: recipe.steps.length ? recipe.steps : [""],
-      caloriesPerServing: recipe.caloriesPerServing?.toString() || "",
+      calories: (recipe.calories ?? recipe.caloriesPerServing)?.toString() || "",
+      proteinGrams: recipe.proteinGrams?.toString() || "",
+      timeMinutes: recipe.timeMinutes?.toString() || "",
       estimatedCostPerServing: recipe.estimatedCostPerServing?.toString() || "",
       imageUrl: recipe.imageUrl || ""
     });
@@ -498,6 +517,7 @@ function RecipeEditor({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    const calories = form.calories ? Number(form.calories) : undefined;
     const payload = {
       title: form.title.trim(),
       url: form.url || undefined,
@@ -507,7 +527,10 @@ function RecipeEditor({
       tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       notes: form.notes || undefined,
       steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
-      caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+      calories,
+      caloriesPerServing: calories,
+      proteinGrams: form.proteinGrams ? Number(form.proteinGrams) : undefined,
+      timeMinutes: form.timeMinutes ? Number(form.timeMinutes) : undefined,
       estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
       imageUrl: form.imageUrl || undefined
     };
@@ -520,6 +543,7 @@ function RecipeEditor({
   }
 
   async function handleSaveAndClose() {
+    const calories = form.calories ? Number(form.calories) : undefined;
     await Promise.resolve(
       onSave(
         recipe.id
@@ -533,7 +557,10 @@ function RecipeEditor({
               tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
               notes: form.notes || undefined,
               steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
-              caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+              calories,
+              caloriesPerServing: calories,
+              proteinGrams: form.proteinGrams ? Number(form.proteinGrams) : undefined,
+              timeMinutes: form.timeMinutes ? Number(form.timeMinutes) : undefined,
               estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
               imageUrl: form.imageUrl || undefined
             }
@@ -546,7 +573,10 @@ function RecipeEditor({
               tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
               notes: form.notes || undefined,
               steps: form.steps.map((s) => s.trim()).filter((s) => s.length > 0),
-              caloriesPerServing: form.caloriesPerServing ? Number(form.caloriesPerServing) : undefined,
+              calories,
+              caloriesPerServing: calories,
+              proteinGrams: form.proteinGrams ? Number(form.proteinGrams) : undefined,
+              timeMinutes: form.timeMinutes ? Number(form.timeMinutes) : undefined,
               estimatedCostPerServing: form.estimatedCostPerServing ? Number(form.estimatedCostPerServing) : undefined,
               imageUrl: form.imageUrl || undefined
             }
@@ -634,12 +664,34 @@ function RecipeEditor({
         </div>
         <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (comma separated)" />
         <div className="row">
-          <input
-            type="number"
-            value={form.caloriesPerServing}
-            onChange={(e) => setForm({ ...form, caloriesPerServing: e.target.value })}
-            placeholder="Calories per serving"
-          />
+          <label className="field-stack">
+            <span>Calories (per serving)</span>
+            <input
+              type="number"
+              min="0"
+              value={form.calories}
+              onChange={(e) => setForm({ ...form, calories: e.target.value })}
+            />
+          </label>
+          <label className="field-stack">
+            <span>Protein (g per serving)</span>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={form.proteinGrams}
+              onChange={(e) => setForm({ ...form, proteinGrams: e.target.value })}
+            />
+          </label>
+          <label className="field-stack">
+            <span>Time (minutes)</span>
+            <input
+              type="number"
+              min="0"
+              value={form.timeMinutes}
+              onChange={(e) => setForm({ ...form, timeMinutes: e.target.value })}
+            />
+          </label>
           <input
             type="number"
             value={form.estimatedCostPerServing}

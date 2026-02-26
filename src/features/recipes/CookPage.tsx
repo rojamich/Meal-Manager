@@ -9,6 +9,10 @@ function getEffectiveBaseServings(recipe: Recipe) {
   return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
 }
 
+function getCaloriesPerServing(recipe: Recipe) {
+  return recipe.calories ?? recipe.caloriesPerServing;
+}
+
 export default function CookPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -25,6 +29,7 @@ export default function CookPage() {
   }, [id]);
 
   const plannedServings = Math.max(Number(searchParams.get("servings") || 0) || 0, 0);
+  const hasPlannedServings = searchParams.has("servings") && plannedServings > 0;
   const effectiveServings = useMemo(() => {
     if (!recipe) return 1;
     return Math.max(plannedServings || getEffectiveBaseServings(recipe), 1);
@@ -43,6 +48,11 @@ export default function CookPage() {
 
   const currentStep = recipe.steps[stepIndex] || "";
   const totalSteps = Math.max(recipe.steps.length, 1);
+  const perServingCalories = getCaloriesPerServing(recipe);
+  const perServingProtein = recipe.proteinGrams;
+  const totalCalories = perServingCalories !== undefined ? Math.round(perServingCalories * effectiveServings) : undefined;
+  const totalProtein =
+    perServingProtein !== undefined ? Math.round(perServingProtein * effectiveServings * 10) / 10 : undefined;
 
   return (
     <div className="container">
@@ -53,6 +63,20 @@ export default function CookPage() {
             <p className="muted" style={{ marginTop: 6 }}>
               Servings: {effectiveServings} (base {getEffectiveBaseServings(recipe)})
             </p>
+            {(perServingCalories !== undefined || perServingProtein !== undefined) && (
+              <p className="muted" style={{ marginTop: 6 }}>
+                Per serving:
+                {perServingCalories !== undefined ? ` ${perServingCalories} cal` : ""}
+                {perServingProtein !== undefined ? `${perServingCalories !== undefined ? " •" : ""} ${perServingProtein}g protein` : ""}
+              </p>
+            )}
+            {hasPlannedServings && (totalCalories !== undefined || totalProtein !== undefined) && (
+              <p className="muted" style={{ marginTop: 6 }}>
+                Total:
+                {totalCalories !== undefined ? ` ${totalCalories} cal` : ""}
+                {totalProtein !== undefined ? `${totalCalories !== undefined ? " •" : ""} ${totalProtein}g protein` : ""}
+              </p>
+            )}
           </div>
         </div>
 

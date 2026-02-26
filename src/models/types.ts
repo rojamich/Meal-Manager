@@ -34,7 +34,10 @@ export interface Recipe {
   tags: string[];
   notes?: string;
   steps: string[];
+  calories?: number;
   caloriesPerServing?: number;
+  proteinGrams?: number;
+  timeMinutes?: number;
   estimatedCostPerServing?: number;
   imageUrl?: string;
   createdAt: string;
