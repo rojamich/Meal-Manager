@@ -195,6 +195,32 @@ button.danger:focus {
   color: var(--muted);
 }
 
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.field-stack > span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.field-stack.compact-field {
+  min-width: 110px;
+}
+
+.field-note {
+  margin: -4px 0 0;
+  font-size: 12px;
+}
+
+.meal-primary-label {
+  font-weight: 600;
+}
+
 .mobile-only {
   display: none;
 }
@@ -272,11 +298,13 @@ button.danger:focus {
 }
 
 .meal-chip .leftover-badge {
-  background: var(--soft);
-  border: 1px solid var(--border);
+  background: #0f172a;
+  color: #ffffff;
+  border: 1px solid #0f172a;
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   font-size: 12px;
+  font-weight: 700;
 }
 
 .table {

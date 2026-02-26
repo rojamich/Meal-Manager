@@ -3,6 +3,7 @@ import Layout from "./Layout";
 import PantryPage from "../features/pantry/PantryPage";
 import RecipesPage from "../features/recipes/RecipesPage";
 import RecipePrint from "../features/recipes/RecipePrint";
+import CookPage from "../features/recipes/CookPage";
 import PlannerPage from "../features/planner/PlannerPage";
 import GroceryPage from "../features/grocery/GroceryPage";
 import SettingsPage from "../features/settings/SettingsPage";
@@ -11,6 +12,7 @@ export default function App() {
   return (
     <HashRouter>
       <Routes>
+        <Route path="/cook/:id" element={<CookPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/planner" replace />} />
           <Route path="planner" element={<PlannerPage />} />

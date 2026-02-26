@@ -602,14 +602,17 @@ function RecipeEditor({
         <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" required />
         <div className="row">
           <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="URL" />
-          <input
-            type="number"
-            min="1"
-            value={form.baseServings}
-            onChange={(e) => setForm({ ...form, baseServings: Number(e.target.value) })}
-            placeholder="Base servings"
-          />
+          <label className="field-stack">
+            <span>Base servings</span>
+            <input
+              type="number"
+              min="1"
+              value={form.baseServings}
+              onChange={(e) => setForm({ ...form, baseServings: Number(e.target.value) })}
+            />
+          </label>
         </div>
+        <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
         <div className="row">
           {MEAL_TYPES.map((type) => (
             <label key={type}>
@@ -885,17 +888,20 @@ function RecipeEditor({
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
-                min="1"
-                placeholder="Servings"
-                value={plannerServings}
-                onChange={(e) => setPlannerServings(e.target.value)}
-              />
+              <label className="field-stack">
+                <span>Servings planned</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={plannerServings}
+                  onChange={(e) => setPlannerServings(e.target.value)}
+                />
+              </label>
               <button type="button" onClick={() => void handleAddToPlanner()} disabled={!plannerSlotId}>
                 Add to planner
               </button>
             </div>
+            <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
             {plannerMessage && <p className="muted">{plannerMessage}</p>}
           </div>
         )}

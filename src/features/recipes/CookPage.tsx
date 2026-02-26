@@ -1,0 +1,108 @@
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
+import { PantryItem, Recipe, RecipeIngredient } from "../../models";
+import { getRecipe, listIngredients } from "../../db/repositories/recipeRepo";
+import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { roundQty } from "../../utils/math";
+
+function getEffectiveBaseServings(recipe: Recipe) {
+  return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
+}
+
+export default function CookPage() {
+  const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [stepIndex, setStepIndex] = useState(0);
+
+  useEffect(() => {
+    if (!id) return;
+    getRecipe(id).then((value) => value && setRecipe(value));
+    listIngredients(id).then(setIngredients);
+    listPantryItems().then(setPantryItems);
+  }, [id]);
+
+  const plannedServings = Math.max(Number(searchParams.get("servings") || 0) || 0, 0);
+  const effectiveServings = useMemo(() => {
+    if (!recipe) return 1;
+    return Math.max(plannedServings || getEffectiveBaseServings(recipe), 1);
+  }, [plannedServings, recipe]);
+
+  const scaledIngredients = useMemo(() => {
+    if (!recipe) return [];
+    const factor = effectiveServings / getEffectiveBaseServings(recipe);
+    return ingredients.map((ing) => ({
+      ...ing,
+      scaledQty: roundQty(ing.quantity * factor)
+    }));
+  }, [effectiveServings, ingredients, recipe]);
+
+  if (!recipe) return <div className="container"><div className="panel"><p>Loading...</p></div></div>;
+
+  const currentStep = recipe.steps[stepIndex] || "";
+  const totalSteps = Math.max(recipe.steps.length, 1);
+
+  return (
+    <div className="container">
+      <div className="panel grid">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div>
+            <h1 style={{ margin: 0 }}>{recipe.title}</h1>
+            <p className="muted" style={{ marginTop: 6 }}>
+              Servings: {effectiveServings} (base {getEffectiveBaseServings(recipe)})
+            </p>
+          </div>
+        </div>
+
+        {recipe.notes && (
+          <div className="panel">
+            <strong>Notes</strong>
+            <p style={{ marginBottom: 0 }}>{recipe.notes}</p>
+          </div>
+        )}
+
+        <div className="panel">
+          <strong>Ingredients</strong>
+          <ul>
+            {scaledIngredients.map((ing) => {
+              const item = pantryItems.find((p) => p.id === ing.pantryItemId);
+              return (
+                <li key={ing.id}>
+                  {item?.name || "Item"} - {ing.scaledQty} {item?.baseUnit || ""}
+                  {ing.prepNote ? ` (${ing.prepNote})` : ""}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="panel">
+          <strong>Steps</strong>
+          <p>{currentStep}</p>
+          <div className="row">
+            <button className="secondary" onClick={() => setStepIndex((idx) => Math.max(idx - 1, 0))}>
+              Prev
+            </button>
+            <button onClick={() => setStepIndex((idx) => Math.min(idx + 1, Math.max(recipe.steps.length - 1, 0)))}>
+              Next
+            </button>
+            <span className="muted">
+              {Math.min(stepIndex + 1, totalSteps)} / {totalSteps}
+            </span>
+          </div>
+          {recipe.steps.length > 0 ? (
+            <ol>
+              {recipe.steps.map((step, idx) => (
+                <li key={idx}>{step}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted">No steps added.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

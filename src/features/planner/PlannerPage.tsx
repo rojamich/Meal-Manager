@@ -91,7 +91,7 @@ export default function PlannerPage() {
     const normalized = data.map((meal) => {
       if (meal.type !== "recipe") return meal;
       if (typeof meal.leftoverServingsRemaining === "number") return meal;
-      const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.baseServings ?? recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+      const recipeDefault = effectiveBaseServings(recipes.find((r) => r.id === meal.recipeId));
       const servings = meal.servingsPlanned ?? recipeDefault;
       return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
     });
@@ -251,7 +251,7 @@ export default function PlannerPage() {
       const normalized = recent.map((meal) => {
         if (meal.type !== "recipe") return meal;
         if (typeof meal.leftoverServingsRemaining === "number") return meal;
-        const recipeDefault = recipes.find((r) => r.id === meal.recipeId)?.baseServings ?? recipes.find((r) => r.id === meal.recipeId)?.defaultServings ?? 1;
+        const recipeDefault = effectiveBaseServings(recipes.find((r) => r.id === meal.recipeId));
         const servings = meal.servingsPlanned ?? recipeDefault;
         return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
       });
@@ -1183,10 +1183,14 @@ export default function PlannerPage() {
                 <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
               ))}
             </select>
-            <input type="number" min="1" name="servingsPlanned" defaultValue={householdSize} placeholder="Servings planned" />
+            <label className="field-stack">
+              <span>Servings planned</span>
+              <input type="number" min="1" name="servingsPlanned" defaultValue={householdSize} />
+            </label>
             <input name="freeformTitle" placeholder="Freeform title" />
             <input name="sourcePlannedMealId" placeholder="Leftover source meal id" />
           </div>
+          <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
           <textarea name="notes" placeholder="Notes" />
           <button type="submit">Add</button>
         </form>
@@ -1337,13 +1341,16 @@ function InlineAddPanel({
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
-                min="1"
-                placeholder="Servings"
-                value={inlineServings}
-                onChange={(e) => setInlineServings(e.target.value)}
-              />
+              <label className="field-stack">
+                <span>Servings planned</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={inlineServings}
+                  onChange={(e) => setInlineServings(e.target.value)}
+                />
+              </label>
+              <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
             </>
           )}
         </>
@@ -1378,13 +1385,15 @@ function InlineAddPanel({
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
-                min="1"
-                placeholder="Servings used"
-                value={inlineLeftoverServingsUsed}
-                onChange={(e) => setInlineLeftoverServingsUsed(e.target.value)}
-              />
+              <label className="field-stack">
+                <span>Servings used</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={inlineLeftoverServingsUsed}
+                  onChange={(e) => setInlineLeftoverServingsUsed(e.target.value)}
+                />
+              </label>
             </>
           )}
         </>
@@ -1432,7 +1441,7 @@ function MealLabel({
     );
   }
   if (meal.type === "leftover") {
-    return <span>Leftover</span>;
+    return <span>{meal.freeformTitle ? `Leftover: ${meal.freeformTitle}` : "Leftover"}</span>;
   }
   return <span>{meal.freeformTitle || "Freeform"}</span>;
 }
@@ -1504,7 +1513,17 @@ function WeekCell({
     const source = sourceId ? allMealsMap.get(sourceId) : undefined;
     if (!source) return "From: Unknown";
     return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
-    };
+  };
+
+  const leftoverChipLabel = (meal: PlannedMeal) => {
+    if (meal.type !== "leftover") return undefined;
+    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+    if (source?.recipeId) return `Leftover: ${recipeTitle(source.recipeId)}`;
+    if (source?.freeformTitle) return `Leftover: ${source.freeformTitle}`;
+    if (meal.freeformTitle) return `Leftover: ${meal.freeformTitle}`;
+    return "Leftover";
+  };
 
   return (
     <td
@@ -1522,6 +1541,7 @@ function WeekCell({
           recipes={recipes}
           color={colorForMeal(meal)}
           sourceInfo={sourceInfo(meal)}
+          leftoverChipLabel={leftoverChipLabel(meal)}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
           isEditing={editingMealId === meal.id}
@@ -1618,6 +1638,16 @@ function WeekSlotCard({
     return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
   };
 
+  const leftoverChipLabel = (meal: PlannedMeal) => {
+    if (meal.type !== "leftover") return undefined;
+    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
+    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
+    if (source?.recipeId) return `Leftover: ${recipeTitle(source.recipeId)}`;
+    if (source?.freeformTitle) return `Leftover: ${source.freeformTitle}`;
+    if (meal.freeformTitle) return `Leftover: ${meal.freeformTitle}`;
+    return "Leftover";
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -1636,6 +1666,7 @@ function WeekSlotCard({
           recipes={recipes}
           color={colorForMeal(meal)}
           sourceInfo={sourceInfo(meal)}
+          leftoverChipLabel={leftoverChipLabel(meal)}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
           isEditing={editingMealId === meal.id}
@@ -1666,6 +1697,7 @@ function DraggableMeal({
   recipes,
   color,
   sourceInfo,
+  leftoverChipLabel,
   onRemove,
   onSetLeftovers,
   isEditing,
@@ -1684,6 +1716,7 @@ function DraggableMeal({
   recipes: Recipe[];
   color: string;
   sourceInfo: string;
+  leftoverChipLabel?: string;
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   isEditing: boolean;
@@ -1749,11 +1782,16 @@ function DraggableMeal({
         </button>
       )}
       <span
+        className="meal-primary-label"
         title={meal.type === "leftover" ? sourceInfo : undefined}
         tabIndex={meal.type === "leftover" ? 0 : -1}
         aria-label={meal.type === "leftover" ? sourceInfo : undefined}
       >
-        <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
+        {meal.type === "leftover" && leftoverChipLabel ? (
+          leftoverChipLabel
+        ) : (
+          <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
+        )}
       </span>
       {meal.type === "recipe" && (
         <>
@@ -1782,9 +1820,17 @@ function DraggableMeal({
           onPointerDown={(e) => e.stopPropagation()}
         >
           {meal.type === "recipe" && meal.recipeId && (
-            <Link className="secondary" to="/recipes" state={{ recipeId: meal.recipeId }}>
-              View recipe
-            </Link>
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => {
+                const baseUrl = window.location.href.split("#")[0];
+                const servings = Math.max(meal.servingsPlanned ?? 1, 1);
+                window.open(`${baseUrl}#/cook/${meal.recipeId}?servings=${servings}`, "_blank");
+              }}
+            >
+              Cook
+            </button>
           )}
           <button className="danger" onClick={() => void onRemove(meal.id)}>
             Delete
@@ -1793,13 +1839,16 @@ function DraggableMeal({
       )}
       {meal.type === "recipe" && isEditing && (
         <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-          <input
-            type="number"
-            min="0"
-            value={editValue}
-            onChange={(e) => onEditValue(Number(e.target.value))}
-            style={{ width: 80 }}
-          />
+          <label className="field-stack compact-field">
+            <span>Leftovers remaining</span>
+            <input
+              type="number"
+              min="0"
+              value={editValue}
+              onChange={(e) => onEditValue(Number(e.target.value))}
+              style={{ width: 96 }}
+            />
+          </label>
           <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveEdit(); }}>
             Save
           </button>
@@ -1837,7 +1886,7 @@ function LeftoverBadge({
           e.stopPropagation();
           onClick();
         }}
-        style={{ opacity: 0.6 }}
+        style={{ opacity: 0.9 }}
         title="Set leftovers"
       >
         {typeof remaining === "number" ? `${remaining} left` : "Leftovers"}
@@ -1856,7 +1905,7 @@ function LeftoverBadge({
         e.stopPropagation();
         onClick();
       }}
-      style={{ opacity: canDrag ? 1 : 0.6 }}
+      style={{ opacity: canDrag ? 1 : 0.9 }}
       title={canDrag ? "Drag to create leftover" : "Set leftovers"}
     >
       {label}
@@ -1904,6 +1953,10 @@ function colorFromId(value: string) {
     hash = (hash * 31 + value.charCodeAt(i)) % 360;
   }
   return `hsl(${hash}, 48%, 38%)`;
+}
+
+function effectiveBaseServings(recipe?: Recipe | null) {
+  return Math.max(recipe?.baseServings ?? recipe?.defaultServings ?? 1, 1);
 }
 
 function tintFromAccent(accent: string) {
