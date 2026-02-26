@@ -16,9 +16,9 @@ import {
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey, parseISODate, toISODate } from "../../utils/date";
+import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
 
-const categories = ["produce", "dairy", "pantry", "freezer", "spices", "bakery", "protein", "other"];
-const titleCase = (value: string) => value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value;
+const categories = PANTRY_CATEGORY_OPTIONS.map((option) => option.key);
 
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -150,9 +150,9 @@ export default function PantryPage() {
           />
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
             <option value="all">All categories</option>
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {titleCase(cat)}
+            {PANTRY_CATEGORY_OPTIONS.map((cat) => (
+              <option key={cat.key} value={cat.key}>
+                {cat.label}
               </option>
             ))}
           </select>
@@ -179,6 +179,7 @@ export default function PantryPage() {
               <th>Name</th>
               <th>Category</th>
               <th>Unit</th>
+              <th>Shelf life</th>
               <th></th>
             </tr>
           </thead>
@@ -190,8 +191,11 @@ export default function PantryPage() {
                     {item.name}
                   </button>
                 </td>
-                <td data-label="Category">{titleCase(item.category)}</td>
+                <td data-label="Category">{pantryCategoryLabel(item.category)}</td>
                 <td data-label="Unit">{item.baseUnit}</td>
+                <td data-label="Shelf life">
+                  {item.defaultShelfLifeDays == null ? "—" : `${item.defaultShelfLifeDays}d`}
+                </td>
                 <td data-label="Actions">
                   <button className="secondary" onClick={() => setEditing(item)}>
                     Edit
@@ -319,7 +323,7 @@ function PantryForm({
 }) {
   const [form, setForm] = useState({
     name: item.name,
-    category: item.category || "produce",
+    category: normalizePantryCategoryKey(item.category || "produce"),
     baseUnit: item.baseUnit || "count",
     defaultShelfLifeDays: item.defaultShelfLifeDays || "",
     notes: item.notes || ""
@@ -351,9 +355,9 @@ function PantryForm({
       />
       <div className="row">
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>
-              {titleCase(cat)}
+          {PANTRY_CATEGORY_OPTIONS.map((cat) => (
+            <option key={cat.key} value={cat.key}>
+              {cat.label}
             </option>
           ))}
         </select>

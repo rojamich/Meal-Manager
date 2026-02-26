@@ -9,6 +9,7 @@ import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, toISODate } from "../../utils/date";
 import { average, unitPrice } from "../../utils/price";
+import { pantryCategoryLabel } from "../../utils/pantryCategories";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -139,7 +140,6 @@ export default function GroceryPage() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [lines, pantryItems]);
 
-  const titleCase = useCallback((value: string) => (value ? value.replace(/\b\w/g, (c) => c.toUpperCase()) : value), []);
   const isCountUnit = useCallback((unit?: string) => unit === "count", []);
   const normalizePurchaseOverride = useCallback(
     (raw: string, unit?: string) => {
@@ -391,7 +391,7 @@ export default function GroceryPage() {
         <p>Estimated total: {estimate.total.toFixed(2)} ({estimate.known}/{estimate.totalLines} items priced)</p>
         {grouped.map(([category, items]) => (
           <div key={category} className="panel">
-            <h3>{titleCase(category)}</h3>
+            <h3>{pantryCategoryLabel(category)}</h3>
             <table className="table">
               <thead>
                 <tr>
