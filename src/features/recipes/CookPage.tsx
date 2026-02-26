@@ -20,6 +20,7 @@ export default function CookPage() {
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
+  const [stepsViewMode, setStepsViewMode] = useState<"step" | "full">("step");
 
   useEffect(() => {
     if (!id) return;
@@ -103,20 +104,42 @@ export default function CookPage() {
         </div>
 
         <div className="panel">
-          <strong>Steps</strong>
-          <p>{currentStep}</p>
-          <div className="row">
-            <button className="secondary" onClick={() => setStepIndex((idx) => Math.max(idx - 1, 0))}>
-              Prev
-            </button>
-            <button onClick={() => setStepIndex((idx) => Math.min(idx + 1, Math.max(recipe.steps.length - 1, 0)))}>
-              Next
-            </button>
-            <span className="muted">
-              {Math.min(stepIndex + 1, totalSteps)} / {totalSteps}
-            </span>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <strong>Steps</strong>
+            <div className="row">
+              <button
+                className={stepsViewMode === "full" ? "" : "secondary"}
+                onClick={() => setStepsViewMode("full")}
+                type="button"
+              >
+                Full
+              </button>
+              <button
+                className={stepsViewMode === "step" ? "" : "secondary"}
+                onClick={() => setStepsViewMode("step")}
+                type="button"
+              >
+                Step mode
+              </button>
+            </div>
           </div>
-          {recipe.steps.length > 0 ? (
+          {stepsViewMode === "step" ? (
+            <>
+              <p>{currentStep}</p>
+              <div className="row">
+                <button className="secondary" onClick={() => setStepIndex((idx) => Math.max(idx - 1, 0))}>
+                  Prev
+                </button>
+                <button onClick={() => setStepIndex((idx) => Math.min(idx + 1, Math.max(recipe.steps.length - 1, 0)))}>
+                  Next
+                </button>
+                <span className="muted">
+                  {Math.min(stepIndex + 1, totalSteps)} / {totalSteps}
+                </span>
+              </div>
+            </>
+          ) : null}
+          {stepsViewMode === "full" ? recipe.steps.length > 0 ? (
             <ol>
               {recipe.steps.map((step, idx) => (
                 <li key={idx}>{step}</li>
@@ -124,7 +147,7 @@ export default function CookPage() {
             </ol>
           ) : (
             <p className="muted">No steps added.</p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

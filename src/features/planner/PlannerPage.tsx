@@ -65,6 +65,14 @@ export default function PlannerPage() {
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
   const [pendingPasteMeals, setPendingPasteMeals] = useState<PlannedMeal[]>([]);
   const [dayActionDate, setDayActionDate] = useState("");
+  const [lastDragMove, setLastDragMove] = useState<{
+    mealId: string;
+    fromDate: string;
+    fromMealSlotId: string;
+    toDate: string;
+    toMealSlotId: string;
+  } | null>(null);
+  const undoMoveTimerRef = useRef<number | null>(null);
   const isMobileLayout = useMediaQuery("(max-width: 768px)");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -637,6 +645,14 @@ export default function PlannerPage() {
     }
   }, [dayActionDate, days]);
 
+  useEffect(() => {
+    return () => {
+      if (undoMoveTimerRef.current) {
+        window.clearTimeout(undoMoveTimerRef.current);
+      }
+    };
+  }, []);
+
   const mealsById = useMemo(() => {
     const map = new Map<string, PlannedMeal>();
     meals.forEach((meal) => map.set(meal.id, meal));
@@ -666,10 +682,24 @@ export default function PlannerPage() {
         const meal = mealsById.get(mealId);
         if (!meal) return;
         if (meal.date === day && meal.mealSlotId === slotId) return;
+        const fromDate = meal.date;
+        const fromMealSlotId = meal.mealSlotId;
         await updatePlannedMeal(meal.id, { date: day, mealSlotId: slotId });
         setMeals((prev: PlannedMeal[]) =>
           prev.map((m: PlannedMeal) => (m.id === meal.id ? { ...m, date: day, mealSlotId: slotId } : m))
         );
+        if (undoMoveTimerRef.current) window.clearTimeout(undoMoveTimerRef.current);
+        setLastDragMove({
+          mealId: meal.id,
+          fromDate,
+          fromMealSlotId,
+          toDate: day,
+          toMealSlotId: slotId
+        });
+        undoMoveTimerRef.current = window.setTimeout(() => {
+          setLastDragMove(null);
+          undoMoveTimerRef.current = null;
+        }, 5000);
         return;
       }
 
@@ -1195,6 +1225,44 @@ export default function PlannerPage() {
           <button type="submit">Add</button>
         </form>
       </section>
+      {lastDragMove && (
+        <div
+          className="panel"
+          style={{
+            position: "fixed",
+            right: 16,
+            bottom: 16,
+            zIndex: 50,
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            padding: "10px 12px"
+          }}
+        >
+          <span className="muted">Meal moved</span>
+          <button
+            className="secondary"
+            onClick={async () => {
+              const move = lastDragMove;
+              if (!move) return;
+              await updatePlannedMeal(move.mealId, {
+                date: move.fromDate,
+                mealSlotId: move.fromMealSlotId
+              });
+              setMeals((prev: PlannedMeal[]) =>
+                prev.map((m: PlannedMeal) =>
+                  m.id === move.mealId ? { ...m, date: move.fromDate, mealSlotId: move.fromMealSlotId } : m
+                )
+              );
+              if (undoMoveTimerRef.current) window.clearTimeout(undoMoveTimerRef.current);
+              undoMoveTimerRef.current = null;
+              setLastDragMove(null);
+            }}
+          >
+            Undo move
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1528,7 +1596,12 @@ function WeekCell({
   return (
     <td
       ref={setNodeRef}
-      style={{ background: isOver ? "#e0f2fe" : undefined }}
+      style={{
+        background: isOver ? "#dbeafe" : undefined,
+        boxShadow: isOver ? "inset 0 0 0 2px #2563eb" : undefined,
+        minHeight: 88,
+        verticalAlign: "top"
+      }}
       onClick={() => {
         onClearActions();
         void onCellClick(day, slotId);
@@ -1652,7 +1725,12 @@ function WeekSlotCard({
     <div
       ref={setNodeRef}
       className="card"
-      style={{ marginTop: 10, background: isOver ? "#e0f2fe" : undefined }}
+      style={{
+        marginTop: 10,
+        background: isOver ? "#dbeafe" : undefined,
+        boxShadow: isOver ? "inset 0 0 0 2px #2563eb" : undefined,
+        minHeight: 88
+      }}
       onClick={() => {
         onClearActions();
         void onCellClick(day, slotId);
