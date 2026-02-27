@@ -135,6 +135,27 @@ class MealDb extends Dexie {
           }
         });
       });
+
+    this.version(6)
+      .stores({
+        pantryItems: "id, name, category, storageType",
+        inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+        recipes: "id, title",
+        recipeIngredients: "id, recipeId, pantryItemId",
+        mealSlots: "id, sortOrder",
+        plannedMeals: "id, date, mealSlotId, type, recipeId",
+        essentialItems: "id, pantryItemId, category",
+        locationProfiles: "id, name",
+        purchaseEntries: "id, pantryItemId, locationId, date",
+        groceryLists: "id, createdAt, startDate, endDate, locationId",
+        groceryLines: "id, groceryListId, pantryItemId, checked",
+        weekTemplates: "id, name, locationId, createdAt"
+      })
+      .upgrade(async (tx) => {
+        await tx.table("pantryItems").toCollection().modify((item: any) => {
+          if (!item.storageType) item.storageType = "pantry";
+        });
+      });
   }
 }
 

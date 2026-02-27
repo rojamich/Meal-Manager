@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { BaseUnit, InventoryLot, PantryItem } from "../../models";
+import { BaseUnit, InventoryLot, PantryItem, StorageType } from "../../models";
 import {
   createPantryItem,
   deletePantryItem,
@@ -19,6 +19,7 @@ import { dateKey, parseISODate, toISODate } from "../../utils/date";
 import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
 
 const categories = PANTRY_CATEGORY_OPTIONS.map((option) => option.key);
+const STORAGE_TYPE_OPTIONS: StorageType[] = ["pantry", "fridge", "freezer"];
 
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -162,6 +163,7 @@ export default function PantryPage() {
                 id: "",
                 name: "",
                 category: "produce",
+                storageType: "pantry",
                 baseUnit: "count",
                 notes: "",
                 createdAt: "",
@@ -178,8 +180,10 @@ export default function PantryPage() {
             <tr>
               <th>Name</th>
               <th>Category</th>
+              <th>Storage Type</th>
               <th>Unit</th>
               <th>Shelf life</th>
+              <th>After Opening</th>
               <th></th>
             </tr>
           </thead>
@@ -192,10 +196,12 @@ export default function PantryPage() {
                   </button>
                 </td>
                 <td data-label="Category">{pantryCategoryLabel(item.category)}</td>
+                <td data-label="Storage Type">{item.storageType || "pantry"}</td>
                 <td data-label="Unit">{item.baseUnit}</td>
                 <td data-label="Shelf life">
                   {item.defaultShelfLifeDays == null ? "—" : `${item.defaultShelfLifeDays}d`}
                 </td>
+                <td data-label="After opening">{item.defaultAfterOpeningDays == null ? "-" : `${item.defaultAfterOpeningDays}d`}</td>
                 <td data-label="Actions">
                   <button className="secondary" onClick={() => setEditing(item)}>
                     Edit
@@ -324,8 +330,10 @@ function PantryForm({
   const [form, setForm] = useState({
     name: item.name,
     category: normalizePantryCategoryKey(item.category || "produce"),
+    storageType: item.storageType || "pantry",
     baseUnit: item.baseUnit || "count",
     defaultShelfLifeDays: item.defaultShelfLifeDays || "",
+    defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
     notes: item.notes || ""
   });
 
@@ -334,8 +342,10 @@ function PantryForm({
     const payload = {
       name: form.name.trim(),
       category: form.category,
+      storageType: form.storageType as StorageType,
       baseUnit: form.baseUnit as PantryItem["baseUnit"],
       defaultShelfLifeDays: form.defaultShelfLifeDays ? Number(form.defaultShelfLifeDays) : undefined,
+      defaultAfterOpeningDays: form.defaultAfterOpeningDays ? Number(form.defaultAfterOpeningDays) : undefined,
       notes: form.notes || undefined
     };
     if (item.id) {
@@ -361,18 +371,36 @@ function PantryForm({
             </option>
           ))}
         </select>
+        <select
+          value={form.storageType}
+          onChange={(e) => setForm({ ...form, storageType: e.target.value as StorageType })}
+        >
+          {STORAGE_TYPE_OPTIONS.map((storageType) => (
+            <option key={storageType} value={storageType}>
+              {storageType}
+            </option>
+          ))}
+        </select>
         <select value={form.baseUnit} onChange={(e) => setForm({ ...form, baseUnit: e.target.value as BaseUnit })}>
           <option value="count">count</option>
           <option value="g">g</option>
           <option value="ml">ml</option>
         </select>
       </div>
-      <input
-        type="number"
-        value={form.defaultShelfLifeDays}
-        onChange={(e) => setForm({ ...form, defaultShelfLifeDays: e.target.value })}
-        placeholder="Default shelf life days"
-      />
+      <div className="row">
+        <input
+          type="number"
+          value={form.defaultShelfLifeDays}
+          onChange={(e) => setForm({ ...form, defaultShelfLifeDays: e.target.value })}
+          placeholder="Default shelf life days"
+        />
+        <input
+          type="number"
+          value={form.defaultAfterOpeningDays}
+          onChange={(e) => setForm({ ...form, defaultAfterOpeningDays: e.target.value })}
+          placeholder="After opening days"
+        />
+      </div>
       <textarea
         value={form.notes}
         onChange={(e) => setForm({ ...form, notes: e.target.value })}

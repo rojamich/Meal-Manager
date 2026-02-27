@@ -1,11 +1,14 @@
 export type BaseUnit = "count" | "g" | "ml";
+export type StorageType = "pantry" | "fridge" | "freezer";
 
 export interface PantryItem {
   id: string;
   name: string;
   category: string;
+  storageType: StorageType;
   baseUnit: BaseUnit;
   defaultShelfLifeDays?: number;
+  defaultAfterOpeningDays?: number;
   notes?: string;
   createdAt: string;
   updatedAt: string;
