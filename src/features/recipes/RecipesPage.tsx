@@ -243,7 +243,7 @@ export default function RecipesPage() {
     const recipe = recipes.find((r) => r.id === recipeId);
     if (!recipe) return;
     const householdSize = getHouseholdSize();
-    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : householdSize;
+    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : recipeBaseServings(recipe);
     await createPlannedMeal({
       date,
       mealSlotId,
@@ -480,10 +480,13 @@ function RecipeEditor({
       return;
     }
     if (filteredPantryItems.length > 0) {
-      setIngredientDraft((prev) => ({
-        ...prev,
-        pantryItemId: filteredPantryItems[0].id
-      }));
+      const selectedIsInFiltered = filteredPantryItems.some((item) => item.id === ingredientDraft.pantryItemId);
+      if (!selectedIsInFiltered) {
+        setIngredientDraft((prev) => ({
+          ...prev,
+          pantryItemId: filteredPantryItems[0].id
+        }));
+      }
       setNoMatches(false);
     } else {
       setNoMatches(true);
@@ -511,7 +514,7 @@ function RecipeEditor({
     setSavedAt(null);
     setPlannerDate(toISODate(new Date()));
     setPlannerSlotId(mealSlots[0]?.id || "");
-    setPlannerServings("");
+    setPlannerServings(String(recipeBaseServings(recipe)));
     setPlannerMessage("");
   }, [recipe, mealSlots]);
 

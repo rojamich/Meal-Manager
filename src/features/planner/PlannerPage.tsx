@@ -239,14 +239,14 @@ export default function PlannerPage() {
   const resetInline = useCallback(() => {
     setInlineType("recipe");
     setInlineRecipeId("");
-    setInlineServings(String(householdSize));
+    setInlineServings("");
     setInlineLeftoverSource("");
     setInlineLeftoverServingsUsed("1");
     setIncludeAnyRecent(false);
     setInlineFreeformTitle("");
     setInlineNotes("");
     setRecipeSearch("");
-  }, [householdSize]);
+  }, []);
 
   const openInlineAdd = useCallback(
     async (slot: { date: string; mealSlotId: string }) => {
@@ -1399,7 +1399,12 @@ function InlineAddPanel({
                 onChange={(e) => {
                   const nextId = e.target.value;
                   setInlineRecipeId(nextId);
-                  if (nextId && !inlineServings) setInlineServings(String(householdSize));
+                  if (!nextId) {
+                    setInlineServings("");
+                    return;
+                  }
+                  const selectedRecipe = recipes.find((recipe) => recipe.id === nextId);
+                  setInlineServings(String(effectiveBaseServings(selectedRecipe)));
                 }}
               >
                 <option value="">Select recipe</option>
