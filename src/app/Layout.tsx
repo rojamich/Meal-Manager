@@ -1,6 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 export default function Layout() {
+  const location = useLocation();
+  const isPlannerRoute = location.pathname === "/planner";
+
   return (
     <div className="app-shell">
       <nav className="top-nav">
@@ -11,7 +14,7 @@ export default function Layout() {
         <NavLink to="/pantry">Pantry</NavLink>
         <NavLink to="/settings">Settings</NavLink>
       </nav>
-      <main className="container">
+      <main className={`container${isPlannerRoute ? " container--wide" : ""}`}>
         <Outlet />
       </main>
     </div>
