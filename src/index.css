@@ -291,6 +291,50 @@ button.danger:focus {
   z-index: 40;
 }
 
+.confirm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 120;
+}
+
+.confirm-modal {
+  width: min(520px, calc(100vw - 24px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.22);
+  padding: 20px;
+}
+
+.confirm-modal h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.confirm-modal-message {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.confirm-modal-detail {
+  margin: 10px 0 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 .ingredient-select {
   position: relative;
   z-index: 2;

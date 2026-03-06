@@ -20,6 +20,7 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey, toISODate } from "../../utils/date";
 import { getHouseholdSize } from "../settings/preferences";
 import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDomain";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -60,6 +61,7 @@ export default function RecipesPage() {
   );
   const [activeLots, setActiveLots] = useState<{ pantryItemId: string; quantity: number; expiresAt?: string }[]>([]);
   const location = useLocation();
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   const refresh = useCallback(async () => {
     setRecipes([...(await listRecipes())]);
@@ -195,7 +197,15 @@ export default function RecipesPage() {
   }
 
   async function removeRecipe(id: string) {
-    if (!confirm("Delete this recipe?")) return;
+    const choice = await requestChoice({
+      title: "Delete Recipe?",
+      message: "This will remove the selected recipe.",
+      choices: [
+        { label: "Delete", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deleteRecipe(id);
     setSelected(null);
     await refresh();
@@ -412,6 +422,7 @@ export default function RecipesPage() {
           <p>Select a recipe to edit.</p>
         )}
       </section>
+      {modal}
     </div>
   );
 }

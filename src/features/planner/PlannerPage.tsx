@@ -40,6 +40,7 @@ import {
   getEffectiveLeftoverRemaining,
   listAvailableLeftoverMeals
 } from "./plannerDomain";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
@@ -104,6 +105,7 @@ export default function PlannerPage() {
       activationConstraint: { distance: 4 }
     })
   );
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   function closePanel(reason: string, e?: Event) {
     void reason;
@@ -264,7 +266,15 @@ export default function PlannerPage() {
   }
 
   async function removeMeal(id: string) {
-    if (!confirm("Delete this planned meal?")) return;
+    const choice = await requestChoice({
+      title: "Delete Meal?",
+      message: "This will remove the selected meal.",
+      choices: [
+        { label: "Delete", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deleteMealsBatch([id]);
   }
 
@@ -610,11 +620,19 @@ export default function PlannerPage() {
 
   const deleteTemplate = useCallback(
     async (id: string) => {
-      if (!confirm("Delete this template?")) return;
+      const choice = await requestChoice({
+        title: "Delete Template?",
+        message: "This will remove the selected template.",
+        choices: [
+          { label: "Delete", value: "confirm-delete", tone: "danger" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "confirm-delete") return;
       await deleteWeekTemplate(id);
       await refreshTemplates();
     },
-    [refreshTemplates]
+    [refreshTemplates, requestChoice]
   );
 
   const copyMealsForDay = useCallback(
@@ -674,10 +692,19 @@ export default function PlannerPage() {
 
   const deleteSelectedMeals = useCallback(async () => {
     if (!selectedMealIds.length) return;
-    if (!confirm(`Delete ${selectedMealIds.length} selected meals?`)) return;
+    const choice = await requestChoice({
+      title: "Delete Selected Meals?",
+      message: "This will remove the selected meals.",
+      detail: `${selectedMealIds.length} meals are selected.`,
+      choices: [
+        { label: "Delete All", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deleteMealsBatch(selectedMealIds);
     clearSelectState();
-  }, [clearSelectState, deleteMealsBatch, selectedMealIds]);
+  }, [clearSelectState, deleteMealsBatch, requestChoice, selectedMealIds]);
 
   const copySelectedMeals = useCallback(() => {
     if (!selectedMeals.length) return;
@@ -721,10 +748,19 @@ export default function PlannerPage() {
     if (!dayActionDate) return;
     const ids = meals.filter((meal) => meal.date === dayActionDate).map((meal) => meal.id);
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} meals for ${formatDateLabel(dayActionDate)}?`)) return;
+    const choice = await requestChoice({
+      title: "Delete Meals for This Day?",
+      message: "This will remove all meals planned for this day.",
+      detail: `${ids.length} meals are planned for ${formatDateLabel(dayActionDate)}.`,
+      choices: [
+        { label: "Delete All", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deleteMealsBatch(ids);
     clearSelectState();
-  }, [clearSelectState, dayActionDate, deleteMealsBatch, meals]);
+  }, [clearSelectState, dayActionDate, deleteMealsBatch, meals, requestChoice]);
 
   const copyWeek = useCallback(
     async (sourceOffsetDays: number, targetOffsetDays: number) => {
@@ -1561,6 +1597,7 @@ export default function PlannerPage() {
           </button>
         </div>
       )}
+      {modal}
     </div>
   );
 }

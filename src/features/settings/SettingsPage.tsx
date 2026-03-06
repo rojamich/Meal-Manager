@@ -7,12 +7,14 @@ import { exportAll, importAll } from "../../db/db";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
 import { createAiWeekTemplate } from "./aiWeekTemplate";
 import { analyzeAiImportConflicts, importAiWeekPlanWithOptions } from "./aiImport";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [aiImportError, setAiImportError] = useState<string | null>(null);
   const [aiImportSuccess, setAiImportSuccess] = useState<string | null>(null);
   const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   async function handleExport() {
     const bundle = await exportAll();
@@ -56,20 +58,54 @@ export default function SettingsPage() {
     try {
       const text = await file.text();
       const conflicts = await analyzeAiImportConflicts(text);
-      const recipeConflictStrategy =
-        conflicts.duplicateRecipeTitles.length > 0 &&
-        confirm(
-          `AI import found ${conflicts.duplicateRecipeTitles.length} matching recipe(s): ${conflicts.duplicateRecipeTitles.slice(0, 5).join(", ")}${conflicts.duplicateRecipeTitles.length > 5 ? "..." : ""}\n\nPress OK to update all matching recipes from the import.\nPress Cancel to reuse the existing recipes unchanged.`
-        )
-          ? "update"
-          : "reuse";
-      const pantryConflictStrategy =
-        conflicts.duplicatePantryItemNames.length > 0 &&
-        confirm(
-          `AI import found ${conflicts.duplicatePantryItemNames.length} matching pantry item(s): ${conflicts.duplicatePantryItemNames.slice(0, 5).join(", ")}${conflicts.duplicatePantryItemNames.length > 5 ? "..." : ""}\n\nPress OK to update existing pantry defaults from the import when values are provided.\nPress Cancel to keep existing pantry item defaults unchanged.`
-        )
-          ? "update"
-          : "keep";
+      let recipeConflictStrategy: "reuse" | "update" = "reuse";
+      if (conflicts.duplicateRecipeTitles.length > 0) {
+        const recipeChoice = await requestChoice({
+          title: "Recipe Conflicts Detected",
+          message: "The AI import contains recipes that already exist in your database.",
+          detail:
+            `${conflicts.duplicateRecipeTitles.length} matching recipes were found. How should these be handled?` +
+            (conflicts.duplicateRecipeTitles.length
+              ? `\nExamples: ${conflicts.duplicateRecipeTitles.slice(0, 5).join(", ")}${conflicts.duplicateRecipeTitles.length > 5 ? "..." : ""}`
+              : ""),
+          choices: [
+            { label: "Make All Changes", value: "update-all", tone: "primary" },
+            { label: "Refuse All Changes", value: "reuse-all", tone: "neutral" },
+            { label: "Cancel Import", value: "cancel-import", tone: "danger" }
+          ]
+        });
+        if (!recipeChoice || recipeChoice === "cancel-import") {
+          setAiImportSuccess(null);
+          setAiImportError("AI import canceled.");
+          return;
+        }
+        recipeConflictStrategy = recipeChoice === "update-all" ? "update" : "reuse";
+      }
+
+      let pantryConflictStrategy: "keep" | "update" = "keep";
+      if (conflicts.duplicatePantryItemNames.length > 0) {
+        const pantryChoice = await requestChoice({
+          title: "Pantry Item Conflicts Detected",
+          message: "The AI import includes pantry items that already exist.",
+          detail:
+            `${conflicts.duplicatePantryItemNames.length} matching pantry items were found. How should these be handled?` +
+            (conflicts.duplicatePantryItemNames.length
+              ? `\nExamples: ${conflicts.duplicatePantryItemNames.slice(0, 5).join(", ")}${conflicts.duplicatePantryItemNames.length > 5 ? "..." : ""}`
+              : ""),
+          choices: [
+            { label: "Make All Changes", value: "update-all", tone: "primary" },
+            { label: "Refuse All Changes", value: "keep-all", tone: "neutral" },
+            { label: "Cancel Import", value: "cancel-import", tone: "danger" }
+          ]
+        });
+        if (!pantryChoice || pantryChoice === "cancel-import") {
+          setAiImportSuccess(null);
+          setAiImportError("AI import canceled.");
+          return;
+        }
+        pantryConflictStrategy = pantryChoice === "update-all" ? "update" : "keep";
+      }
+
       const result = await importAiWeekPlanWithOptions(text, {
         recipeConflictStrategy,
         pantryConflictStrategy
@@ -180,6 +216,7 @@ export default function SettingsPage() {
         <summary>Sync (optional scaffold)</summary>
         <p>Firebase sync is disabled by default. Set VITE_ENABLE_FIREBASE_SYNC=true to enable the stub.</p>
       </details>
+      {modal}
     </div>
   );
 }

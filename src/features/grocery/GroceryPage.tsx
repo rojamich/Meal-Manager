@@ -15,6 +15,7 @@ import { copyText } from "../../utils/clipboard";
 import { addDays, toISODate } from "../../utils/date";
 import { average, unitPrice } from "../../utils/price";
 import { pantryCategoryLabel } from "../../utils/pantryCategories";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -31,6 +32,7 @@ export default function GroceryPage() {
   const [showAdvanced, setShowAdvanced] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   const [settings, setSettings] = useState<GrocerySettings>({
     startDate: toISODate(new Date()),
@@ -129,7 +131,15 @@ export default function GroceryPage() {
 
   async function handleDeleteList() {
     if (!selectedListId) return;
-    if (!confirm("Delete this grocery list?")) return;
+    const choice = await requestChoice({
+      title: "Delete Grocery List?",
+      message: "This will remove the selected grocery list.",
+      choices: [
+        { label: "Delete", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deleteGroceryList(selectedListId);
     setSelectedListId("");
     setLines([]);
@@ -503,6 +513,7 @@ export default function GroceryPage() {
           </div>
         ))}
       </section>
+      {modal}
     </div>
   );
 }

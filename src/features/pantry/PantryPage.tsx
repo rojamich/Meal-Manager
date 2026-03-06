@@ -17,6 +17,7 @@ import {
 import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey, parseISODate, toISODate } from "../../utils/date";
 import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 const categories = PANTRY_CATEGORY_OPTIONS.map((option) => option.key);
 const STORAGE_TYPE_OPTIONS: StorageType[] = ["pantry", "fridge", "freezer"];
@@ -33,6 +34,7 @@ export default function PantryPage() {
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [emptyLocationId, setEmptyLocationId] = useState<string>("");
   const selectedItem = items.find((item) => item.id === selectedItemId);
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -95,7 +97,15 @@ export default function PantryPage() {
   }
 
   async function removeItem(id: string) {
-    if (!confirm("Delete this pantry item?")) return;
+    const choice = await requestChoice({
+      title: "Delete Pantry Item?",
+      message: "This will remove the selected pantry item.",
+      choices: [
+        { label: "Delete", value: "confirm-delete", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-delete") return;
     await deletePantryItem(id);
     if (selectedItemId === id) setSelectedItemId("");
     await refresh();
@@ -135,7 +145,17 @@ export default function PantryPage() {
   }
 
   async function handleEmptyPantry() {
-    if (!confirm("Archive all active lots for this location?")) return;
+    const activeCount = lots.filter((lot) => !lot.archivedAt).length;
+    const choice = await requestChoice({
+      title: "Archive Active Lots?",
+      message: "This will archive all active lots in the current pantry view.",
+      detail: `${activeCount} active lots will be archived.`,
+      choices: [
+        { label: "Archive All", value: "confirm-archive", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-archive") return;
     await emptyPantry(emptyLocationId || undefined);
     await reloadLotsForCurrentView();
   }
@@ -318,6 +338,7 @@ export default function PantryPage() {
           </div>
         </div>
       </section>
+      {modal}
     </div>
   );
 }
