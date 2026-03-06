@@ -1035,15 +1035,15 @@ export default function PlannerPage() {
 
       <section className="panel planner-screen-view">
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
-        <div className="grid" style={{ overflowX: "auto" }}>
+        <div className="grid planner-week-shell">
           {view === "week" ? (
             <DndContext onDragEnd={handleDragEnd} sensors={sensors} collisionDetection={closestCenter}>
               {!isMobileLayout ? (
                 <div className="planner-week-grid">
-                  <table className="table">
+                  <table className="table planner-week-table">
                     <thead>
                       <tr>
-                        <th>Slot</th>
+                        <th className="planner-slot-column">Slot</th>
                         {days.map((day) => (
                           <th key={day}>
                             <div className="day-header">
@@ -1074,7 +1074,7 @@ export default function PlannerPage() {
                     <tbody>
                       {slots.map((slot) => (
                         <tr key={slot.id}>
-                          <td>{slot.name}</td>
+                          <td className="planner-slot-column">{slot.name}</td>
                           {days.map((day) => (
                             <WeekCell
                               key={`${day}-${slot.id}`}
