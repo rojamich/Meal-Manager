@@ -11,7 +11,7 @@ export function createAiWeekTemplate(weekOf = dateKey(new Date())): AiWeekPlanDo
     endDate,
     _validMealSlots: ["Breakfast", "Lunch", "Dinner", "Snack"],
     _instructions: [
-      "Return JSON only.",
+      "Return JSON file.",
       "Use only the allowed mealSlotName values.",
       "Do not use Morning Snack, Snacks, Brunch, Late Lunch, Dessert, etc.",
       "Recipes alone do not place meals on the planner.",
