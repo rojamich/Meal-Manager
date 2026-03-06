@@ -5,9 +5,13 @@ import LocationsSection from "../locations/LocationsSection";
 import PricesSection from "../prices/PricesSection";
 import { exportAll, importAll } from "../../db/db";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
+import { createAiWeekTemplate } from "./aiWeekTemplate";
+import { importAiWeekPlan } from "./aiImport";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
+  const [aiImportError, setAiImportError] = useState<string | null>(null);
+  const [aiImportSuccess, setAiImportSuccess] = useState<string | null>(null);
   const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
 
   async function handleExport() {
@@ -32,6 +36,41 @@ export default function SettingsPage() {
       alert("Import complete. Reload the app.");
     } catch (err: any) {
       setImportError(err.message || "Import failed");
+    }
+  }
+
+  function handleExportAiTemplate() {
+    const template = createAiWeekTemplate();
+    const blob = new Blob([JSON.stringify(template, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meal-manager-ai-week-template-${template.weekOf}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleAiImport(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const result = await importAiWeekPlan(text);
+      setAiImportError(null);
+      setAiImportSuccess(
+        [
+          `Recipes created: ${result.recipesCreated}`,
+          `Recipes reused: ${result.recipesReused}`,
+          `Planned meals created: ${result.plannedMealsCreated}`,
+          `Leftovers downgraded to freeform: ${result.leftoverDowngradedToFreeform}`,
+          `Replaced dates: ${result.replacedDates.join(", ")}`
+        ].join(" | ")
+      );
+    } catch (err: any) {
+      setAiImportSuccess(null);
+      setAiImportError(err.message || "AI import failed");
+    } finally {
+      e.target.value = "";
     }
   }
 
@@ -66,6 +105,24 @@ export default function SettingsPage() {
           </label>
         </div>
         {importError && <p style={{ color: "#dc2626" }}>{importError}</p>}
+      </details>
+
+      <details className="panel" open>
+        <summary>AI Week Planning</summary>
+        <p className="muted">
+          Export a blank week-planning JSON template, have AI fill it, then import it. This replaces planned meals only on the exact dates included in the AI file.
+        </p>
+        <div className="row">
+          <button onClick={handleExportAiTemplate}>Export AI Week Template</button>
+          <label>
+            Import from AI
+            <input type="file" accept="application/json" onChange={handleAiImport} />
+          </label>
+        </div>
+        {aiImportSuccess && <p style={{ color: "#166534" }}>{aiImportSuccess}</p>}
+        {aiImportError && (
+          <pre style={{ color: "#dc2626", whiteSpace: "pre-wrap", margin: 0 }}>{aiImportError}</pre>
+        )}
       </details>
 
       <details className="panel">
