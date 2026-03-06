@@ -52,6 +52,10 @@ export interface AiWeekPlanDocument {
   weekOf: string;
   startDate?: string;
   endDate?: string;
+  _validMealSlots?: string[];
+  _instructions?: string[];
+  _schemaHints?: Record<string, string | string[]>;
+  _aiPrompt?: string;
   pantryItems?: AiWeekPantryItem[];
   recipes: AiWeekRecipe[];
   plannedMeals: AiWeekPlannedMeal[];

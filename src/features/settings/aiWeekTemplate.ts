@@ -9,6 +9,30 @@ export function createAiWeekTemplate(weekOf = dateKey(new Date())): AiWeekPlanDo
     weekOf,
     startDate,
     endDate,
+    _validMealSlots: ["Breakfast", "Lunch", "Dinner", "Snack"],
+    _instructions: [
+      "Return JSON only.",
+      "Use only the allowed mealSlotName values.",
+      "Do not use Morning Snack, Snacks, Brunch, Late Lunch, Dessert, etc.",
+      "Recipes alone do not place meals on the planner.",
+      "Every planner meal must appear in plannedMeals.",
+      "If a slot should be empty, omit it instead of creating a placeholder meal.",
+      "Freeform meals must include freeformTitle.",
+      "plannedMeals.date must fall within the allowed planning range.",
+      "If startDate and endDate are present, use that inclusive range.",
+      "If only startDate is present, use the 7-day range starting at startDate.",
+      "If neither is present, use the 7-day range starting at weekOf.",
+      "Every recipeRef must exactly match a recipe id or recipe title defined in recipes[]."
+    ],
+    _schemaHints: {
+      "plannedMeals.type": ["recipe", "leftover", "freeform"],
+      freeformRequirement: "freeformTitle required for freeform meals",
+      leftoverRequirement: "leftoverSourceRef must reference an earlier ref",
+      dateRange: "plannedMeals.date must be within the computed allowed planning range",
+      recipeRefRequirement: "recipeRef must exactly match a recipe id or title from recipes[]"
+    },
+    _aiPrompt:
+      "Fill this template with a complete weekly meal plan. Follow _instructions, _validMealSlots, and _schemaHints exactly. Return JSON only and do not change field names.",
     pantryItems: [
       {
         name: "Chicken thigh",
@@ -124,13 +148,13 @@ export function createAiWeekTemplate(weekOf = dateKey(new Date())): AiWeekPlanDo
         notes: "Example recipe meal"
       },
       {
-        date: startDate,
+        date: dateKey(addDays(parseISODate(startDate), 1)),
         mealSlotName: "Lunch",
         type: "leftover",
         leftoverSourceRef: "mon-dinner-chicken-rice-bowl",
         freeformTitle: "Chicken Rice Bowl leftovers",
         servingsPlanned: 2,
-        notes: "Example leftover meal"
+        notes: "Example next-day leftover meal"
       },
       {
         ref: "mon-snack-protein-bar",

@@ -27,6 +27,17 @@ function normalizeKey(value: string | undefined) {
   return (value || "").trim().toLowerCase();
 }
 
+function normalizeMealSlotName(value: string | undefined) {
+  const normalized = normalizeKey(value);
+  if (normalized === "breakfast") return "Breakfast";
+  if (normalized === "lunch") return "Lunch";
+  if (normalized === "dinner") return "Dinner";
+  if (normalized === "snack" || normalized === "snacks" || normalized === "morning snack" || normalized === "afternoon snack") {
+    return "Snack";
+  }
+  return (value || "").trim();
+}
+
 function isValidIsoDate(value: string | undefined) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = parseISODate(value);
@@ -108,17 +119,22 @@ function normalizeAiPantryItem(item: AiWeekPantryItem): AiWeekPantryItem {
 }
 
 function normalizeAiPlannedMeal(meal: AiWeekPlannedMeal): AiWeekPlannedMeal {
+  const trimmedNotes = meal.notes?.trim() || undefined;
+  const trimmedFreeformTitle = meal.freeformTitle?.trim() || undefined;
   return {
     ...meal,
     ref: meal.ref?.trim() || undefined,
     date: String(meal.date || "").trim(),
-    mealSlotName: String(meal.mealSlotName || "").trim(),
+    mealSlotName: normalizeMealSlotName(meal.mealSlotName),
     type: meal.type,
     recipeRef: meal.recipeRef?.trim() || undefined,
     leftoverSourceRef: meal.leftoverSourceRef?.trim() || undefined,
-    freeformTitle: meal.freeformTitle?.trim() || undefined,
+    freeformTitle:
+      meal.type === "freeform"
+        ? trimmedFreeformTitle || trimmedNotes || undefined
+        : trimmedFreeformTitle,
     servingsPlanned: meal.servingsPlanned ? normalizePositiveInt(meal.servingsPlanned, 1) : undefined,
-    notes: meal.notes?.trim() || undefined
+    notes: trimmedNotes
   };
 }
 
