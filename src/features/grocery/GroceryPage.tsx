@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
-import { buildGroceryLines, generateGroceryList, GrocerySettings } from "./generate";
+import {
+  buildGroceryLines,
+  generateGroceryList,
+  GrocerySettings,
+  parseGroceryUsageEntries
+} from "./generate";
 import { listGroceryLists, listGroceryLines, updateGroceryLine, deleteGroceryList, replaceGroceryLines, updateGroceryList } from "../../db/repositories/groceryRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
@@ -22,6 +27,7 @@ export default function GroceryPage() {
   const [purchaseOverrides, setPurchaseOverrides] = useState<Record<string, string>>({});
   const [altPickerOpen, setAltPickerOpen] = useState(false);
   const [altSelections, setAltSelections] = useState<Record<string, string>>({});
+  const [expandedLineIds, setExpandedLineIds] = useState<Record<string, boolean>>({});
   const [showAdvanced, setShowAdvanced] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -50,9 +56,11 @@ export default function GroceryPage() {
     if (nextId) {
       setSelectedListId(nextId);
       setLines(await listGroceryLines(nextId));
+      setExpandedLineIds({});
     } else {
       setSelectedListId("");
       setLines([]);
+      setExpandedLineIds({});
     }
   }, [selectedListId]);
 
@@ -139,6 +147,10 @@ export default function GroceryPage() {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [lines, pantryItems]);
+
+  const toggleExpanded = useCallback((lineId: string) => {
+    setExpandedLineIds((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
+  }, []);
 
   const isCountUnit = useCallback((unit?: string) => unit === "count", []);
   const normalizePurchaseOverride = useCallback(
@@ -417,11 +429,11 @@ export default function GroceryPage() {
                   })
                   .map((line) => {
                     const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
-                    const usedFor = JSON.parse(line.usedForJson || "{}");
-                    const usedText = (Object.entries(usedFor) as [string, number][])
-                      .map(([title, count]) => (count > 1 ? `${title} x${count}` : title))
-                      .join(", ") || "-";
+                    const usedFor = parseGroceryUsageEntries(line.usedForJson);
+                    const isExpanded = Boolean(expandedLineIds[line.id]);
+                    const summary = usedFor.length > 0 ? `${usedFor.length} contributor${usedFor.length === 1 ? "" : "s"}` : "-";
                     return (
+                      <Fragment key={line.id}>
                       <tr key={line.id} className={line.freeformLabel && line.toBuyQty === 0 ? "note-row" : undefined}>
                         <td data-label="Item">{line.freeformLabel || item?.name}</td>
                         <td data-label="To buy">
@@ -445,11 +457,43 @@ export default function GroceryPage() {
                             "—"
                           )}
                         </td>
-                        <td data-label="Used for">{usedText}</td>
+                        <td data-label="Used for">
+                          <div className="grocery-usage-summary">
+                            <span>{summary}</span>
+                            {usedFor.length > 0 && (
+                              <button
+                                type="button"
+                                className="secondary grocery-expand-toggle"
+                                onClick={() => toggleExpanded(line.id)}
+                              >
+                                {isExpanded ? "Hide" : "Show"}
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td data-label="Check">
                           <input type="checkbox" checked={line.checked} onChange={() => toggleChecked(line)} />
                         </td>
                       </tr>
+                      {isExpanded && usedFor.length > 0 && (
+                        <tr key={`${line.id}-details`} className="grocery-usage-row">
+                          <td colSpan={5}>
+                            <div className="grocery-usage-details">
+                              {usedFor.map((entry, index) => (
+                                <div key={`${line.id}-entry-${index}`} className="grocery-usage-entry">
+                                  <strong>{entry.label}</strong>
+                                  <span className="muted">
+                                    {entry.date || "No date"}
+                                    {typeof entry.qty === "number" && entry.unit ? ` - ${entry.qty} ${entry.unit}` : ""}
+                                    {entry.count && entry.count > 1 ? ` - x${entry.count}` : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
               </tbody>

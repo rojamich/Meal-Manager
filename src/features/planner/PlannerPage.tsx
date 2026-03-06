@@ -1,5 +1,6 @@
-import { RefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefObject, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { LocationProfile, MealSlot, PlannedMeal, Recipe, WeekTemplate } from "../../models";
 import {
   listMealSlots,
@@ -70,6 +71,8 @@ export default function PlannerPage() {
   const [topFormFreeformTitle, setTopFormFreeformTitle] = useState("");
   const [topFormNotes, setTopFormNotes] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [panelAnchorEl, setPanelAnchorEl] = useState<HTMLElement | null>(null);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
   const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
   const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
   const [servingsEditMealId, setServingsEditMealId] = useState<string | null>(null);
@@ -106,6 +109,8 @@ export default function PlannerPage() {
     void reason;
     void e;
     setActiveSlot(null);
+    setPanelAnchorEl(null);
+    setPanelStyle(null);
   }
 
   useEffect(() => {
@@ -287,8 +292,10 @@ export default function PlannerPage() {
   }, []);
 
   const openInlineAdd = useCallback(
-    async (slot: { date: string; mealSlotId: string }) => {
+    async (slot: { date: string; mealSlotId: string }, anchorEl?: HTMLElement | null) => {
       setActiveSlot(slot);
+      setPanelAnchorEl(anchorEl ?? null);
+      setPanelStyle(null);
       resetInline();
       await refreshRecentMeals();
     },
@@ -358,13 +365,17 @@ export default function PlannerPage() {
     recipes
   ]);
 
-  const isInsideInlinePanel = (e: PointerEvent) => {
+  const isInsideInlinePanel = (e: Event) => {
     const t = e.target as HTMLElement | null;
     if (t?.closest?.('[data-planner-inline-panel="true"]')) return true;
+    if (panelAnchorEl && t && panelAnchorEl.contains(t)) return true;
     const path = (e as any).composedPath?.() as EventTarget[] | undefined;
     if (path) {
       for (const node of path) {
         if (node instanceof HTMLElement && node.hasAttribute("data-planner-inline-panel")) {
+          return true;
+        }
+        if (panelAnchorEl && node instanceof HTMLElement && panelAnchorEl.contains(node)) {
           return true;
         }
       }
@@ -377,18 +388,63 @@ export default function PlannerPage() {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closePanel("escape", event);
     };
-    const handlePointer = (event: PointerEvent) => {
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target === document.documentElement || target === document.body) return;
       const insidePanel = isInsideInlinePanel(event);
       if (insidePanel) return;
-      closePanel("doc-pointerdown-outside", event);
+      closePanel("doc-click-outside", event);
     };
     document.addEventListener("keydown", handleKey);
-    document.addEventListener("pointerdown", handlePointer, { capture: true });
+    document.addEventListener("click", handleClick, { capture: true });
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("pointerdown", handlePointer, { capture: true });
+      document.removeEventListener("click", handleClick, { capture: true });
     };
-  }, [activeSlot]);
+  }, [activeSlot, panelAnchorEl]);
+
+  useEffect(() => {
+    if (!activeSlot || !panelAnchorEl) return;
+    const updatePanelPosition = () => {
+      if (!panelRef.current) return;
+      const anchorRect = panelAnchorEl.getBoundingClientRect();
+      const panelWidth = panelRef.current.offsetWidth || 360;
+      const panelHeight = panelRef.current.offsetHeight || 320;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const margin = 12;
+      const gap = 8;
+
+      let left = anchorRect.left;
+      if (left + panelWidth > viewportWidth - margin) {
+        left = Math.max(margin, anchorRect.right - panelWidth);
+      }
+      left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - panelWidth - margin));
+
+      let top = anchorRect.bottom + gap;
+      if (top + panelHeight > viewportHeight - margin) {
+        top = Math.max(margin, anchorRect.top - panelHeight - gap);
+      }
+      top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - panelHeight - margin));
+
+      setPanelStyle({
+        position: "fixed",
+        top,
+        left,
+        width: Math.min(380, viewportWidth - margin * 2),
+        maxHeight: viewportHeight - margin * 2,
+        overflowY: "auto"
+      });
+    };
+
+    updatePanelPosition();
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+    };
+  }, [activeSlot, panelAnchorEl]);
 
   const headerLabel = useMemo(() => {
     if (view === "week") {
@@ -659,6 +715,7 @@ export default function PlannerPage() {
   );
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
+  const printRange = useMemo(() => weekRange(anchorDate), [anchorDate]);
   const days = useMemo(() => {
     const list: string[] = [];
     let d = parseISODate(range.start);
@@ -668,6 +725,16 @@ export default function PlannerPage() {
     }
     return list;
   }, [range.start, range.end]);
+
+  const printDays = useMemo(() => {
+    const list: string[] = [];
+    let d = parseISODate(printRange.start);
+    while (dateKey(d) <= dateKey(printRange.end)) {
+      list.push(dateKey(d));
+      d = addDays(d, 1);
+    }
+    return list;
+  }, [printRange.end, printRange.start]);
 
   useEffect(() => {
     if (!days.length) return;
@@ -766,9 +833,54 @@ export default function PlannerPage() {
     [DEBUG_DND, createMealAndRefresh, householdSize, mealsById, selectMode]
   );
 
+  const inlineOverlay =
+    activeSlot && panelStyle
+      ? createPortal(
+          <div className="planner-overlay-root">
+            <InlineAddPanel
+              recipes={recipes}
+              slots={slots}
+              recentPlanned={recentPlanned}
+              currentMeals={meals}
+              inlineType={inlineType}
+              setInlineType={setInlineType}
+              inlineRecipeId={inlineRecipeId}
+              setInlineRecipeId={setInlineRecipeId}
+              inlineServings={inlineServings}
+              setInlineServings={setInlineServings}
+              householdSize={householdSize}
+              inlineLeftoverSource={inlineLeftoverSource}
+              setInlineLeftoverSource={setInlineLeftoverSource}
+              inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
+              setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
+              includeAnyRecent={includeAnyRecent}
+              setIncludeAnyRecent={setIncludeAnyRecent}
+              inlineFreeformTitle={inlineFreeformTitle}
+              setInlineFreeformTitle={setInlineFreeformTitle}
+              inlineNotes={inlineNotes}
+              setInlineNotes={setInlineNotes}
+              recipeSearch={recipeSearch}
+              setRecipeSearch={setRecipeSearch}
+              panelRef={panelRef}
+              panelStyle={panelStyle}
+              onCancel={() => closePanel("inline-cancel")}
+              onSave={async () => {
+                const payload = buildInlinePayload();
+                if (!payload) return;
+                const created = await createMealAndRefresh(payload);
+                if (!created) return;
+                resetInline();
+                closePanel("inline-save");
+              }}
+            />
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div className="grid">
-      <section className="panel">
+      <section className="panel no-print">
         <div className="row">
           <button className="secondary" onClick={() => navigate(-1)} aria-label="Previous">
             &lt;
@@ -797,6 +909,9 @@ export default function PlannerPage() {
           </select>
           <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
             Templates
+          </button>
+          <button className="secondary no-print" onClick={() => window.print()}>
+            Print Planner
           </button>
           {view === "week" && (
             <button className={selectMode ? "" : "secondary"} onClick={() => {
@@ -918,7 +1033,7 @@ export default function PlannerPage() {
         )}
       </section>
 
-      <section className="panel">
+      <section className="panel planner-screen-view">
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
         <div className="grid" style={{ overflowX: "auto" }}>
           {view === "week" ? (
@@ -981,7 +1096,7 @@ export default function PlannerPage() {
                                 setServingsEditMealId(meal.id);
                                 setServingsEditValue(meal.servingsPlanned ?? householdSize);
                               }}
-                              onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                              onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
                               editingMealId={leftoverEditMealId}
                               editValue={leftoverEditValue}
                               onEditValue={setLeftoverEditValue}
@@ -1052,45 +1167,7 @@ export default function PlannerPage() {
                                   return;
                                 }
                               }}
-                              inlinePanel={
-                                activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
-                                  <InlineAddPanel
-                                    recipes={recipes}
-                                    slots={slots}
-                                    recentPlanned={recentPlanned}
-                                    currentMeals={meals}
-                                    inlineType={inlineType}
-                                    setInlineType={setInlineType}
-                                    inlineRecipeId={inlineRecipeId}
-                                    setInlineRecipeId={setInlineRecipeId}
-                                    inlineServings={inlineServings}
-                                    setInlineServings={setInlineServings}
-                                    householdSize={householdSize}
-                                    inlineLeftoverSource={inlineLeftoverSource}
-                                    setInlineLeftoverSource={setInlineLeftoverSource}
-                                    inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                                    setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                                    includeAnyRecent={includeAnyRecent}
-                                    setIncludeAnyRecent={setIncludeAnyRecent}
-                                    inlineFreeformTitle={inlineFreeformTitle}
-                                    setInlineFreeformTitle={setInlineFreeformTitle}
-                                    inlineNotes={inlineNotes}
-                                    setInlineNotes={setInlineNotes}
-                                    recipeSearch={recipeSearch}
-                                    setRecipeSearch={setRecipeSearch}
-                                    panelRef={panelRef}
-                                    onCancel={() => closePanel("inline-cancel")}
-                                    onSave={async () => {
-                                      const payload = buildInlinePayload();
-                                      if (!payload) return;
-                                      const created = await createMealAndRefresh(payload);
-                                      if (!created) return;
-                                      resetInline();
-                                      closePanel("inline-save");
-                                    }}
-                                  />
-                                ) : null
-                              }
+                              inlinePanel={null}
                             />
                           ))}
                         </tr>
@@ -1145,7 +1222,7 @@ export default function PlannerPage() {
                             setServingsEditMealId(meal.id);
                             setServingsEditValue(meal.servingsPlanned ?? householdSize);
                           }}
-                          onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                          onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
                           editingMealId={leftoverEditMealId}
                           editValue={leftoverEditValue}
                           onEditValue={setLeftoverEditValue}
@@ -1216,45 +1293,7 @@ export default function PlannerPage() {
                               return;
                             }
                           }}
-                          inlinePanel={
-                            activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id ? (
-                              <InlineAddPanel
-                                recipes={recipes}
-                                slots={slots}
-                                recentPlanned={recentPlanned}
-                                currentMeals={meals}
-                                inlineType={inlineType}
-                                setInlineType={setInlineType}
-                                inlineRecipeId={inlineRecipeId}
-                                setInlineRecipeId={setInlineRecipeId}
-                                inlineServings={inlineServings}
-                                setInlineServings={setInlineServings}
-                                householdSize={householdSize}
-                                inlineLeftoverSource={inlineLeftoverSource}
-                                setInlineLeftoverSource={setInlineLeftoverSource}
-                                inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                                setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                                includeAnyRecent={includeAnyRecent}
-                                setIncludeAnyRecent={setIncludeAnyRecent}
-                                inlineFreeformTitle={inlineFreeformTitle}
-                                setInlineFreeformTitle={setInlineFreeformTitle}
-                                inlineNotes={inlineNotes}
-                                setInlineNotes={setInlineNotes}
-                                recipeSearch={recipeSearch}
-                                setRecipeSearch={setRecipeSearch}
-                                panelRef={panelRef}
-                                onCancel={() => closePanel("inline-cancel-month")}
-                                onSave={async () => {
-                                  const payload = buildInlinePayload();
-                                  if (!payload) return;
-                                  const created = await createMealAndRefresh(payload);
-                                  if (!created) return;
-                                  resetInline();
-                                  closePanel("inline-save-month");
-                                }}
-                              />
-                            ) : null
-                          }
+                          inlinePanel={null}
                         />
                       ))}
                     </div>
@@ -1281,47 +1320,10 @@ export default function PlannerPage() {
                       {meals.filter((meal) => meal.date === day && meal.mealSlotId === slot.id).length === 0 && (
                         <button
                           className="ghost"
-                          onClick={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
+                          onClick={(e) => openInlineAdd({ date: day, mealSlotId: slot.id }, e.currentTarget)}
                         >
                           Add
                         </button>
-                      )}
-                      {activeSlot && activeSlot.date === day && activeSlot.mealSlotId === slot.id && (
-                        <InlineAddPanel
-                          recipes={recipes}
-                          slots={slots}
-                          recentPlanned={recentPlanned}
-                          currentMeals={meals}
-                          inlineType={inlineType}
-                          setInlineType={setInlineType}
-                          inlineRecipeId={inlineRecipeId}
-                          setInlineRecipeId={setInlineRecipeId}
-                          inlineServings={inlineServings}
-                          setInlineServings={setInlineServings}
-                          householdSize={householdSize}
-                          inlineLeftoverSource={inlineLeftoverSource}
-                          setInlineLeftoverSource={setInlineLeftoverSource}
-                          inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-                          setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-                          includeAnyRecent={includeAnyRecent}
-                          setIncludeAnyRecent={setIncludeAnyRecent}
-                          inlineFreeformTitle={inlineFreeformTitle}
-                          setInlineFreeformTitle={setInlineFreeformTitle}
-                          inlineNotes={inlineNotes}
-                          setInlineNotes={setInlineNotes}
-                          recipeSearch={recipeSearch}
-                          setRecipeSearch={setRecipeSearch}
-                          panelRef={panelRef}
-                          onCancel={() => closePanel("inline-cancel-mobile")}
-                          onSave={async () => {
-                            const payload = buildInlinePayload();
-                            if (!payload) return;
-                            const created = await createMealAndRefresh(payload);
-                            if (!created) return;
-                            resetInline();
-                            closePanel("inline-save-mobile");
-                          }}
-                        />
                       )}
                     </div>
                   ))}
@@ -1332,7 +1334,49 @@ export default function PlannerPage() {
         </div>
       </section>
 
-      <section className="panel">
+      <section className="panel print-only planner-print">
+        <h2>Planner Week</h2>
+        <p className="muted">
+          {printDays.length ? `${formatWeekdayLabel(printDays[0])} - ${formatWeekdayLabel(printDays[printDays.length - 1])}` : headerLabel}
+        </p>
+        <table className="table planner-print-table">
+          <thead>
+            <tr>
+              <th>Slot</th>
+              {printDays.map((day) => (
+                <th key={`print-${day}`}>{formatWeekdayLabel(day)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {slots.map((slot) => (
+              <tr key={`print-slot-${slot.id}`}>
+                <td>{slot.name}</td>
+                {printDays.map((day) => {
+                  const slotMeals = meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day);
+                  return (
+                    <td key={`print-${day}-${slot.id}`}>
+                      {slotMeals.length === 0 ? (
+                        <span className="muted">-</span>
+                      ) : (
+                        <div className="planner-print-meals">
+                          {slotMeals.map((meal) => (
+                            <div key={`print-meal-${meal.id}`} className="planner-print-meal">
+                              <MealLabel meal={meal} recipes={recipes} householdSize={householdSize} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="panel no-print">
         <h3>Add planned meal</h3>
         <form className="grid" onSubmit={addMeal}>
           <div className="row">
@@ -1426,6 +1470,7 @@ export default function PlannerPage() {
           <button type="submit">Add</button>
         </form>
       </section>
+      {inlineOverlay}
       {lastDragMove && (
         <div
           className="panel"
@@ -1493,6 +1538,7 @@ function InlineAddPanel({
   recipeSearch,
   setRecipeSearch,
   panelRef,
+  panelStyle,
   onSave,
   onCancel
 }: {
@@ -1520,6 +1566,7 @@ function InlineAddPanel({
   recipeSearch: string;
   setRecipeSearch: (value: string) => void;
   panelRef: RefObject<HTMLDivElement>;
+  panelStyle?: CSSProperties | null;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -1557,6 +1604,7 @@ function InlineAddPanel({
     <div
       className="panel planner-inline-panel"
       ref={panelRef}
+      style={panelStyle ?? undefined}
       data-planner-inline-panel="true"
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
@@ -1755,7 +1803,7 @@ function WeekCell({
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
-  onAdd: () => void | Promise<void>;
+  onAdd: (anchorEl: HTMLElement) => void | Promise<void>;
   editingMealId: string | null;
   editValue: number;
   onEditValue: (value: number) => void;
@@ -1852,7 +1900,7 @@ function WeekCell({
         />
       ))}
       {meals.length === 0 && (
-        <button className="ghost" onClick={onAdd}>
+        <button className="ghost" onClick={(e) => void onAdd(e.currentTarget)}>
           Add
         </button>
       )}
@@ -1904,7 +1952,7 @@ function WeekSlotCard({
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
-  onAdd: () => void | Promise<void>;
+  onAdd: (anchorEl: HTMLElement) => void | Promise<void>;
   editingMealId: string | null;
   editValue: number;
   onEditValue: (value: number) => void;
@@ -2003,7 +2051,7 @@ function WeekSlotCard({
         />
       ))}
       {meals.length === 0 && (
-        <button className="ghost" onClick={onAdd}>
+        <button className="ghost" onClick={(e) => void onAdd(e.currentTarget)}>
           Add
         </button>
       )}

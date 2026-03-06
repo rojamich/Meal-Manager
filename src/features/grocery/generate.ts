@@ -11,7 +11,14 @@ import { listEssentialItems } from "../../db/repositories/essentialsRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
-import { formatDateLong } from "../../utils/date";
+
+export interface GroceryUsageEntry {
+  label: string;
+  date?: string;
+  qty?: number;
+  unit?: string;
+  count?: number;
+}
 
 export interface GrocerySettings {
   startDate: string;
@@ -24,6 +31,67 @@ export interface GrocerySettings {
 }
 
 const DEBUG_CONSUMPTION = false;
+
+function mergeUsageEntries(entries: GroceryUsageEntry[]) {
+  const merged = new Map<string, GroceryUsageEntry>();
+  for (const entry of entries) {
+    const key = [entry.label, entry.date || "", entry.unit || ""].join("|");
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        label: entry.label,
+        date: entry.date,
+        qty: entry.qty ?? 0,
+        unit: entry.unit,
+        count: entry.count ?? 1
+      });
+      continue;
+    }
+    existing.qty = (existing.qty ?? 0) + (entry.qty ?? 0);
+    existing.count = (existing.count ?? 0) + (entry.count ?? 1);
+  }
+  return Array.from(merged.values()).sort((a, b) => {
+    const dateCompare = (a.date || "").localeCompare(b.date || "");
+    if (dateCompare !== 0) return dateCompare;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+export function serializeGroceryUsageEntries(entries: GroceryUsageEntry[]) {
+  return JSON.stringify(mergeUsageEntries(entries));
+}
+
+export function parseGroceryUsageEntries(raw: string | undefined) {
+  if (!raw) return [] as GroceryUsageEntry[];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return mergeUsageEntries(
+        parsed
+          .filter((entry): entry is GroceryUsageEntry => Boolean(entry && typeof entry === "object"))
+          .map((entry) => ({
+            label: String(entry.label || "Meal"),
+            date: entry.date ? String(entry.date) : undefined,
+            qty: typeof entry.qty === "number" ? entry.qty : undefined,
+            unit: entry.unit ? String(entry.unit) : undefined,
+            count: typeof entry.count === "number" ? entry.count : undefined
+          }))
+      );
+    }
+    if (parsed && typeof parsed === "object") {
+      return Object.entries(parsed as Record<string, number>).map(([label, count]) => ({
+        label,
+        date: undefined,
+        qty: undefined,
+        unit: undefined,
+        count: Number(count) || 1
+      }));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
 
 function toISODateLocal(input: Date | string) {
   if (typeof input === "string") return input.slice(0, 10);
@@ -116,7 +184,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
 
   const neededByItem = new Map<string, number>();
   const neededByItemByDate = new Map<string, { date: string; qty: number }[]>();
-  const usedForMap = new Map<string, Map<string, number>>();
+  const usedForMap = new Map<string, GroceryUsageEntry[]>();
   const freeformLines: Omit<GroceryLine, "id">[] = [];
 
   const addNeeded = (pantryItemId: string, date: string, qty: number) => {
@@ -150,9 +218,14 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       const qty = ingredient.quantity * factor;
       addNeeded(ingredient.pantryItemId, meal.date, qty);
 
-      const usedFor = usedForMap.get(ingredient.pantryItemId) ?? new Map<string, number>();
-      const usedLabel = `${recipe.title} (${formatDateLong(meal.date)})`;
-      usedFor.set(usedLabel, (usedFor.get(usedLabel) ?? 0) + 1);
+      const usedFor = usedForMap.get(ingredient.pantryItemId) ?? [];
+      usedFor.push({
+        label: recipe.title,
+        date: meal.date,
+        qty,
+        unit: pantryItemById.get(ingredient.pantryItemId)?.baseUnit,
+        count: 1
+      });
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
 
@@ -183,9 +256,15 @@ export async function buildGroceryLines(settings: GrocerySettings) {
           fromPantryQty: 0,
           toBuyQty: 0,
           unit: item?.baseUnit || "count",
-          usedForJson: JSON.stringify({
-            [`${recipe.title} (${formatDateLong(meal.date)})`]: 1
-          }),
+          usedForJson: serializeGroceryUsageEntries([
+            {
+              label: recipe.title,
+              date: meal.date,
+              qty: 0,
+              unit: item?.baseUnit || "count",
+              count: 1
+            }
+          ]),
           checked: false
         });
         continue;
@@ -209,9 +288,15 @@ export async function buildGroceryLines(settings: GrocerySettings) {
         fromPantryQty: 0,
         toBuyQty: qty,
         unit,
-        usedForJson: JSON.stringify({
-          [`${recipe.title} (${groupLabel} option)`]: 1
-        }),
+        usedForJson: serializeGroceryUsageEntries([
+          {
+            label: `${recipe.title} (${groupLabel} option)`,
+            date: meal.date,
+            qty,
+            unit,
+            count: 1
+          }
+        ]),
         checked: false
       });
     }
@@ -225,8 +310,14 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       if (!(item.alwaysInclude || (item.includeWhenPantryEmpty && settings.treatPantryAsEmpty))) continue;
       if (item.pantryItemId && item.defaultQty) {
         addNeeded(item.pantryItemId, settings.startDate, item.defaultQty);
-        const usedFor = usedForMap.get(item.pantryItemId) ?? new Map<string, number>();
-        usedFor.set("Essentials", (usedFor.get("Essentials") ?? 0) + 1);
+        const usedFor = usedForMap.get(item.pantryItemId) ?? [];
+        usedFor.push({
+          label: "Essentials",
+          date: settings.startDate,
+          qty: item.defaultQty,
+          unit: pantryItemById.get(item.pantryItemId)?.baseUnit,
+          count: 1
+        });
         usedForMap.set(item.pantryItemId, usedFor);
       }
       if (item.freeformLabel && item.defaultQty) {
@@ -238,7 +329,15 @@ export async function buildGroceryLines(settings: GrocerySettings) {
           fromPantryQty: 0,
           toBuyQty: item.defaultQty,
           unit: "count",
-          usedForJson: JSON.stringify({ Essentials: 1 }),
+          usedForJson: serializeGroceryUsageEntries([
+            {
+              label: "Essentials",
+              date: settings.startDate,
+              qty: item.defaultQty,
+              unit: "count",
+              count: 1
+            }
+          ]),
           checked: false
         });
       }
@@ -294,7 +393,7 @@ export async function buildGroceryLines(settings: GrocerySettings) {
     if (toBuy <= 0) continue;
     const fromPantry = Math.max(needed - toBuy, 0);
     const usedFor = usedForMap.get(pantryItemId);
-    const usedForJson = JSON.stringify(Object.fromEntries(usedFor ?? []));
+    const usedForJson = serializeGroceryUsageEntries(usedFor ?? []);
 
     lines.push({
       groceryListId: "",
