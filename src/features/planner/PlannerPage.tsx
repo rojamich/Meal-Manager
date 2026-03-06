@@ -265,19 +265,75 @@ export default function PlannerPage() {
 
   async function removeMeal(id: string) {
     if (!confirm("Delete this planned meal?")) return;
-    const meal = meals.find((m) => m.id === id);
-    if (!meal) return;
-    const result = await deleteMealWithRules({
-      meal,
-      householdSize,
-      currentMeals: [...meals, ...recentPlanned]
-    });
-    applySourceUpdate(result.sourceUpdate);
-    setMeals((prev: PlannedMeal[]) => prev.filter((row: PlannedMeal) => row.id !== id));
-    setRecentPlanned((prev: PlannedMeal[]) => prev.filter((row: PlannedMeal) => row.id !== id));
-    await refreshMeals();
-    await refreshRecentMeals();
+    await deleteMealsBatch([id]);
   }
+
+  const deleteMealsBatch = useCallback(
+    async (mealIds: string[]) => {
+      const knownMeals = Array.from(new Map([...meals, ...recentPlanned].map((meal) => [meal.id, meal])).values());
+      const mealIdSet = new Set(mealIds);
+      const mealsToDelete = knownMeals
+        .filter((meal) => mealIdSet.has(meal.id))
+        .sort((a, b) => {
+          if (a.type === b.type) return a.date.localeCompare(b.date);
+          if (a.type === "leftover") return -1;
+          if (b.type === "leftover") return 1;
+          return a.date.localeCompare(b.date);
+        });
+      if (!mealsToDelete.length) return;
+
+      let contextMeals = [...knownMeals];
+      for (const meal of mealsToDelete) {
+        const result = await deleteMealWithRules({
+          meal,
+          householdSize,
+          currentMeals: contextMeals
+        });
+        if (result.sourceUpdate) {
+          contextMeals = contextMeals.map((row) =>
+            row.id === result.sourceUpdate?.mealId
+              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
+              : row
+          );
+        }
+        contextMeals = contextMeals.filter((row) => row.id !== meal.id);
+      }
+
+      const remainingById = new Map(contextMeals.map((meal) => [meal.id, meal]));
+      setMeals((prev: PlannedMeal[]) =>
+        prev
+          .filter((row: PlannedMeal) => !mealIdSet.has(row.id))
+          .map((row: PlannedMeal) => remainingById.get(row.id) || row)
+      );
+      setRecentPlanned((prev: PlannedMeal[]) =>
+        prev
+          .filter((row: PlannedMeal) => !mealIdSet.has(row.id))
+          .map((row: PlannedMeal) => remainingById.get(row.id) || row)
+      );
+      setSelectedMealIds((prev) => prev.filter((id) => !mealIdSet.has(id)));
+      if (servingsEditMealId && mealIdSet.has(servingsEditMealId)) {
+        setServingsEditMealId(null);
+      }
+      if (leftoverEditMealId && mealIdSet.has(leftoverEditMealId)) {
+        setLeftoverEditMealId(null);
+      }
+      if (activeMealActionsId && mealIdSet.has(activeMealActionsId)) {
+        setActiveMealActionsId(null);
+      }
+      await refreshMeals();
+      await refreshRecentMeals();
+    },
+    [
+      activeMealActionsId,
+      householdSize,
+      leftoverEditMealId,
+      meals,
+      recentPlanned,
+      refreshMeals,
+      refreshRecentMeals,
+      servingsEditMealId
+    ]
+  );
 
   const resetInline = useCallback(() => {
     setInlineType("recipe");
@@ -619,11 +675,9 @@ export default function PlannerPage() {
   const deleteSelectedMeals = useCallback(async () => {
     if (!selectedMealIds.length) return;
     if (!confirm(`Delete ${selectedMealIds.length} selected meals?`)) return;
-    for (const id of selectedMealIds) {
-      await removeMeal(id);
-    }
+    await deleteMealsBatch(selectedMealIds);
     clearSelectState();
-  }, [clearSelectState, removeMeal, selectedMealIds]);
+  }, [clearSelectState, deleteMealsBatch, selectedMealIds]);
 
   const copySelectedMeals = useCallback(() => {
     if (!selectedMeals.length) return;
@@ -668,11 +722,9 @@ export default function PlannerPage() {
     const ids = meals.filter((meal) => meal.date === dayActionDate).map((meal) => meal.id);
     if (!ids.length) return;
     if (!confirm(`Delete ${ids.length} meals for ${formatDateLabel(dayActionDate)}?`)) return;
-    for (const id of ids) {
-      await removeMeal(id);
-    }
+    await deleteMealsBatch(ids);
     clearSelectState();
-  }, [clearSelectState, dayActionDate, meals, removeMeal]);
+  }, [clearSelectState, dayActionDate, deleteMealsBatch, meals]);
 
   const copyWeek = useCallback(
     async (sourceOffsetDays: number, targetOffsetDays: number) => {

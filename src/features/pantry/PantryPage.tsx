@@ -141,9 +141,9 @@ export default function PantryPage() {
   }
 
   return (
-    <div className="grid grid-2">
+    <div className="grid grid-2 resource-two-panel">
       <section className="panel">
-        <div className="row">
+        <div className="row resource-toolbar">
           <input
             placeholder="Search pantry items"
             value={search}
@@ -175,6 +175,7 @@ export default function PantryPage() {
           </button>
         </div>
         {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -202,7 +203,7 @@ export default function PantryPage() {
                   {item.defaultShelfLifeDays == null ? "—" : `${item.defaultShelfLifeDays}d`}
                 </td>
                 <td data-label="After opening">{item.defaultAfterOpeningDays == null ? "-" : `${item.defaultAfterOpeningDays}d`}</td>
-                <td data-label="Actions">
+                <td data-label="Actions" className="table-actions">
                   <button className="secondary" onClick={() => setEditing(item)}>
                     Edit
                   </button>
@@ -214,6 +215,7 @@ export default function PantryPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="panel">
@@ -226,7 +228,7 @@ export default function PantryPage() {
 
         <hr />
         <h3>Inventory Lots</h3>
-        <div className="row">
+        <div className="row resource-toolbar">
           <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
             <option value="__ALL__">All pantry items</option>
             {items.map((item) => (
@@ -235,7 +237,7 @@ export default function PantryPage() {
               </option>
             ))}
           </select>
-          <div className="row">
+          <div className="row resource-toolbar pantry-lot-actions">
             <select value={emptyLocationId} onChange={(e) => setEmptyLocationId(e.target.value)}>
               <option value="">All locations</option>
               {locations.map((loc) => (
@@ -252,13 +254,13 @@ export default function PantryPage() {
         <div className={selectedItemId ? "" : "mobile-hide"}>
           {selectedItemId && selectedItemId !== "__ALL__" && (
             <form className="grid" onSubmit={addLot}>
-              <div className="row">
+              <div className="row resource-toolbar lot-form-row">
                 <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
                 {selectedItem && <span className="muted">{selectedItem.baseUnit}</span>}
                 <input name="purchasedAt" type="date" defaultValue={toISODate(new Date())} />
                 <input name="expiresAt" type="date" />
               </div>
-              <div className="row">
+              <div className="row resource-toolbar lot-form-row">
                 <select name="locationId" defaultValue="">
                   <option value="">No location</option>
                   {locations.map((loc) => (
@@ -273,6 +275,7 @@ export default function PantryPage() {
               {lotError && <p className="muted">{lotError}</p>}
             </form>
           )}
+          <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -296,7 +299,7 @@ export default function PantryPage() {
                   <td data-label="Purchased">{lot.purchasedAt}</td>
                   <td data-label="Expires">{lot.expiresAt || "-"}</td>
                   <td data-label="Location">{locations.find((l) => l.id === lot.locationId)?.name || "-"}</td>
-                  <td data-label="Actions">
+                  <td data-label="Actions" className="table-actions">
                     {!lot.archivedAt && (
                       <button className="secondary" onClick={() => archiveLot(lot.id)}>
                         Archive
@@ -312,6 +315,7 @@ export default function PantryPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </section>
     </div>
@@ -356,14 +360,14 @@ function PantryForm({
   }
 
   return (
-    <form className="grid" onSubmit={submit}>
+    <form className="grid resource-form" onSubmit={submit}>
       <input
         value={form.name}
         onChange={(e) => setForm({ ...form, name: e.target.value })}
         placeholder="Name"
         required
       />
-      <div className="row">
+      <div className="row resource-toolbar form-row-grid">
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
           {PANTRY_CATEGORY_OPTIONS.map((cat) => (
             <option key={cat.key} value={cat.key}>
@@ -387,7 +391,7 @@ function PantryForm({
           <option value="ml">ml</option>
         </select>
       </div>
-      <div className="row">
+      <div className="row resource-toolbar form-row-grid">
         <input
           type="number"
           value={form.defaultShelfLifeDays}
@@ -406,7 +410,7 @@ function PantryForm({
         onChange={(e) => setForm({ ...form, notes: e.target.value })}
         placeholder="Notes"
       />
-      <div className="row">
+      <div className="row resource-toolbar">
         <button type="submit">Save</button>
         <button type="button" className="secondary" onClick={onCancel}>
           Cancel

@@ -64,8 +64,25 @@ export interface AiWeekPlanDocument {
 export interface AiImportSummary {
   recipesCreated: number;
   recipesReused: number;
+  recipesUpdated: number;
+  pantryItemsCreated: number;
+  pantryItemsReused: number;
+  pantryItemsUpdated: number;
   plannedMealsCreated: number;
   leftoverDowngradedToFreeform: number;
   replacedDates: string[];
   warnings: string[];
+}
+
+export type AiRecipeConflictStrategy = "reuse" | "update";
+export type AiPantryConflictStrategy = "keep" | "update";
+
+export interface AiImportConflictOptions {
+  recipeConflictStrategy: AiRecipeConflictStrategy;
+  pantryConflictStrategy: AiPantryConflictStrategy;
+}
+
+export interface AiImportConflictAnalysis {
+  duplicateRecipeTitles: string[];
+  duplicatePantryItemNames: string[];
 }

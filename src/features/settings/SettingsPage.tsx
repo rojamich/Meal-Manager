@@ -6,7 +6,7 @@ import PricesSection from "../prices/PricesSection";
 import { exportAll, importAll } from "../../db/db";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
 import { createAiWeekTemplate } from "./aiWeekTemplate";
-import { importAiWeekPlan } from "./aiImport";
+import { analyzeAiImportConflicts, importAiWeekPlanWithOptions } from "./aiImport";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
@@ -55,12 +55,34 @@ export default function SettingsPage() {
     if (!file) return;
     try {
       const text = await file.text();
-      const result = await importAiWeekPlan(text);
+      const conflicts = await analyzeAiImportConflicts(text);
+      const recipeConflictStrategy =
+        conflicts.duplicateRecipeTitles.length > 0 &&
+        confirm(
+          `AI import found ${conflicts.duplicateRecipeTitles.length} matching recipe(s): ${conflicts.duplicateRecipeTitles.slice(0, 5).join(", ")}${conflicts.duplicateRecipeTitles.length > 5 ? "..." : ""}\n\nPress OK to update all matching recipes from the import.\nPress Cancel to reuse the existing recipes unchanged.`
+        )
+          ? "update"
+          : "reuse";
+      const pantryConflictStrategy =
+        conflicts.duplicatePantryItemNames.length > 0 &&
+        confirm(
+          `AI import found ${conflicts.duplicatePantryItemNames.length} matching pantry item(s): ${conflicts.duplicatePantryItemNames.slice(0, 5).join(", ")}${conflicts.duplicatePantryItemNames.length > 5 ? "..." : ""}\n\nPress OK to update existing pantry defaults from the import when values are provided.\nPress Cancel to keep existing pantry item defaults unchanged.`
+        )
+          ? "update"
+          : "keep";
+      const result = await importAiWeekPlanWithOptions(text, {
+        recipeConflictStrategy,
+        pantryConflictStrategy
+      });
       setAiImportError(null);
       setAiImportSuccess(
         [
           `Recipes created: ${result.recipesCreated}`,
           `Recipes reused: ${result.recipesReused}`,
+          `Recipes updated: ${result.recipesUpdated}`,
+          `Pantry items created: ${result.pantryItemsCreated}`,
+          `Pantry items kept: ${result.pantryItemsReused}`,
+          `Pantry items updated: ${result.pantryItemsUpdated}`,
           `Planned meals created: ${result.plannedMealsCreated}`,
           `Leftovers downgraded to freeform: ${result.leftoverDowngradedToFreeform}`,
           `Replaced dates: ${result.replacedDates.join(", ")}`
@@ -71,6 +93,10 @@ export default function SettingsPage() {
           [
             `Recipes created: ${result.recipesCreated}`,
             `Recipes reused: ${result.recipesReused}`,
+            `Recipes updated: ${result.recipesUpdated}`,
+            `Pantry items created: ${result.pantryItemsCreated}`,
+            `Pantry items kept: ${result.pantryItemsReused}`,
+            `Pantry items updated: ${result.pantryItemsUpdated}`,
             `Planned meals created: ${result.plannedMealsCreated}`,
             `Leftovers downgraded to freeform: ${result.leftoverDowngradedToFreeform}`,
             `Replaced dates: ${result.replacedDates.join(", ")}`,

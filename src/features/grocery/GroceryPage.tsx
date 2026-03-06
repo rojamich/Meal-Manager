@@ -290,7 +290,7 @@ export default function GroceryPage() {
             Advanced {showAdvanced ? "^" : "v"}
           </button>
         </div>
-        <div className="grid grid-2">
+        <div className="grid grid-2 grocery-settings-grid">
           <label>
             Start date
             <input type="date" value={settings.startDate} onChange={(e) => setSettings({ ...settings, startDate: e.target.value })} />
@@ -300,7 +300,7 @@ export default function GroceryPage() {
             <input type="date" value={settings.endDate} onChange={(e) => setSettings({ ...settings, endDate: e.target.value })} />
           </label>
         </div>
-        <div className={`grid grid-2 ${showAdvanced ? "" : "hide-on-mobile"}`}>
+        <div className={`grid grid-2 grocery-settings-grid ${showAdvanced ? "" : "hide-on-mobile"}`}>
           <label>
             Expiry buffer days
             <input type="number" value={settings.expiryBufferDays} onChange={(e) => setSettings({ ...settings, expiryBufferDays: Number(e.target.value) })} />
@@ -335,13 +335,13 @@ export default function GroceryPage() {
             Treat pantry as empty
           </label>
         </div>
-        <div className="row">
+        <div className="row resource-toolbar">
           <button onClick={handleGenerate}>Generate</button>
         </div>
       </section>
 
       <section className="panel">
-        <div className="row">
+        <div className="row resource-toolbar">
           <select value={selectedListId} onChange={(e) => setSelectedListId(e.target.value)}>
             <option value="">Select grocery list</option>
             {lists.map((list) => (
@@ -364,7 +364,7 @@ export default function GroceryPage() {
               .map((line) => {
                 const options = parseAltOptions(line);
                 return (
-                  <div key={line.id} className="row">
+                  <div key={line.id} className="row resource-toolbar grocery-alt-row">
                     <span>{line.freeformLabel}</span>
                     <select
                       value={altSelections[line.id] || ""}
@@ -380,7 +380,7 @@ export default function GroceryPage() {
                   </div>
                 );
               })}
-            <div className="row">
+            <div className="row resource-toolbar">
               <button
                 onClick={async () => {
                   const pending = lines.filter(
@@ -404,6 +404,7 @@ export default function GroceryPage() {
         {grouped.map(([category, items]) => (
           <div key={category} className="panel">
             <h3>{pantryCategoryLabel(category)}</h3>
+            <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -454,7 +455,7 @@ export default function GroceryPage() {
                               }
                             />
                           ) : (
-                            "—"
+                            "-"
                           )}
                         </td>
                         <td data-label="Used for">
@@ -498,6 +499,7 @@ export default function GroceryPage() {
                   })}
               </tbody>
             </table>
+            </div>
           </div>
         ))}
       </section>

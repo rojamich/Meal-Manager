@@ -1,5 +1,12 @@
-import { addIngredient, createRecipe, listRecipes } from "../../db/repositories/recipeRepo";
-import { createPantryItem, listPantryItems } from "../../db/repositories/pantryRepo";
+import {
+  addIngredient,
+  createRecipe,
+  deleteIngredient,
+  listIngredients,
+  listRecipes,
+  updateRecipe
+} from "../../db/repositories/recipeRepo";
+import { createPantryItem, listPantryItems, updatePantryItem } from "../../db/repositories/pantryRepo";
 import { listMealSlots, listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import {
   buildFreeformMealInput,
@@ -10,11 +17,15 @@ import {
 } from "../planner/plannerDomain";
 import { getHouseholdSize } from "./preferences";
 import {
+  AiImportConflictAnalysis,
+  AiImportConflictOptions,
   AiImportSummary,
   AiWeekPantryItem,
   AiWeekPlanDocument,
   AiWeekPlannedMeal,
-  AiWeekRecipe
+  AiWeekRecipe,
+  AiPantryConflictStrategy,
+  AiRecipeConflictStrategy
 } from "./aiImportTypes";
 import { BaseUnit, MealSlot, PantryItem, PlannedMeal, Recipe } from "../../models";
 import { dateKey, addDays, parseISODate } from "../../utils/date";
@@ -142,6 +153,49 @@ function formatValidationError(errors: string[]) {
   return errors.join("\n");
 }
 
+function mergeRecipeChanges(recipeInput: AiWeekRecipe, existing: Recipe): Partial<Recipe> {
+  const changes: Partial<Recipe> = {
+    title: recipeInput.title || existing.title,
+    baseServings: recipeInput.baseServings ?? existing.baseServings,
+    defaultServings: recipeInput.defaultServings ?? recipeInput.baseServings ?? existing.defaultServings,
+    mealTypes: recipeInput.mealTypes?.length ? recipeInput.mealTypes : existing.mealTypes,
+    tags:
+      typeof recipeInput.tags === "string"
+        ? recipeInput.tags.split(",").map((value) => value.trim()).filter(Boolean)
+        : recipeInput.tags?.length
+          ? recipeInput.tags
+          : existing.tags,
+    steps: recipeInput.instructions?.length ? recipeInput.instructions : existing.steps
+  };
+
+  if (recipeInput.notes !== undefined) changes.notes = recipeInput.notes;
+  if (recipeInput.caloriesPerServing !== undefined) {
+    changes.calories = recipeInput.caloriesPerServing;
+    changes.caloriesPerServing = recipeInput.caloriesPerServing;
+  }
+  if (recipeInput.proteinGramsPerServing !== undefined) changes.proteinGrams = recipeInput.proteinGramsPerServing;
+  if (recipeInput.timeMinutes !== undefined) changes.timeMinutes = recipeInput.timeMinutes;
+  if (recipeInput.estimatedCostPerServing !== undefined) {
+    changes.estimatedCostPerServing = recipeInput.estimatedCostPerServing;
+  }
+  if (recipeInput.imageUrl !== undefined) changes.imageUrl = recipeInput.imageUrl;
+
+  return changes;
+}
+
+function buildPantryItemChanges(existing: PantryItem, defaults?: AiWeekPantryItem): Partial<PantryItem> {
+  if (!defaults) return {};
+  const changes: Partial<PantryItem> = {};
+  if (defaults.category) changes.category = defaults.category;
+  if (defaults.storageType) changes.storageType = defaults.storageType;
+  if (defaults.unit) changes.baseUnit = defaults.unit;
+  if (defaults.defaultShelfLifeDays !== undefined) changes.defaultShelfLifeDays = defaults.defaultShelfLifeDays;
+  if (defaults.afterOpeningDays !== undefined) changes.defaultAfterOpeningDays = defaults.afterOpeningDays;
+  if (defaults.notes) changes.notes = defaults.notes;
+  if (Object.keys(changes).length === 0) return {};
+  return { ...existing, ...changes };
+}
+
 export function parseAndValidateAiWeekPlan(raw: string, slots: MealSlot[]): ValidationResult {
   let parsed: unknown;
   try {
@@ -261,11 +315,32 @@ async function ensurePantryItem(
   unit: BaseUnit,
   pantryItems: PantryItem[],
   pantryByName: Map<string, PantryItem>,
-  pantryDefaultsByName: Map<string, AiWeekPantryItem>
+  pantryDefaultsByName: Map<string, AiWeekPantryItem>,
+  pantryConflictStrategy: AiPantryConflictStrategy,
+  stats: {
+    pantryItemsCreated: Set<string>;
+    pantryItemsReused: Set<string>;
+    pantryItemsUpdated: Set<string>;
+  }
 ) {
   const key = normalizeKey(ingredientName);
   const existing = pantryByName.get(key);
-  if (existing) return existing;
+  if (existing) {
+    if (pantryConflictStrategy === "update") {
+      const changes = buildPantryItemChanges(existing, pantryDefaultsByName.get(key));
+      if (Object.keys(changes).length > 0) {
+        await updatePantryItem(existing.id, changes);
+        const updated = { ...existing, ...changes };
+        const index = pantryItems.findIndex((item) => item.id === existing.id);
+        if (index >= 0) pantryItems[index] = updated;
+        pantryByName.set(key, updated);
+        stats.pantryItemsUpdated.add(updated.id);
+        return updated;
+      }
+    }
+    stats.pantryItemsReused.add(existing.id);
+    return existing;
+  }
   const defaults = pantryDefaultsByName.get(key);
   const created = await createPantryItem({
     name: ingredientName,
@@ -278,10 +353,52 @@ async function ensurePantryItem(
   });
   pantryItems.push(created);
   pantryByName.set(key, created);
+  stats.pantryItemsCreated.add(created.id);
   return created;
 }
 
-async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[], pantryDefaults: AiWeekPantryItem[]) {
+async function replaceRecipeIngredients(
+  recipeId: string,
+  recipeInput: AiWeekRecipe,
+  pantryItems: PantryItem[],
+  pantryByName: Map<string, PantryItem>,
+  pantryDefaultsByName: Map<string, AiWeekPantryItem>,
+  pantryConflictStrategy: AiPantryConflictStrategy,
+  pantryStats: {
+    pantryItemsCreated: Set<string>;
+    pantryItemsReused: Set<string>;
+    pantryItemsUpdated: Set<string>;
+  }
+) {
+  const existingIngredients = await listIngredients(recipeId);
+  for (const ingredient of existingIngredients) {
+    await deleteIngredient(ingredient.id);
+  }
+  for (const ingredient of recipeInput.ingredients) {
+    const pantryItem = await ensurePantryItem(
+      ingredient.itemName,
+      ingredient.unit,
+      pantryItems,
+      pantryByName,
+      pantryDefaultsByName,
+      pantryConflictStrategy,
+      pantryStats
+    );
+    await addIngredient({
+      recipeId,
+      pantryItemId: pantryItem.id,
+      quantity: ingredient.quantity,
+      prepNote: ingredient.notes,
+      altGroup: undefined
+    });
+  }
+}
+
+async function upsertAiRecipes(
+  recipesFromAi: AiWeekRecipe[],
+  pantryDefaults: AiWeekPantryItem[],
+  conflictOptions: AiImportConflictOptions
+) {
   const existingRecipes = await listRecipes();
   const existingByTitle = new Map(existingRecipes.map((recipe) => [normalizeKey(recipe.title), recipe]));
   const existingById = new Map(existingRecipes.map((recipe) => [normalizeKey(recipe.id), recipe]));
@@ -291,15 +408,40 @@ async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[], pantryDefaults: Ai
   const recipeResolution = new Map<string, Recipe>();
   let recipesCreated = 0;
   let recipesReused = 0;
+  let recipesUpdated = 0;
+  const pantryStats = {
+    pantryItemsCreated: new Set<string>(),
+    pantryItemsReused: new Set<string>(),
+    pantryItemsUpdated: new Set<string>()
+  };
 
   for (const recipeInput of recipesFromAi) {
     const byTitle = existingByTitle.get(normalizeKey(recipeInput.title));
     const byId = recipeInput.id ? existingById.get(normalizeKey(recipeInput.id)) : undefined;
     const existing = byTitle || byId;
     if (existing) {
-      recipeResolution.set(normalizeKey(recipeInput.title), existing);
-      if (recipeInput.id) recipeResolution.set(normalizeKey(recipeInput.id), existing);
-      recipesReused += 1;
+      let resolvedRecipe = existing;
+      if (conflictOptions.recipeConflictStrategy === "update") {
+        const changes = mergeRecipeChanges(recipeInput, existing);
+        await updateRecipe(existing.id, changes);
+        await replaceRecipeIngredients(
+          existing.id,
+          recipeInput,
+          pantryItems,
+          pantryByName,
+          pantryDefaultsByName,
+          conflictOptions.pantryConflictStrategy,
+          pantryStats
+        );
+        resolvedRecipe = { ...existing, ...changes };
+        existingByTitle.set(normalizeKey(resolvedRecipe.title), resolvedRecipe);
+        existingById.set(normalizeKey(resolvedRecipe.id), resolvedRecipe);
+        recipesUpdated += 1;
+      } else {
+        recipesReused += 1;
+      }
+      recipeResolution.set(normalizeKey(recipeInput.title), resolvedRecipe);
+      if (recipeInput.id) recipeResolution.set(normalizeKey(recipeInput.id), resolvedRecipe);
       continue;
     }
 
@@ -331,7 +473,9 @@ async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[], pantryDefaults: Ai
         ingredient.unit,
         pantryItems,
         pantryByName,
-        pantryDefaultsByName
+        pantryDefaultsByName,
+        conflictOptions.pantryConflictStrategy,
+        pantryStats
       );
       await addIngredient({
         recipeId: createdRecipe.id,
@@ -343,7 +487,15 @@ async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[], pantryDefaults: Ai
     }
   }
 
-  return { recipeResolution, recipesCreated, recipesReused };
+  return {
+    recipeResolution,
+    recipesCreated,
+    recipesReused,
+    recipesUpdated,
+    pantryItemsCreated: pantryStats.pantryItemsCreated.size,
+    pantryItemsReused: pantryStats.pantryItemsReused.size,
+    pantryItemsUpdated: pantryStats.pantryItemsUpdated.size
+  };
 }
 
 function sortMealsForImport(meals: AiWeekPlannedMeal[], slotMap: Map<string, MealSlot>) {
@@ -361,6 +513,51 @@ function buildDowngradedLeftoverTitle(meal: AiWeekPlannedMeal) {
 }
 
 export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
+  return importAiWeekPlanWithOptions(raw, {
+    recipeConflictStrategy: "reuse",
+    pantryConflictStrategy: "keep"
+  });
+}
+
+export async function analyzeAiImportConflicts(raw: string): Promise<AiImportConflictAnalysis> {
+  const slots = await listMealSlots();
+  const validation = parseAndValidateAiWeekPlan(raw, slots);
+  if (!validation.ok) {
+    throw new Error(formatValidationError(validation.errors));
+  }
+
+  const { document } = validation;
+  const existingRecipes = await listRecipes();
+  const existingPantryItems = await listPantryItems();
+  const existingRecipeTitleKeys = new Set(existingRecipes.map((recipe) => normalizeKey(recipe.title)));
+  const existingRecipeIdKeys = new Set(existingRecipes.map((recipe) => normalizeKey(recipe.id)));
+  const existingPantryKeys = new Set(existingPantryItems.map((item) => normalizeKey(item.name)));
+
+  const duplicateRecipeTitles = document.recipes
+    .filter(
+      (recipe) =>
+        existingRecipeTitleKeys.has(normalizeKey(recipe.title)) ||
+        (recipe.id ? existingRecipeIdKeys.has(normalizeKey(recipe.id)) : false)
+    )
+    .map((recipe) => recipe.title);
+
+  const pantryNames = new Set<string>();
+  (document.pantryItems || []).forEach((item) => pantryNames.add(item.name));
+  document.recipes.forEach((recipe) => {
+    recipe.ingredients.forEach((ingredient) => pantryNames.add(ingredient.itemName));
+  });
+
+  const duplicatePantryItemNames = Array.from(pantryNames).filter((name) =>
+    existingPantryKeys.has(normalizeKey(name))
+  );
+
+  return { duplicateRecipeTitles, duplicatePantryItemNames };
+}
+
+export async function importAiWeekPlanWithOptions(
+  raw: string,
+  conflictOptions: AiImportConflictOptions
+): Promise<AiImportSummary> {
   const slots = await listMealSlots();
   const validation = parseAndValidateAiWeekPlan(raw, slots);
   if (!validation.ok) {
@@ -387,9 +584,18 @@ export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
     );
   }
 
-  const { recipeResolution, recipesCreated, recipesReused } = await upsertAiRecipes(
+  const {
+    recipeResolution,
+    recipesCreated,
+    recipesReused,
+    recipesUpdated,
+    pantryItemsCreated,
+    pantryItemsReused,
+    pantryItemsUpdated
+  } = await upsertAiRecipes(
     document.recipes,
-    document.pantryItems || []
+    document.pantryItems || [],
+    conflictOptions
   );
 
   let currentMeals = allMeals.filter((meal) => !importedDates.includes(meal.date));
@@ -524,6 +730,10 @@ export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
   return {
     recipesCreated,
     recipesReused,
+    recipesUpdated,
+    pantryItemsCreated,
+    pantryItemsReused,
+    pantryItemsUpdated,
     plannedMealsCreated,
     leftoverDowngradedToFreeform,
     replacedDates: importedDates,

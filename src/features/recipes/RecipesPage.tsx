@@ -259,9 +259,9 @@ export default function RecipesPage() {
   }
 
   return (
-    <div className="grid grid-2">
+    <div className="grid grid-2 resource-two-panel">
       <section className={`panel ${selected ? "mobile-hide" : ""}`}>
-        <div className="row">
+        <div className="row resource-toolbar">
           <input placeholder="Search recipes" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button className="secondary mobile-only" onClick={() => setShowFilters((prev) => !prev)}>
             Filter {showFilters ? "^" : "v"}
@@ -291,7 +291,7 @@ export default function RecipesPage() {
             Add Recipe
           </button>
         </div>
-        <div className={`row ${showFilters ? "" : "hide-on-mobile-row"}`}>
+        <div className={`row resource-toolbar ${showFilters ? "" : "hide-on-mobile-row"}`}>
           {MEAL_TYPES.map((type) => (
             <label key={type}>
               <input
@@ -348,6 +348,7 @@ export default function RecipesPage() {
             />
           </label>
         </div>
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -381,7 +382,7 @@ export default function RecipesPage() {
                 <td data-label="Servings">{recipeBaseServings(recipe)}</td>
                 <td data-label="Metadata">{recipeMetaSummary(recipe)}</td>
                 <td data-label="Cost">{recipe.estimatedCostPerServing ?? "-"}</td>
-                <td data-label="Actions">
+                <td data-label="Actions" className="table-actions">
                   <button className="danger" onClick={() => removeRecipe(recipe.id)}>
                     Delete
                   </button>
@@ -390,6 +391,7 @@ export default function RecipesPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="panel">
@@ -616,14 +618,14 @@ function RecipeEditor({
   }
 
   return (
-    <div className="grid">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+    <div className="grid recipe-editor-shell">
+      <div className="row resource-toolbar" style={{ justifyContent: "space-between" }}>
         <h2>{recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
         <button className="secondary mobile-only" type="button" onClick={onBack}>
           Back to list
         </button>
         {recipe.id && (
-          <div className="row">
+          <div className="row resource-toolbar">
             {recipe.url && (
               <a className="tag" href={recipe.url} target="_blank" rel="noreferrer">
                 Open URL
@@ -635,9 +637,9 @@ function RecipeEditor({
           </div>
         )}
       </div>
-      <form className="grid" onSubmit={submit}>
+      <form className="grid resource-form" onSubmit={submit}>
         <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" required />
-        <div className="row">
+        <div className="row resource-toolbar form-row-grid">
           <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="URL" />
           <label className="field-stack">
             <span>Base servings</span>
@@ -650,7 +652,7 @@ function RecipeEditor({
           </label>
         </div>
         <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
-        <div className="row">
+        <div className="row resource-toolbar form-row-grid recipe-mealtype-row">
           {MEAL_TYPES.map((type) => (
             <label key={type}>
               <input
@@ -670,7 +672,7 @@ function RecipeEditor({
           ))}
         </div>
         <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="Tags (comma separated)" />
-        <div className="row">
+        <div className="row resource-toolbar form-row-grid">
           <label className="field-stack">
             <span>Calories (per serving)</span>
             <input
@@ -706,7 +708,7 @@ function RecipeEditor({
             placeholder="Cost per serving"
           />
         </div>
-        <div className="row">
+        <div className="row resource-toolbar form-row-grid recipe-image-row">
           <input
             value={form.imageUrl}
             onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
@@ -722,7 +724,7 @@ function RecipeEditor({
           <p className="info-box">Ingredients save as you add/remove them.</p>
           {!recipe.id && <p>Save the recipe first to add ingredients.</p>}
           {recipe.id && pantryItems.length === 0 && (
-            <div className="row">
+            <div className="row resource-toolbar">
               <p>No pantry items yet.</p>
               <Link className="tag" to="/pantry">
                 Go to Pantry
@@ -731,7 +733,7 @@ function RecipeEditor({
           )}
           {recipe.id && pantryItems.length > 0 && (
             <>
-              <div className="row">
+              <div className="row resource-toolbar ingredient-editor-row">
                 <input
                   value={ingredientFilter}
                   onChange={(e) => setIngredientFilter(e.target.value)}
@@ -885,6 +887,7 @@ function RecipeEditor({
                 </button>
               </div>
               {ingredientError && <p className="muted">{ingredientError}</p>}
+              <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
@@ -922,7 +925,7 @@ function RecipeEditor({
                           onChange={(e) => onUpdateIngredient(ing.id, { prepNote: e.target.value })}
                         />
                       </td>
-                      <td data-label="Remove">
+                      <td data-label="Remove" className="table-actions">
                         <button className="danger" onClick={() => onDeleteIngredient(ing.id)}>
                           Remove
                         </button>
@@ -931,13 +934,14 @@ function RecipeEditor({
                   ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </div>
         {recipe.id && (
           <div className="panel">
             <h3>Add to Planner</h3>
-            <div className="row">
+            <div className="row resource-toolbar form-row-grid">
               <input type="date" value={plannerDate} onChange={(e) => setPlannerDate(e.target.value)} />
               <select value={plannerSlotId} onChange={(e) => setPlannerSlotId(e.target.value)}>
                 <option value="">Select slot</option>
@@ -967,7 +971,7 @@ function RecipeEditor({
         <div>
           <strong>Steps</strong>
           {form.steps.map((step, idx) => (
-            <div className="row" key={idx}>
+            <div className="row resource-toolbar recipe-step-row" key={idx}>
               <textarea value={step} onChange={(e) => updateStep(idx, e.target.value)} placeholder={`Step ${idx + 1}`} />
               <button type="button" className="secondary" onClick={() => removeStep(idx)}>
                 Remove
@@ -978,7 +982,7 @@ function RecipeEditor({
             Add Step
           </button>
         </div>
-        <div className="row">
+        <div className="row resource-toolbar">
           <button type="submit" className="secondary">Save Recipe</button>
           <button type="button" onClick={handleSaveAndClose}>
             Save & Close
@@ -1025,7 +1029,7 @@ function CookMode({
         </ul>
       </div>
       <p>{step}</p>
-      <div className="row">
+      <div className="row resource-toolbar">
         <button className="secondary" onClick={() => setIndex(Math.max(index - 1, 0))}>
           Prev
         </button>

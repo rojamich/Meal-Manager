@@ -35,6 +35,7 @@ a {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: clip;
 }
 
 .top-nav {
@@ -84,6 +85,7 @@ a {
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  min-width: 0;
 }
 
 .grid {
@@ -100,6 +102,113 @@ a {
   gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.resource-two-panel {
+  align-items: start;
+}
+
+.resource-two-panel > .panel,
+.resource-form,
+.recipe-editor-shell,
+.table-wrap {
+  min-width: 0;
+}
+
+.resource-toolbar {
+  align-items: flex-end;
+}
+
+.resource-toolbar > input,
+.resource-toolbar > select,
+.resource-toolbar > textarea,
+.resource-toolbar > label,
+.resource-toolbar > .field-stack {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.resource-toolbar > button,
+.resource-toolbar > a,
+.resource-toolbar > .tag,
+.resource-toolbar > .muted,
+.resource-toolbar > span {
+  flex: 0 0 auto;
+}
+
+.form-row-grid > * {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pantry-lot-actions {
+  margin-left: auto;
+}
+
+.lot-form-row > * {
+  min-width: 0;
+}
+
+.ingredient-editor-row {
+  align-items: stretch;
+}
+
+.ingredient-editor-row > * {
+  min-width: 0;
+}
+
+.ingredient-editor-row > input:first-child,
+.ingredient-editor-row > .ingredient-select {
+  flex: 1 1 220px;
+}
+
+.ingredient-editor-row > input[type="number"] {
+  flex: 0 1 110px;
+}
+
+.recipe-mealtype-row {
+  align-items: center;
+}
+
+.recipe-image-row img {
+  border-radius: 10px;
+  flex: 0 0 auto;
+}
+
+.recipe-step-row {
+  align-items: stretch;
+}
+
+.recipe-step-row textarea {
+  flex: 1 1 320px;
+}
+
+.grocery-settings-grid label {
+  min-width: 0;
+}
+
+.grocery-alt-row {
+  align-items: flex-start;
+}
+
+.grocery-alt-row span {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 input, select, textarea, button {
@@ -396,6 +505,7 @@ details[open] > summary {
   align-items: center;
   gap: 8px;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
 
 .grocery-expand-toggle {
@@ -418,6 +528,7 @@ details[open] > summary {
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px dashed var(--border);
+  align-items: flex-start;
 }
 
 .grocery-usage-entry:last-child {
