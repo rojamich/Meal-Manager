@@ -9,7 +9,13 @@ import {
   deleteMealWithRules
 } from "../planner/plannerDomain";
 import { getHouseholdSize } from "./preferences";
-import { AiImportSummary, AiWeekPlanDocument, AiWeekPlannedMeal, AiWeekRecipe } from "./aiImportTypes";
+import {
+  AiImportSummary,
+  AiWeekPantryItem,
+  AiWeekPlanDocument,
+  AiWeekPlannedMeal,
+  AiWeekRecipe
+} from "./aiImportTypes";
 import { BaseUnit, MealSlot, PantryItem, PlannedMeal, Recipe } from "../../models";
 import { dateKey, addDays, parseISODate } from "../../utils/date";
 
@@ -25,6 +31,22 @@ function isValidIsoDate(value: string | undefined) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = parseISODate(value);
   return dateKey(parsed) === value;
+}
+
+function resolveAllowedDateRange(doc: Partial<AiWeekPlanDocument>) {
+  if (isValidIsoDate(doc.startDate) && isValidIsoDate(doc.endDate)) {
+    return { startDate: doc.startDate!, endDate: doc.endDate! };
+  }
+  if (isValidIsoDate(doc.startDate)) {
+    return {
+      startDate: doc.startDate!,
+      endDate: dateKey(addDays(parseISODate(doc.startDate!), 6))
+    };
+  }
+  return {
+    startDate: doc.weekOf!,
+    endDate: dateKey(addDays(parseISODate(doc.weekOf!), 6))
+  };
 }
 
 function normalizePositiveInt(value: number | undefined, fallback = 1) {
@@ -48,6 +70,15 @@ function normalizeAiRecipe(recipe: AiWeekRecipe): AiWeekRecipe {
     baseServings: normalizePositiveInt(recipe.baseServings, 2),
     defaultServings: normalizePositiveInt(recipe.defaultServings ?? recipe.baseServings, normalizePositiveInt(recipe.baseServings, 2)),
     mealTypes: (recipe.mealTypes || []).map((value) => String(value || "").trim()).filter(Boolean),
+    tags:
+      typeof recipe.tags === "string"
+        ? recipe.tags.split(",").map((value) => value.trim()).filter(Boolean)
+        : (recipe.tags || []).map((value) => String(value || "").trim()).filter(Boolean),
+    caloriesPerServing: recipe.caloriesPerServing !== undefined ? Number(recipe.caloriesPerServing) : undefined,
+    proteinGramsPerServing: recipe.proteinGramsPerServing !== undefined ? Number(recipe.proteinGramsPerServing) : undefined,
+    timeMinutes: recipe.timeMinutes !== undefined ? Number(recipe.timeMinutes) : undefined,
+    estimatedCostPerServing: recipe.estimatedCostPerServing !== undefined ? Number(recipe.estimatedCostPerServing) : undefined,
+    imageUrl: recipe.imageUrl?.trim() || undefined,
     ingredients: (recipe.ingredients || []).map((ingredient) => ({
       itemName: String(ingredient.itemName || "").trim(),
       quantity: Number(ingredient.quantity || 0),
@@ -55,6 +86,24 @@ function normalizeAiRecipe(recipe: AiWeekRecipe): AiWeekRecipe {
       notes: ingredient.notes?.trim() || undefined
     })),
     instructions: (recipe.instructions || []).map((step) => String(step || "").trim()).filter(Boolean)
+  };
+}
+
+function normalizeAiPantryItem(item: AiWeekPantryItem): AiWeekPantryItem {
+  const storageType = normalizeKey(item.storageType);
+  return {
+    name: String(item.name || "").trim(),
+    category: item.category?.trim() || undefined,
+    storageType:
+      storageType === "fridge" || storageType === "freezer" || storageType === "pantry"
+        ? storageType
+        : undefined,
+    unit: normalizeUnit(item.unit),
+    defaultShelfLifeDays:
+      item.defaultShelfLifeDays !== undefined ? normalizePositiveInt(item.defaultShelfLifeDays, 1) : undefined,
+    afterOpeningDays:
+      item.afterOpeningDays !== undefined ? normalizePositiveInt(item.afterOpeningDays, 1) : undefined,
+    notes: item.notes?.trim() || undefined
   };
 }
 
@@ -93,17 +142,25 @@ export function parseAndValidateAiWeekPlan(raw: string, slots: MealSlot[]): Vali
   const errors: string[] = [];
   if (doc.version !== 1) errors.push("Unsupported AI import version. Expected version 1.");
   if (!isValidIsoDate(doc.weekOf)) errors.push("weekOf must be a valid YYYY-MM-DD date.");
+  if (doc.startDate !== undefined && !isValidIsoDate(doc.startDate)) errors.push("startDate must be a valid YYYY-MM-DD date when provided.");
+  if (doc.endDate !== undefined && !isValidIsoDate(doc.endDate)) errors.push("endDate must be a valid YYYY-MM-DD date when provided.");
   if (!Array.isArray(doc.recipes)) errors.push("recipes must be an array.");
   if (!Array.isArray(doc.plannedMeals)) errors.push("plannedMeals must be an array.");
+  if (doc.pantryItems !== undefined && !Array.isArray(doc.pantryItems)) errors.push("pantryItems must be an array when provided.");
   if (errors.length) return { ok: false, errors };
+
+  if (doc.startDate && doc.endDate && doc.endDate < doc.startDate) {
+    return { ok: false, errors: ["endDate must be on or after startDate."] };
+  }
 
   const normalizedRecipes = doc.recipes!.map(normalizeAiRecipe);
   const normalizedMeals = doc.plannedMeals!.map(normalizeAiPlannedMeal);
+  const normalizedPantryItems = (doc.pantryItems || []).map(normalizeAiPantryItem);
   const recipeTitles = new Map<string, number>();
   const recipeRefs = new Set<string>();
+  const pantryNames = new Map<string, number>();
   const slotMap = new Map(slots.map((slot) => [normalizeKey(slot.name), slot]));
-  const weekStart = parseISODate(doc.weekOf!);
-  const weekEnd = dateKey(addDays(weekStart, 6));
+  const allowedRange = resolveAllowedDateRange(doc);
 
   normalizedRecipes.forEach((recipe, index) => {
     if (!recipe.title) errors.push(`recipes[${index}].title is required.`);
@@ -120,14 +177,25 @@ export function parseAndValidateAiWeekPlan(raw: string, slots: MealSlot[]): Vali
     });
   });
 
+  normalizedPantryItems.forEach((item, index) => {
+    if (!item.name) errors.push(`pantryItems[${index}].name is required.`);
+    const key = normalizeKey(item.name);
+    pantryNames.set(key, (pantryNames.get(key) ?? 0) + 1);
+  });
+
   for (const [title, count] of recipeTitles.entries()) {
     if (count > 1) errors.push(`Recipe titles must be unique. Duplicate title: "${title}".`);
+  }
+  for (const [name, count] of pantryNames.entries()) {
+    if (count > 1) errors.push(`Pantry item names must be unique. Duplicate name: "${name}".`);
   }
 
   normalizedMeals.forEach((meal, index) => {
     if (!isValidIsoDate(meal.date)) errors.push(`plannedMeals[${index}].date must be a valid YYYY-MM-DD date.`);
-    if (isValidIsoDate(meal.date) && (meal.date < doc.weekOf! || meal.date > weekEnd)) {
-      errors.push(`plannedMeals[${index}].date must fall within the week starting ${doc.weekOf}.`);
+    if (isValidIsoDate(meal.date) && (meal.date < allowedRange.startDate || meal.date > allowedRange.endDate)) {
+      errors.push(
+        `plannedMeals[${index}].date "${meal.date}" must fall within the allowed planning range ${allowedRange.startDate} through ${allowedRange.endDate}.`
+      );
     }
     if (!slotMap.has(normalizeKey(meal.mealSlotName))) {
       errors.push(`plannedMeals[${index}].mealSlotName does not match an existing meal slot.`);
@@ -163,6 +231,9 @@ export function parseAndValidateAiWeekPlan(raw: string, slots: MealSlot[]): Vali
     document: {
       version: 1,
       weekOf: doc.weekOf!,
+      startDate: doc.startDate,
+      endDate: doc.endDate,
+      pantryItems: normalizedPantryItems,
       recipes: normalizedRecipes,
       plannedMeals: normalizedMeals
     }
@@ -173,29 +244,34 @@ async function ensurePantryItem(
   ingredientName: string,
   unit: BaseUnit,
   pantryItems: PantryItem[],
-  pantryByName: Map<string, PantryItem>
+  pantryByName: Map<string, PantryItem>,
+  pantryDefaultsByName: Map<string, AiWeekPantryItem>
 ) {
   const key = normalizeKey(ingredientName);
   const existing = pantryByName.get(key);
   if (existing) return existing;
+  const defaults = pantryDefaultsByName.get(key);
   const created = await createPantryItem({
     name: ingredientName,
-    category: "other",
-    storageType: "pantry",
-    baseUnit: unit,
-    notes: undefined
+    category: defaults?.category || "other",
+    storageType: defaults?.storageType || "pantry",
+    baseUnit: defaults?.unit || unit,
+    defaultShelfLifeDays: defaults?.defaultShelfLifeDays,
+    defaultAfterOpeningDays: defaults?.afterOpeningDays,
+    notes: defaults?.notes
   });
   pantryItems.push(created);
   pantryByName.set(key, created);
   return created;
 }
 
-async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[]) {
+async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[], pantryDefaults: AiWeekPantryItem[]) {
   const existingRecipes = await listRecipes();
   const existingByTitle = new Map(existingRecipes.map((recipe) => [normalizeKey(recipe.title), recipe]));
   const existingById = new Map(existingRecipes.map((recipe) => [normalizeKey(recipe.id), recipe]));
   const pantryItems = await listPantryItems();
   const pantryByName = new Map(pantryItems.map((item) => [normalizeKey(item.name), item]));
+  const pantryDefaultsByName = new Map(pantryDefaults.map((item) => [normalizeKey(item.name), item]));
   const recipeResolution = new Map<string, Recipe>();
   let recipesCreated = 0;
   let recipesReused = 0;
@@ -217,15 +293,15 @@ async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[]) {
       baseServings: recipeInput.baseServings ?? 2,
       defaultServings: recipeInput.defaultServings ?? recipeInput.baseServings ?? 2,
       mealTypes: recipeInput.mealTypes || [],
-      tags: [],
+      tags: Array.isArray(recipeInput.tags) ? recipeInput.tags : [],
       steps: recipeInput.instructions || [],
       url: undefined,
-      calories: undefined,
-      caloriesPerServing: undefined,
-      proteinGrams: undefined,
-      timeMinutes: undefined,
-      estimatedCostPerServing: undefined,
-      imageUrl: undefined
+      calories: recipeInput.caloriesPerServing,
+      caloriesPerServing: recipeInput.caloriesPerServing,
+      proteinGrams: recipeInput.proteinGramsPerServing,
+      timeMinutes: recipeInput.timeMinutes,
+      estimatedCostPerServing: recipeInput.estimatedCostPerServing,
+      imageUrl: recipeInput.imageUrl
     });
     existingByTitle.set(normalizeKey(createdRecipe.title), createdRecipe);
     existingById.set(normalizeKey(createdRecipe.id), createdRecipe);
@@ -234,7 +310,13 @@ async function upsertAiRecipes(recipesFromAi: AiWeekRecipe[]) {
     recipesCreated += 1;
 
     for (const ingredient of recipeInput.ingredients) {
-      const pantryItem = await ensurePantryItem(ingredient.itemName, ingredient.unit, pantryItems, pantryByName);
+      const pantryItem = await ensurePantryItem(
+        ingredient.itemName,
+        ingredient.unit,
+        pantryItems,
+        pantryByName,
+        pantryDefaultsByName
+      );
       await addIngredient({
         recipeId: createdRecipe.id,
         pantryItemId: pantryItem.id,
@@ -289,7 +371,10 @@ export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
     );
   }
 
-  const { recipeResolution, recipesCreated, recipesReused } = await upsertAiRecipes(document.recipes);
+  const { recipeResolution, recipesCreated, recipesReused } = await upsertAiRecipes(
+    document.recipes,
+    document.pantryItems || []
+  );
 
   let currentMeals = allMeals.filter((meal) => !importedDates.includes(meal.date));
   const mealsToDelete = [...mealsToReplace].sort((a, b) => {
@@ -309,6 +394,7 @@ export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
   const localRefMap = new Map<string, PlannedMeal>();
   let plannedMealsCreated = 0;
   let leftoverDowngradedToFreeform = 0;
+  const warnings: string[] = [];
 
   for (const mealInput of sortMealsForImport(document.plannedMeals, slotMap)) {
     const slot = slotMap.get(normalizeKey(mealInput.mealSlotName));
@@ -405,11 +491,26 @@ export async function importAiWeekPlan(raw: string): Promise<AiImportSummary> {
     }
   }
 
+  const plannedSlotNames = new Set(document.plannedMeals.map((meal) => normalizeKey(meal.mealSlotName)));
+  const recipeMealTypes = new Set(
+    document.recipes.flatMap((recipe) => (recipe.mealTypes || []).map((type) => normalizeKey(type)))
+  );
+  const sparseSlotHints = ["breakfast", "lunch", "snack"].filter(
+    (slot) => recipeMealTypes.has(slot) && !plannedSlotNames.has(slot)
+  );
+  if (sparseSlotHints.length) {
+    warnings.push(
+      `Imported ${document.recipes.length} recipes, but only ${document.plannedMeals.length} planned meals. ${sparseSlotHints.join("/")}` +
+        " recipes were added to Recipes but not placed on the Planner unless included in plannedMeals."
+    );
+  }
+
   return {
     recipesCreated,
     recipesReused,
     plannedMealsCreated,
     leftoverDowngradedToFreeform,
-    replacedDates: importedDates
+    replacedDates: importedDates,
+    warnings
   };
 }

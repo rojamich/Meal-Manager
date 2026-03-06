@@ -66,6 +66,18 @@ export default function SettingsPage() {
           `Replaced dates: ${result.replacedDates.join(", ")}`
         ].join(" | ")
       );
+      if (result.warnings.length) {
+        setAiImportSuccess(
+          [
+            `Recipes created: ${result.recipesCreated}`,
+            `Recipes reused: ${result.recipesReused}`,
+            `Planned meals created: ${result.plannedMealsCreated}`,
+            `Leftovers downgraded to freeform: ${result.leftoverDowngradedToFreeform}`,
+            `Replaced dates: ${result.replacedDates.join(", ")}`,
+            `Warnings: ${result.warnings.join(" ")}`
+          ].join(" | ")
+        );
+      }
     } catch (err: any) {
       setAiImportSuccess(null);
       setAiImportError(err.message || "AI import failed");
@@ -110,7 +122,7 @@ export default function SettingsPage() {
       <details className="panel" open>
         <summary>AI Week Planning</summary>
         <p className="muted">
-          Export a blank week-planning JSON template, have AI fill it, then import it. This replaces planned meals only on the exact dates included in the AI file.
+          Export a blank week-planning JSON template, have AI fill it, then import it. weekOf is a reference date; startDate/endDate define the allowed planner range. Import replaces planned meals only on the exact dates included in the AI file.
         </p>
         <div className="row">
           <button onClick={handleExportAiTemplate}>Export AI Week Template</button>

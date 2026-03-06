@@ -1,3 +1,4 @@
+import { StorageType } from "../../models";
 import { BaseUnit, PlannedMealType } from "../../models";
 
 export interface AiWeekRecipeIngredient {
@@ -14,8 +15,24 @@ export interface AiWeekRecipe {
   baseServings?: number;
   defaultServings?: number;
   mealTypes?: string[];
+  tags?: string[] | string;
+  caloriesPerServing?: number;
+  proteinGramsPerServing?: number;
+  timeMinutes?: number;
+  estimatedCostPerServing?: number;
+  imageUrl?: string;
   ingredients: AiWeekRecipeIngredient[];
   instructions?: string[];
+}
+
+export interface AiWeekPantryItem {
+  name: string;
+  category?: string;
+  storageType?: StorageType;
+  unit?: BaseUnit;
+  defaultShelfLifeDays?: number;
+  afterOpeningDays?: number;
+  notes?: string;
 }
 
 export interface AiWeekPlannedMeal {
@@ -33,6 +50,9 @@ export interface AiWeekPlannedMeal {
 export interface AiWeekPlanDocument {
   version: 1;
   weekOf: string;
+  startDate?: string;
+  endDate?: string;
+  pantryItems?: AiWeekPantryItem[];
   recipes: AiWeekRecipe[];
   plannedMeals: AiWeekPlannedMeal[];
 }
@@ -43,4 +63,5 @@ export interface AiImportSummary {
   plannedMealsCreated: number;
   leftoverDowngradedToFreeform: number;
   replacedDates: string[];
+  warnings: string[];
 }
