@@ -11,6 +11,10 @@ export async function listPlannedMeals(startDate: string, endDate: string) {
   return all.filter((meal) => meal.date >= startDate && meal.date <= endDate);
 }
 
+export async function getPlannedMeal(id: string) {
+  return db.plannedMeals.get(id);
+}
+
 export async function createPlannedMeal(input: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) {
   const now = new Date().toISOString();
   const meal: PlannedMeal = {

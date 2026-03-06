@@ -4,8 +4,6 @@ import { LocationProfile, MealSlot, PlannedMeal, Recipe, WeekTemplate } from "..
 import {
   listMealSlots,
   listPlannedMeals,
-  createPlannedMeal,
-  deletePlannedMeal,
   updatePlannedMeal
 } from "../../db/repositories/mealPlanRepo";
 import { listRecipes } from "../../db/repositories/recipeRepo";
@@ -29,6 +27,18 @@ import {
   listWeekTemplates
 } from "../../db/repositories/weekTemplateRepo";
 import { getHouseholdSize } from "../settings/preferences";
+import {
+  buildFreeformMealInput,
+  buildLeftoverMealInput,
+  buildRecipeMealInput,
+  calculateRecipeMealLeftoverState,
+  cloneMealWithRules,
+  createMealWithRules,
+  defaultRecipeServings,
+  deleteMealWithRules,
+  getEffectiveLeftoverRemaining,
+  listAvailableLeftoverMeals
+} from "./plannerDomain";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
@@ -49,9 +59,21 @@ export default function PlannerPage() {
   const [inlineNotes, setInlineNotes] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
   const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
+  const [topFormDate, setTopFormDate] = useState(anchorDate);
+  const [topFormMealSlotId, setTopFormMealSlotId] = useState("");
+  const [topFormType, setTopFormType] = useState<PlannedMeal["type"]>("recipe");
+  const [topFormRecipeId, setTopFormRecipeId] = useState("");
+  const [topFormServings, setTopFormServings] = useState(String(householdSize));
+  const [topFormLeftoverSource, setTopFormLeftoverSource] = useState("");
+  const [topFormLeftoverServingsUsed, setTopFormLeftoverServingsUsed] = useState("1");
+  const [topFormIncludeAnyRecent, setTopFormIncludeAnyRecent] = useState(false);
+  const [topFormFreeformTitle, setTopFormFreeformTitle] = useState("");
+  const [topFormNotes, setTopFormNotes] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
   const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
+  const [servingsEditMealId, setServingsEditMealId] = useState<string | null>(null);
+  const [servingsEditValue, setServingsEditValue] = useState<number>(householdSize);
   const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
   const [copySourceDay, setCopySourceDay] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -96,144 +118,160 @@ export default function PlannerPage() {
   const refreshMeals = useCallback(async () => {
     const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
     const data = await listPlannedMeals(range.start, range.end);
-    const normalized = data.map((meal) => {
-      if (meal.type !== "recipe") return meal;
-      if (typeof meal.leftoverServingsRemaining === "number") return meal;
-      const recipeDefault = effectiveBaseServings(recipes.find((r) => r.id === meal.recipeId));
-      const servings = meal.servingsPlanned ?? recipeDefault;
-      return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
-    });
-    const toPersist = normalized.filter(
-      (meal, idx) =>
-        meal.type === "recipe" &&
-        typeof data[idx].leftoverServingsRemaining !== "number" &&
-        typeof meal.leftoverServingsRemaining === "number"
-    );
-    if (toPersist.length) {
-      await Promise.all(
-        toPersist.map((meal) =>
-          updatePlannedMeal(meal.id, { leftoverServingsRemaining: meal.leftoverServingsRemaining })
-        )
-      );
-    }
-    setMeals([...normalized]);
-    return normalized;
-  }, [anchorDate, householdSize, recipes, view]);
+    setMeals([...data]);
+    return data;
+  }, [anchorDate, view]);
+
+  const refreshRecentMeals = useCallback(async () => {
+    const range = weekRange(anchorDate);
+    const rangeStart = parseISODate(range.start);
+    const start = addDays(rangeStart, -14);
+    const recent = await listPlannedMeals(dateKey(start), dateKey(range.end));
+    setRecentPlanned([...recent]);
+    return recent;
+  }, [anchorDate]);
 
   useEffect(() => {
     refreshMeals();
   }, [refreshMeals]);
+
+  useEffect(() => {
+    refreshRecentMeals();
+  }, [refreshRecentMeals]);
+
+  useEffect(() => {
+    setTopFormDate((prev) => prev || anchorDate);
+  }, [anchorDate]);
+
+  const combinedLeftoverSourceMeals = useMemo(() => {
+    const map = new Map<string, PlannedMeal>();
+    meals.forEach((meal) => map.set(meal.id, meal));
+    recentPlanned.forEach((meal) => {
+      if (!map.has(meal.id)) map.set(meal.id, meal);
+    });
+    return Array.from(map.values());
+  }, [meals, recentPlanned]);
+
+  const applySourceUpdate = useCallback(
+    (sourceUpdate?: { mealId: string; leftoverServingsRemaining: number }) => {
+      if (!sourceUpdate) return;
+      setMeals((prev: PlannedMeal[]) =>
+        prev.map((meal: PlannedMeal) =>
+          meal.id === sourceUpdate.mealId
+            ? { ...meal, leftoverServingsRemaining: sourceUpdate.leftoverServingsRemaining }
+            : meal
+        )
+      );
+      setRecentPlanned((prev: PlannedMeal[]) =>
+        prev.map((meal: PlannedMeal) =>
+          meal.id === sourceUpdate.mealId
+            ? { ...meal, leftoverServingsRemaining: sourceUpdate.leftoverServingsRemaining }
+            : meal
+        )
+      );
+    },
+    []
+  );
 
   const createMealAndRefresh = useCallback(
     async (
       payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">,
       options?: { skipLeftoverDecrement?: boolean }
     ) => {
-      let created: PlannedMeal | undefined;
-      if (payload.type === "leftover" && !options?.skipLeftoverDecrement) {
-        const sourceId = payload.leftoverSourceMealId || payload.sourcePlannedMealId;
-        const servingsUsed = payload.servingsPlanned ?? 1;
-        if (sourceId) {
-          const source = meals.find((m) => m.id === sourceId);
-          const sourceServings = source?.servingsPlanned ?? 1;
-          const originalRemaining =
-            typeof source?.leftoverServingsRemaining === "number"
-              ? source.leftoverServingsRemaining
-              : Math.max(sourceServings - householdSize, 0);
-          if (originalRemaining < servingsUsed) {
-            alert(`Only ${originalRemaining} leftover servings remaining.`);
-            return undefined;
-          }
-          const nextRemaining = Math.max(originalRemaining - servingsUsed, 0);
-          try {
-            await updatePlannedMeal(sourceId, { leftoverServingsRemaining: nextRemaining });
-            if (source) {
-              setMeals((prev: PlannedMeal[]) =>
-                prev.map((m: PlannedMeal) => (m.id === sourceId ? { ...m, leftoverServingsRemaining: nextRemaining } : m))
-              );
-            }
-            created = await createPlannedMeal(payload);
-          } catch (err) {
-            await updatePlannedMeal(sourceId, { leftoverServingsRemaining: originalRemaining });
-            throw err;
-          }
-        } else {
-          created = await createPlannedMeal(payload);
-        }
-      } else {
-        created = await createPlannedMeal(payload);
+      const result = await createMealWithRules({
+        input: payload,
+        householdSize,
+        currentMeals: [...meals, ...recentPlanned],
+        skipLeftoverDecrement: options?.skipLeftoverDecrement
+      });
+      if (result.error) {
+        alert(result.error);
+        return undefined;
       }
+      const created = result.created;
+      applySourceUpdate(result.sourceUpdate);
       const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
       if (created && created.date >= range.start && created.date <= range.end) {
         setMeals((prev: PlannedMeal[]) => [...prev, created as PlannedMeal]);
       }
       await refreshMeals();
+      await refreshRecentMeals();
       return created;
     },
-    [anchorDate, householdSize, meals, refreshMeals, view]
+    [anchorDate, applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals, view]
   );
 
   async function addMeal(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const type = String(form.get("type")) as PlannedMeal["type"];
-    const recipeId = type === "recipe" ? String(form.get("recipeId")) : undefined;
-    const servings =
-      type === "recipe" ? Math.max(Number(form.get("servingsPlanned") || householdSize), 1) : undefined;
-    const leftoverServings =
-      type === "leftover" ? Math.max(Number(form.get("servingsPlanned") || 1), 1) : undefined;
-    const payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> = {
-      date: String(form.get("date")),
-      mealSlotId: String(form.get("mealSlotId")),
-      type,
-      recipeId,
-      freeformTitle: type === "freeform" ? String(form.get("freeformTitle")) : undefined,
-      notes: String(form.get("notes") || "") || undefined,
-      servingsPlanned: type === "recipe" ? servings : undefined,
-      leftoverServingsRemaining: type === "recipe" ? Math.max((servings ?? 1) - householdSize, 0) : undefined,
-      sourcePlannedMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
-      leftoverSourceMealId: type === "leftover" ? String(form.get("sourcePlannedMealId") || "") || undefined : undefined,
-      ...(type === "leftover" ? { servingsPlanned: leftoverServings } : null)
-    };
+    let payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null = null;
+    if (topFormType === "recipe") {
+      const recipe = recipes.find((row) => row.id === topFormRecipeId);
+      if (!recipe) return;
+      payload = buildRecipeMealInput({
+        date: topFormDate,
+        mealSlotId: topFormMealSlotId,
+        recipe,
+        servingsPlanned: Number(topFormServings || householdSize),
+        householdSize,
+        notes: topFormNotes
+      });
+    } else if (topFormType === "leftover") {
+      const servingsUsed = Math.max(Number(topFormLeftoverServingsUsed || 1), 1);
+      if (topFormLeftoverSource.startsWith("meal:")) {
+        const sourceMeal = combinedLeftoverSourceMeals.find((meal) => meal.id === topFormLeftoverSource.slice(5));
+        if (!sourceMeal) return;
+        payload = buildLeftoverMealInput({
+          date: topFormDate,
+          mealSlotId: topFormMealSlotId,
+          sourceMeal,
+          servingsUsed,
+          notes: topFormNotes
+        });
+      } else if (topFormLeftoverSource.startsWith("recipe:")) {
+        const sourceRecipe = recipes.find((row) => row.id === topFormLeftoverSource.slice(7));
+        payload = buildLeftoverMealInput({
+          date: topFormDate,
+          mealSlotId: topFormMealSlotId,
+          servingsUsed,
+          notes: topFormNotes,
+          freeformTitle: sourceRecipe?.title || "Leftover"
+        });
+      }
+    } else if (topFormFreeformTitle.trim()) {
+      payload = buildFreeformMealInput({
+        date: topFormDate,
+        mealSlotId: topFormMealSlotId,
+        freeformTitle: topFormFreeformTitle,
+        notes: topFormNotes
+      });
+    }
+    if (!payload) return;
     const created = await createMealAndRefresh(payload);
     if (!created) return;
-    const formEl = e.currentTarget as HTMLFormElement | null;
-    formEl?.reset();
-    const servingsInput = formEl?.elements.namedItem("servingsPlanned") as HTMLInputElement | null;
-    if (servingsInput) servingsInput.value = String(householdSize);
+    setTopFormType("recipe");
+    setTopFormRecipeId("");
+    setTopFormServings(String(householdSize));
+    setTopFormLeftoverSource("");
+    setTopFormLeftoverServingsUsed("1");
+    setTopFormIncludeAnyRecent(false);
+    setTopFormFreeformTitle("");
+    setTopFormNotes("");
   }
 
   async function removeMeal(id: string) {
     if (!confirm("Delete this planned meal?")) return;
     const meal = meals.find((m) => m.id === id);
-    if (meal && meal.type === "leftover") {
-      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-      const servingsUsed = meal.servingsPlanned ?? 1;
-      if (sourceId) {
-        const source = meals.find((m) => m.id === sourceId);
-        if (source) {
-          const sourceDefaultRemaining = Math.max((source.servingsPlanned ?? 1) - householdSize, 0);
-          const remaining = Math.max((source.leftoverServingsRemaining ?? sourceDefaultRemaining) + servingsUsed, 0);
-          await updatePlannedMeal(source.id, { leftoverServingsRemaining: remaining });
-          setMeals((prev: PlannedMeal[]) =>
-            prev.map((m: PlannedMeal) => (m.id === source.id ? { ...m, leftoverServingsRemaining: remaining } : m))
-          );
-        } else {
-          const today = new Date();
-          const start = addDays(today, -30);
-          const recent = await listPlannedMeals(dateKey(start), dateKey(today));
-          const fallback = recent.find((m) => m.id === sourceId);
-          if (fallback) {
-            const fallbackDefaultRemaining = Math.max((fallback.servingsPlanned ?? 1) - householdSize, 0);
-            const remaining = Math.max((fallback.leftoverServingsRemaining ?? fallbackDefaultRemaining) + servingsUsed, 0);
-            await updatePlannedMeal(fallback.id, { leftoverServingsRemaining: remaining });
-          }
-        }
-      }
-    }
-    await deletePlannedMeal(id);
-    setMeals((prev: PlannedMeal[]) => prev.filter((meal: PlannedMeal) => meal.id !== id));
+    if (!meal) return;
+    const result = await deleteMealWithRules({
+      meal,
+      householdSize,
+      currentMeals: [...meals, ...recentPlanned]
+    });
+    applySourceUpdate(result.sourceUpdate);
+    setMeals((prev: PlannedMeal[]) => prev.filter((row: PlannedMeal) => row.id !== id));
+    setRecentPlanned((prev: PlannedMeal[]) => prev.filter((row: PlannedMeal) => row.id !== id));
     await refreshMeals();
+    await refreshRecentMeals();
   }
 
   const resetInline = useCallback(() => {
@@ -252,33 +290,9 @@ export default function PlannerPage() {
     async (slot: { date: string; mealSlotId: string }) => {
       setActiveSlot(slot);
       resetInline();
-      const range = weekRange(anchorDate);
-      const rangeStart = parseISODate(range.start);
-      const start = addDays(rangeStart, -14);
-      const recent = await listPlannedMeals(dateKey(start), dateKey(range.start));
-      const normalized = recent.map((meal) => {
-        if (meal.type !== "recipe") return meal;
-        if (typeof meal.leftoverServingsRemaining === "number") return meal;
-        const recipeDefault = effectiveBaseServings(recipes.find((r) => r.id === meal.recipeId));
-        const servings = meal.servingsPlanned ?? recipeDefault;
-        return { ...meal, leftoverServingsRemaining: Math.max(servings - householdSize, 0) };
-      });
-      const toPersist = normalized.filter(
-        (meal, idx) =>
-          meal.type === "recipe" &&
-          typeof recent[idx].leftoverServingsRemaining !== "number" &&
-          typeof meal.leftoverServingsRemaining === "number"
-      );
-      if (toPersist.length) {
-        await Promise.all(
-          toPersist.map((meal) =>
-            updatePlannedMeal(meal.id, { leftoverServingsRemaining: meal.leftoverServingsRemaining })
-          )
-        );
-      }
-      setRecentPlanned([...normalized]);
+      await refreshRecentMeals();
     },
-    [anchorDate, householdSize, recipes, resetInline]
+    [refreshRecentMeals, resetInline]
   );
 
   const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
@@ -286,67 +300,53 @@ export default function PlannerPage() {
     if (inlineType === "recipe") {
       const recipe = recipes.find((r) => r.id === inlineRecipeId);
       if (!recipe) return null;
-      const servings = Math.max(Number(inlineServings || householdSize || 1), 1);
-      return {
+      return buildRecipeMealInput({
         date: activeSlot.date,
         mealSlotId: activeSlot.mealSlotId,
-        type: "recipe",
-        recipeId: recipe.id,
-        servingsPlanned: servings,
-        leftoverServingsRemaining: Math.max(servings - householdSize, 0),
-        notes: inlineNotes || undefined
-      };
+        recipe,
+        servingsPlanned: Number(inlineServings || householdSize || 1),
+        householdSize,
+        notes: inlineNotes
+      });
     }
     if (inlineType === "leftover") {
       if (!inlineLeftoverSource) return null;
       const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || 1), 1);
       if (inlineLeftoverSource.startsWith("meal:")) {
         const mealId = inlineLeftoverSource.slice(5);
-        const source = meals.find((m) => m.id === mealId);
-        const sourceServings = source?.servingsPlanned ?? 1;
-        const effectiveRemaining =
-          typeof source?.leftoverServingsRemaining === "number"
-            ? source.leftoverServingsRemaining
-            : Math.max(sourceServings - householdSize, 0);
-        const remaining = effectiveRemaining;
-        if (remaining < servingsUsed) {
-          alert(remaining <= 0 ? "No leftovers remaining" : `Only ${remaining} leftover servings remaining`);
-          return null;
-        }
-        return {
+        const sourceMeal = combinedLeftoverSourceMeals.find((meal) => meal.id === mealId);
+        if (!sourceMeal) return null;
+        return buildLeftoverMealInput({
           date: activeSlot.date,
           mealSlotId: activeSlot.mealSlotId,
-          type: "leftover",
-          sourcePlannedMealId: mealId,
-          leftoverSourceMealId: mealId,
-          servingsPlanned: servingsUsed,
-          notes: inlineNotes || undefined
-        };
+          sourceMeal,
+          servingsUsed,
+          notes: inlineNotes
+        });
       }
       if (inlineLeftoverSource.startsWith("recipe:")) {
         const recipeId = inlineLeftoverSource.slice(7);
         const recipe = recipes.find((r) => r.id === recipeId);
-        return {
+        return buildLeftoverMealInput({
           date: activeSlot.date,
           mealSlotId: activeSlot.mealSlotId,
-          type: "leftover",
-          freeformTitle: recipe?.title || "Leftover",
-          servingsPlanned: servingsUsed,
-          notes: inlineNotes || undefined
-        };
+          servingsUsed,
+          notes: inlineNotes,
+          freeformTitle: recipe?.title || "Leftover"
+        });
       }
       return null;
     }
     if (!inlineFreeformTitle.trim()) return null;
-    return {
+    return buildFreeformMealInput({
       date: activeSlot.date,
       mealSlotId: activeSlot.mealSlotId,
-      type: "freeform",
-      freeformTitle: inlineFreeformTitle.trim(),
-      notes: inlineNotes || undefined
-    };
+      freeformTitle: inlineFreeformTitle,
+      notes: inlineNotes
+    });
   }, [
     activeSlot,
+    combinedLeftoverSourceMeals,
     inlineFreeformTitle,
     inlineLeftoverSource,
     inlineLeftoverServingsUsed,
@@ -355,8 +355,7 @@ export default function PlannerPage() {
     inlineServings,
     inlineType,
     householdSize,
-    recipes,
-    meals
+    recipes
   ]);
 
   const isInsideInlinePanel = (e: PointerEvent) => {
@@ -430,6 +429,11 @@ export default function PlannerPage() {
     [meals, selectedMealIds]
   );
 
+  const topFormLeftoverMeals = useMemo(
+    () => listAvailableLeftoverMeals(combinedLeftoverSourceMeals, householdSize, { includeAnyRecent: topFormIncludeAnyRecent }),
+    [combinedLeftoverSourceMeals, householdSize, topFormIncludeAnyRecent]
+  );
+
   const visibleTemplateList = useMemo(() => {
     const source =
       templateFilter === "all"
@@ -453,7 +457,13 @@ export default function PlannerPage() {
           sourcePlannedMealId: meal.sourcePlannedMealId,
           leftoverSourceMealId: meal.leftoverSourceMealId,
           leftoverServingsRemaining: meal.leftoverServingsRemaining,
-          freeformTitle: meal.freeformTitle,
+          freeformTitle:
+            meal.type === "leftover"
+              ? meal.freeformTitle ||
+                recipes.find((recipe) => recipe.id === (mealsById.get(meal.leftoverSourceMealId || meal.sourcePlannedMealId || "")?.recipeId))?.title ||
+                mealsById.get(meal.leftoverSourceMealId || meal.sourcePlannedMealId || "")?.freeformTitle ||
+                "Leftover"
+              : meal.freeformTitle,
           notes: meal.notes,
           servingsPlanned: meal.servingsPlanned
         }));
@@ -503,26 +513,33 @@ export default function PlannerPage() {
         return;
       }
       if (!confirm(`Copy ${sourceMeals.length} meals to ${formatDateLabel(targetDate)}?`)) return;
-      await Promise.all(
-        sourceMeals.map((meal) =>
-          createPlannedMeal({
-            date: targetDate,
-            mealSlotId: meal.mealSlotId,
-            type: meal.type,
-            recipeId: meal.recipeId,
-            sourcePlannedMealId: meal.sourcePlannedMealId,
-            leftoverSourceMealId: meal.leftoverSourceMealId,
-            leftoverServingsRemaining: meal.leftoverServingsRemaining,
-            freeformTitle: meal.freeformTitle,
-            notes: meal.notes,
-            servingsPlanned: meal.servingsPlanned
-          })
-        )
-      );
+      const errors: string[] = [];
+      let contextMeals = [...meals, ...recentPlanned];
+      for (const meal of sourceMeals) {
+        const result = await cloneMealWithRules({
+          meal,
+          targetDate,
+          targetMealSlotId: meal.mealSlotId,
+          householdSize,
+          currentMeals: contextMeals
+        });
+        if (result.sourceUpdate) {
+          applySourceUpdate(result.sourceUpdate);
+          contextMeals = contextMeals.map((row) =>
+            row.id === result.sourceUpdate?.mealId
+              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
+              : row
+          );
+        }
+        if (result.created) contextMeals = [...contextMeals, result.created];
+        if (result.error) errors.push(result.error);
+      }
       setCopySourceDay(null);
       await refreshMeals();
+      await refreshRecentMeals();
+      if (errors.length) alert(errors.join("\n"));
     },
-    [meals, refreshMeals]
+    [applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals]
   );
 
   const toggleMealSelected = useCallback((mealId: string) => {
@@ -561,26 +578,33 @@ export default function PlannerPage() {
   const pasteSelectedMeals = useCallback(
     async (targetDate: string, targetSlotId: string) => {
       if (!selectMode || !pendingPasteMeals.length) return;
-      await Promise.all(
-        pendingPasteMeals.map((meal) =>
-          createPlannedMeal({
-            date: targetDate,
-            mealSlotId: targetSlotId,
-            type: meal.type,
-            recipeId: meal.recipeId,
-            sourcePlannedMealId: meal.sourcePlannedMealId,
-            leftoverSourceMealId: meal.leftoverSourceMealId,
-            leftoverServingsRemaining: meal.leftoverServingsRemaining,
-            freeformTitle: meal.freeformTitle,
-            notes: meal.notes,
-            servingsPlanned: meal.servingsPlanned
-          })
-        )
-      );
+      const errors: string[] = [];
+      let contextMeals = [...meals, ...recentPlanned];
+      for (const meal of pendingPasteMeals) {
+        const result = await cloneMealWithRules({
+          meal,
+          targetDate,
+          targetMealSlotId: targetSlotId,
+          householdSize,
+          currentMeals: contextMeals
+        });
+        if (result.sourceUpdate) {
+          applySourceUpdate(result.sourceUpdate);
+          contextMeals = contextMeals.map((row) =>
+            row.id === result.sourceUpdate?.mealId
+              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
+              : row
+          );
+        }
+        if (result.created) contextMeals = [...contextMeals, result.created];
+        if (result.error) errors.push(result.error);
+      }
       clearSelectState();
       await refreshMeals();
+      await refreshRecentMeals();
+      if (errors.length) alert(errors.join("\n"));
     },
-    [clearSelectState, pendingPasteMeals, refreshMeals, selectMode]
+    [applySourceUpdate, clearSelectState, householdSize, meals, pendingPasteMeals, recentPlanned, refreshMeals, refreshRecentMeals, selectMode]
   );
 
   const deleteDayMeals = useCallback(async () => {
@@ -606,25 +630,32 @@ export default function PlannerPage() {
         return;
       }
       if (!confirm(`Copy ${count} meals?`)) return;
-      await Promise.all(
-        sourceMeals.map((meal) =>
-          createPlannedMeal({
-            date: dateKey(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
-            mealSlotId: meal.mealSlotId,
-            type: meal.type,
-            recipeId: meal.recipeId,
-            sourcePlannedMealId: meal.sourcePlannedMealId,
-            leftoverSourceMealId: meal.leftoverSourceMealId,
-            leftoverServingsRemaining: meal.leftoverServingsRemaining,
-            freeformTitle: meal.freeformTitle,
-            notes: meal.notes,
-            servingsPlanned: meal.servingsPlanned
-          })
-        )
-      );
+      const errors: string[] = [];
+      let contextMeals = [...meals, ...recentPlanned];
+      for (const meal of sourceMeals) {
+        const result = await cloneMealWithRules({
+          meal,
+          targetDate: dateKey(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
+          targetMealSlotId: meal.mealSlotId,
+          householdSize,
+          currentMeals: contextMeals
+        });
+        if (result.sourceUpdate) {
+          applySourceUpdate(result.sourceUpdate);
+          contextMeals = contextMeals.map((row) =>
+            row.id === result.sourceUpdate?.mealId
+              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
+              : row
+          );
+        }
+        if (result.created) contextMeals = [...contextMeals, result.created];
+        if (result.error) errors.push(result.error);
+      }
       await refreshMeals();
+      await refreshRecentMeals();
+      if (errors.length) alert(errors.join("\n"));
     },
-    [anchorDate, refreshMeals]
+    [anchorDate, applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals]
   );
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
@@ -658,6 +689,16 @@ export default function PlannerPage() {
     meals.forEach((meal) => map.set(meal.id, meal));
     return map;
   }, [meals]);
+
+  const recipeTitle = useCallback(
+    (recipeId?: string) => recipes.find((recipe) => recipe.id === recipeId)?.title || "Recipe",
+    [recipes]
+  );
+
+  const slotLabel = useCallback(
+    (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot",
+    [slots]
+  );
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -707,22 +748,22 @@ export default function PlannerPage() {
         const sourceId = activeId.slice(9);
         const source = mealsById.get(sourceId);
         if (!source) return;
-        const remaining = source.leftoverServingsRemaining ?? Math.max((source.servingsPlanned ?? 1) - householdSize, 0);
+        const remaining = getEffectiveLeftoverRemaining(source, householdSize);
         if (remaining <= 0) {
           alert("No leftovers remaining");
           return;
         }
-        await createMealAndRefresh({
-          date: day,
-          mealSlotId: slotId,
-          type: "leftover",
-          leftoverSourceMealId: source.id,
-          sourcePlannedMealId: source.id,
-          servingsPlanned: 1
-        });
+        await createMealAndRefresh(
+          buildLeftoverMealInput({
+            date: day,
+            mealSlotId: slotId,
+            sourceMeal: source,
+            servingsUsed: 1
+          })
+        );
       }
     },
-    [DEBUG_DND, createMealAndRefresh, mealsById, selectMode]
+    [DEBUG_DND, createMealAndRefresh, householdSize, mealsById, selectMode]
   );
 
   return (
@@ -928,10 +969,17 @@ export default function PlannerPage() {
                               recipes={recipes}
                               allMealsMap={mealsById}
                               slots={slots}
+                              householdSize={householdSize}
                               onRemove={removeMeal}
                               onSetLeftovers={async (meal) => {
+                                setServingsEditMealId(null);
                                 setLeftoverEditMealId(meal.id);
-                                setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
+                                setLeftoverEditValue(getEffectiveLeftoverRemaining(meal, householdSize));
+                              }}
+                              onSetServings={(meal) => {
+                                setLeftoverEditMealId(null);
+                                setServingsEditMealId(meal.id);
+                                setServingsEditValue(meal.servingsPlanned ?? householdSize);
                               }}
                               onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
                               editingMealId={leftoverEditMealId}
@@ -948,6 +996,50 @@ export default function PlannerPage() {
                                 setLeftoverEditMealId(null);
                               }}
                               onCancelEdit={() => setLeftoverEditMealId(null)}
+                              servingsEditingMealId={servingsEditMealId}
+                              servingsEditValue={servingsEditValue}
+                              onServingsEditValue={setServingsEditValue}
+                              onSaveServingsEdit={async (mealId) => {
+                                const meal = meals.find((row) => row.id === mealId);
+                                if (!meal || meal.type !== "recipe") return;
+                                const next = calculateRecipeMealLeftoverState({
+                                  meal,
+                                  meals,
+                                  nextServingsPlanned: servingsEditValue,
+                                  householdSize
+                                });
+                                if (next.overflowServings > 0) {
+                                  alert(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers were clamped to 0.`);
+                                }
+                                await updatePlannedMeal(mealId, {
+                                  servingsPlanned: next.servingsPlanned,
+                                  leftoverServingsRemaining: next.leftoverServingsRemaining
+                                });
+                                setMeals((prev: PlannedMeal[]) =>
+                                  prev.map((row: PlannedMeal) =>
+                                    row.id === mealId
+                                      ? {
+                                          ...row,
+                                          servingsPlanned: next.servingsPlanned,
+                                          leftoverServingsRemaining: next.leftoverServingsRemaining
+                                        }
+                                      : row
+                                  )
+                                );
+                                setRecentPlanned((prev: PlannedMeal[]) =>
+                                  prev.map((row: PlannedMeal) =>
+                                    row.id === mealId
+                                      ? {
+                                          ...row,
+                                          servingsPlanned: next.servingsPlanned,
+                                          leftoverServingsRemaining: next.leftoverServingsRemaining
+                                        }
+                                      : row
+                                  )
+                                );
+                                setServingsEditMealId(null);
+                              }}
+                              onCancelServingsEdit={() => setServingsEditMealId(null)}
                               onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
                               activeMealId={activeMealActionsId}
                               onClearActions={() => setActiveMealActionsId(null)}
@@ -1041,10 +1133,17 @@ export default function PlannerPage() {
                           recipes={recipes}
                           allMealsMap={mealsById}
                           slots={slots}
+                          householdSize={householdSize}
                           onRemove={removeMeal}
                           onSetLeftovers={async (meal) => {
+                            setServingsEditMealId(null);
                             setLeftoverEditMealId(meal.id);
-                            setLeftoverEditValue(meal.leftoverServingsRemaining ?? 0);
+                            setLeftoverEditValue(getEffectiveLeftoverRemaining(meal, householdSize));
+                          }}
+                          onSetServings={(meal) => {
+                            setLeftoverEditMealId(null);
+                            setServingsEditMealId(meal.id);
+                            setServingsEditValue(meal.servingsPlanned ?? householdSize);
                           }}
                           onAdd={() => openInlineAdd({ date: day, mealSlotId: slot.id })}
                           editingMealId={leftoverEditMealId}
@@ -1061,6 +1160,50 @@ export default function PlannerPage() {
                             setLeftoverEditMealId(null);
                           }}
                           onCancelEdit={() => setLeftoverEditMealId(null)}
+                          servingsEditingMealId={servingsEditMealId}
+                          servingsEditValue={servingsEditValue}
+                          onServingsEditValue={setServingsEditValue}
+                          onSaveServingsEdit={async (mealId) => {
+                            const meal = meals.find((row) => row.id === mealId);
+                            if (!meal || meal.type !== "recipe") return;
+                            const next = calculateRecipeMealLeftoverState({
+                              meal,
+                              meals,
+                              nextServingsPlanned: servingsEditValue,
+                              householdSize
+                            });
+                            if (next.overflowServings > 0) {
+                              alert(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers were clamped to 0.`);
+                            }
+                            await updatePlannedMeal(mealId, {
+                              servingsPlanned: next.servingsPlanned,
+                              leftoverServingsRemaining: next.leftoverServingsRemaining
+                            });
+                            setMeals((prev: PlannedMeal[]) =>
+                              prev.map((row: PlannedMeal) =>
+                                row.id === mealId
+                                  ? {
+                                      ...row,
+                                      servingsPlanned: next.servingsPlanned,
+                                      leftoverServingsRemaining: next.leftoverServingsRemaining
+                                    }
+                                  : row
+                              )
+                            );
+                            setRecentPlanned((prev: PlannedMeal[]) =>
+                              prev.map((row: PlannedMeal) =>
+                                row.id === mealId
+                                  ? {
+                                      ...row,
+                                      servingsPlanned: next.servingsPlanned,
+                                      leftoverServingsRemaining: next.leftoverServingsRemaining
+                                    }
+                                  : row
+                              )
+                            );
+                            setServingsEditMealId(null);
+                          }}
+                          onCancelServingsEdit={() => setServingsEditMealId(null)}
                           onActivateMeal={(mealId) => setActiveMealActionsId(mealId)}
                           activeMealId={activeMealActionsId}
                           onClearActions={() => setActiveMealActionsId(null)}
@@ -1131,7 +1274,7 @@ export default function PlannerPage() {
                         .filter((meal) => meal.date === day && meal.mealSlotId === slot.id)
                         .map((meal) => (
                           <div key={meal.id}>
-                            <MealLabel meal={meal} recipes={recipes} />
+                            <MealLabel meal={meal} recipes={recipes} householdSize={householdSize} />
                             <button className="danger" onClick={() => removeMeal(meal.id)}>x</button>
                           </div>
                         ))}
@@ -1193,35 +1336,93 @@ export default function PlannerPage() {
         <h3>Add planned meal</h3>
         <form className="grid" onSubmit={addMeal}>
           <div className="row">
-            <input type="date" name="date" defaultValue={anchorDate} required />
-            <select name="mealSlotId" required defaultValue="">
+            <input type="date" value={topFormDate} onChange={(e) => setTopFormDate(e.target.value)} required />
+            <select value={topFormMealSlotId} onChange={(e) => setTopFormMealSlotId(e.target.value)} required>
               <option value="" disabled>Select slot</option>
               {slots.map((slot) => (
                 <option key={slot.id} value={slot.id}>{slot.name}</option>
               ))}
             </select>
-            <select name="type" defaultValue="recipe">
+            <select value={topFormType} onChange={(e) => setTopFormType(e.target.value as PlannedMeal["type"])}>
               <option value="recipe">Recipe</option>
               <option value="leftover">Leftover</option>
               <option value="freeform">Freeform</option>
             </select>
           </div>
-          <div className="row">
-            <select name="recipeId" defaultValue="">
-              <option value="">Select recipe</option>
-              {recipes.map((recipe) => (
-                <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
-              ))}
-            </select>
-            <label className="field-stack">
-              <span>Servings planned</span>
-              <input type="number" min="1" name="servingsPlanned" defaultValue={householdSize} />
-            </label>
-            <input name="freeformTitle" placeholder="Freeform title" />
-            <input name="sourcePlannedMealId" placeholder="Leftover source meal id" />
-          </div>
-          <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
-          <textarea name="notes" placeholder="Notes" />
+          {topFormType === "recipe" && (
+            <>
+              <div className="row">
+                <select
+                  value={topFormRecipeId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setTopFormRecipeId(nextId);
+                    const selectedRecipe = recipes.find((recipe) => recipe.id === nextId);
+                    setTopFormServings(String(defaultRecipeServings(selectedRecipe, householdSize)));
+                  }}
+                >
+                  <option value="">Select recipe</option>
+                  {recipes.map((recipe) => (
+                    <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
+                  ))}
+                </select>
+                <label className="field-stack">
+                  <span>Servings planned</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={topFormServings}
+                    onChange={(e) => setTopFormServings(e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
+            </>
+          )}
+          {topFormType === "leftover" && (
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={topFormIncludeAnyRecent}
+                  onChange={(e) => setTopFormIncludeAnyRecent(e.target.checked)}
+                />
+                Any recent meal
+              </label>
+              <div className="row">
+                <select value={topFormLeftoverSource} onChange={(e) => setTopFormLeftoverSource(e.target.value)}>
+                  <option value="">Select source</option>
+                  {topFormLeftoverMeals.map((meal) => (
+                    <option key={meal.id} value={`meal:${meal.id}`}>
+                      {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | remaining {getEffectiveLeftoverRemaining(meal, householdSize)}
+                    </option>
+                  ))}
+                  {recipes.map((recipe) => (
+                    <option key={recipe.id} value={`recipe:${recipe.id}`}>
+                      Recipe: {recipe.title}
+                    </option>
+                  ))}
+                </select>
+                <label className="field-stack">
+                  <span>Servings used</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={topFormLeftoverServingsUsed}
+                    onChange={(e) => setTopFormLeftoverServingsUsed(e.target.value)}
+                  />
+                </label>
+              </div>
+            </>
+          )}
+          {topFormType === "freeform" && (
+            <input
+              value={topFormFreeformTitle}
+              onChange={(e) => setTopFormFreeformTitle(e.target.value)}
+              placeholder="Freeform title"
+            />
+          )}
+          <textarea value={topFormNotes} onChange={(e) => setTopFormNotes(e.target.value)} placeholder="Notes" />
           <button type="submit">Add</button>
         </form>
       </section>
@@ -1333,14 +1534,9 @@ function InlineAddPanel({
     });
     return Array.from(map.values());
   }, [currentMeals, recentPlanned]);
-  const effectiveRemaining = (meal: PlannedMeal) => {
-    if (typeof meal.leftoverServingsRemaining === "number") return meal.leftoverServingsRemaining;
-    if (meal.type !== "recipe") return 0;
-    return Math.max((meal.servingsPlanned ?? 1) - householdSize, 0);
-  };
-  const recentMealOptions = mergedMeals
-    .filter((meal) => (includeAnyRecent || meal.type === "recipe") && effectiveRemaining(meal) > 0)
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const recentMealOptions = listAvailableLeftoverMeals(mergedMeals, householdSize, {
+    includeAnyRecent
+  });
   const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
   const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
   const typeLabel = (type: PlannedMeal["type"]) =>
@@ -1404,7 +1600,7 @@ function InlineAddPanel({
                     return;
                   }
                   const selectedRecipe = recipes.find((recipe) => recipe.id === nextId);
-                  setInlineServings(String(effectiveBaseServings(selectedRecipe)));
+                  setInlineServings(String(defaultRecipeServings(selectedRecipe, householdSize)));
                 }}
               >
                 <option value="">Select recipe</option>
@@ -1449,7 +1645,7 @@ function InlineAddPanel({
                 <option value="">Select source</option>
                 {recentMealOptions.map((meal) => (
                   <option key={meal.id} value={`meal:${meal.id}`}>
-                    {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | {typeLabel(meal.type)} | remaining {effectiveRemaining(meal)}
+                    {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | {typeLabel(meal.type)} | remaining {getEffectiveLeftoverRemaining(meal, householdSize)}
                   </option>
                 ))}
                 {recipes.map((recipe) => (
@@ -1494,18 +1690,17 @@ function InlineAddPanel({
 function MealLabel({
   meal,
   recipes,
+  householdSize = 1,
   showRemaining = true
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
+  householdSize?: number;
   showRemaining?: boolean;
 }) {
   if (meal.type === "recipe") {
     const recipe = recipes.find((r) => r.id === meal.recipeId);
-    const remaining =
-      typeof meal.leftoverServingsRemaining === "number"
-        ? meal.leftoverServingsRemaining
-        : 0;
+    const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
     return (
       <span>
         {recipe?.title || "Recipe"}
@@ -1526,14 +1721,21 @@ function WeekCell({
   recipes,
   allMealsMap,
   slots,
+  householdSize,
   onRemove,
   onSetLeftovers,
+  onSetServings,
   onAdd,
   editingMealId,
   editValue,
   onEditValue,
   onSaveEdit,
   onCancelEdit,
+  servingsEditingMealId,
+  servingsEditValue,
+  onServingsEditValue,
+  onSaveServingsEdit,
+  onCancelServingsEdit,
   inlinePanel,
   onActivateMeal,
   activeMealId,
@@ -1549,14 +1751,21 @@ function WeekCell({
   recipes: Recipe[];
   allMealsMap: Map<string, PlannedMeal>;
   slots: MealSlot[];
+  householdSize: number;
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   onAdd: () => void | Promise<void>;
   editingMealId: string | null;
   editValue: number;
   onEditValue: (value: number) => void;
   onSaveEdit: (mealId: string) => void | Promise<void>;
   onCancelEdit: () => void;
+  servingsEditingMealId: string | null;
+  servingsEditValue: number;
+  onServingsEditValue: (value: number) => void;
+  onSaveServingsEdit: (mealId: string) => void | Promise<void>;
+  onCancelServingsEdit: () => void;
   inlinePanel: ReactNode;
   onActivateMeal: (mealId: string) => void;
   activeMealId: string | null;
@@ -1617,16 +1826,23 @@ function WeekCell({
           key={meal.id}
           meal={meal}
           recipes={recipes}
+          householdSize={householdSize}
           color={colorForMeal(meal)}
           sourceInfo={sourceInfo(meal)}
           leftoverChipLabel={leftoverChipLabel(meal)}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
+          onSetServings={onSetServings}
           isEditing={editingMealId === meal.id}
           editValue={editValue}
           onEditValue={onEditValue}
           onSaveEdit={() => onSaveEdit(meal.id)}
           onCancelEdit={onCancelEdit}
+          isServingsEditing={servingsEditingMealId === meal.id}
+          servingsEditValue={servingsEditValue}
+          onServingsEditValue={onServingsEditValue}
+          onSaveServingsEdit={() => onSaveServingsEdit(meal.id)}
+          onCancelServingsEdit={onCancelServingsEdit}
           onActivate={() => onActivateMeal(meal.id)}
           isActionsOpen={activeMealId === meal.id}
           selectMode={selectMode}
@@ -1653,14 +1869,21 @@ function WeekSlotCard({
   recipes,
   allMealsMap,
   slots,
+  householdSize,
   onRemove,
   onSetLeftovers,
+  onSetServings,
   onAdd,
   editingMealId,
   editValue,
   onEditValue,
   onSaveEdit,
   onCancelEdit,
+  servingsEditingMealId,
+  servingsEditValue,
+  onServingsEditValue,
+  onSaveServingsEdit,
+  onCancelServingsEdit,
   inlinePanel,
   onActivateMeal,
   activeMealId,
@@ -1677,14 +1900,21 @@ function WeekSlotCard({
   recipes: Recipe[];
   allMealsMap: Map<string, PlannedMeal>;
   slots: MealSlot[];
+  householdSize: number;
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   onAdd: () => void | Promise<void>;
   editingMealId: string | null;
   editValue: number;
   onEditValue: (value: number) => void;
   onSaveEdit: (mealId: string) => void | Promise<void>;
   onCancelEdit: () => void;
+  servingsEditingMealId: string | null;
+  servingsEditValue: number;
+  onServingsEditValue: (value: number) => void;
+  onSaveServingsEdit: (mealId: string) => void | Promise<void>;
+  onCancelServingsEdit: () => void;
   inlinePanel: ReactNode;
   onActivateMeal: (mealId: string) => void;
   activeMealId: string | null;
@@ -1747,16 +1977,23 @@ function WeekSlotCard({
           key={meal.id}
           meal={meal}
           recipes={recipes}
+          householdSize={householdSize}
           color={colorForMeal(meal)}
           sourceInfo={sourceInfo(meal)}
           leftoverChipLabel={leftoverChipLabel(meal)}
           onRemove={onRemove}
           onSetLeftovers={onSetLeftovers}
+          onSetServings={onSetServings}
           isEditing={editingMealId === meal.id}
           editValue={editValue}
           onEditValue={onEditValue}
           onSaveEdit={() => onSaveEdit(meal.id)}
           onCancelEdit={onCancelEdit}
+          isServingsEditing={servingsEditingMealId === meal.id}
+          servingsEditValue={servingsEditValue}
+          onServingsEditValue={onServingsEditValue}
+          onSaveServingsEdit={() => onSaveServingsEdit(meal.id)}
+          onCancelServingsEdit={onCancelServingsEdit}
           onActivate={() => onActivateMeal(meal.id)}
           isActionsOpen={activeMealId === meal.id}
           selectMode={selectMode}
@@ -1778,16 +2015,23 @@ function WeekSlotCard({
 function DraggableMeal({
   meal,
   recipes,
+  householdSize,
   color,
   sourceInfo,
   leftoverChipLabel,
   onRemove,
   onSetLeftovers,
+  onSetServings,
   isEditing,
   editValue,
   onEditValue,
   onSaveEdit,
   onCancelEdit,
+  isServingsEditing,
+  servingsEditValue,
+  onServingsEditValue,
+  onSaveServingsEdit,
+  onCancelServingsEdit,
   onActivate,
   isActionsOpen,
   selectMode,
@@ -1797,16 +2041,23 @@ function DraggableMeal({
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
+  householdSize: number;
   color: string;
   sourceInfo: string;
   leftoverChipLabel?: string;
   onRemove: (id: string) => void | Promise<void>;
   onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
+  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   isEditing: boolean;
   editValue: number;
   onEditValue: (value: number) => void;
   onSaveEdit: () => void | Promise<void>;
   onCancelEdit: () => void;
+  isServingsEditing: boolean;
+  servingsEditValue: number;
+  onServingsEditValue: (value: number) => void;
+  onSaveServingsEdit: () => void | Promise<void>;
+  onCancelServingsEdit: () => void;
   onActivate: () => void;
   isActionsOpen: boolean;
   selectMode: boolean;
@@ -1822,10 +2073,7 @@ function DraggableMeal({
     opacity: isDragging ? 0.6 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
   };
-  const remaining =
-    typeof meal.leftoverServingsRemaining === "number"
-      ? meal.leftoverServingsRemaining
-      : 0;
+  const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
 
   return (
     <div
@@ -1873,7 +2121,7 @@ function DraggableMeal({
         {meal.type === "leftover" && leftoverChipLabel ? (
           leftoverChipLabel
         ) : (
-          <MealLabel meal={meal} recipes={recipes} showRemaining={false} />
+          <MealLabel meal={meal} recipes={recipes} householdSize={householdSize} showRemaining={false} />
         )}
       </span>
       {meal.type === "recipe" && (
@@ -1884,6 +2132,17 @@ function DraggableMeal({
             onClick={() => onSetLeftovers(meal)}
             disabled={selectMode}
           />
+          <button
+            className="secondary"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void onSetServings(meal);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            Servings
+          </button>
         </>
       )}
       <button
@@ -1918,6 +2177,11 @@ function DraggableMeal({
           <button className="danger" onClick={() => void onRemove(meal.id)}>
             Delete
           </button>
+          {meal.type === "recipe" && (
+            <button className="secondary" onClick={() => void onSetServings(meal)}>
+              Servings
+            </button>
+          )}
         </div>
       )}
       {meal.type === "recipe" && isEditing && (
@@ -1936,6 +2200,26 @@ function DraggableMeal({
             Save
           </button>
           <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {meal.type === "recipe" && isServingsEditing && (
+        <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          <label className="field-stack compact-field">
+            <span>Servings planned</span>
+            <input
+              type="number"
+              min="1"
+              value={servingsEditValue}
+              onChange={(e) => onServingsEditValue(Number(e.target.value))}
+              style={{ width: 96 }}
+            />
+          </label>
+          <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveServingsEdit(); }}>
+            Save
+          </button>
+          <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelServingsEdit(); }}>
             Cancel
           </button>
         </div>

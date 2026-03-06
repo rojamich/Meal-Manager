@@ -15,10 +15,11 @@ import {
 } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
-import { createPlannedMeal, listMealSlots } from "../../db/repositories/mealPlanRepo";
+import { listMealSlots, listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey, toISODate } from "../../utils/date";
 import { getHouseholdSize } from "../settings/preferences";
+import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDomain";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -243,14 +244,17 @@ export default function RecipesPage() {
     const recipe = recipes.find((r) => r.id === recipeId);
     if (!recipe) return;
     const householdSize = getHouseholdSize();
-    const servings = servingsPlanned && servingsPlanned > 0 ? servingsPlanned : recipeBaseServings(recipe);
-    await createPlannedMeal({
-      date,
-      mealSlotId,
-      type: "recipe",
-      recipeId,
-      servingsPlanned: servings,
-      leftoverServingsRemaining: Math.max(servings - householdSize, 0)
+    const currentMeals = await listPlannedMeals("0000-01-01", "9999-12-31");
+    await createMealWithRules({
+      input: buildRecipeMealInput({
+        date,
+        mealSlotId,
+        recipe,
+        servingsPlanned,
+        householdSize
+      }),
+      householdSize,
+      currentMeals
     });
   }
 

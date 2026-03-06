@@ -1,7 +1,13 @@
 import { db } from "../db";
-import { PlannedMeal, WeekTemplate } from "../../models";
+import { WeekTemplate } from "../../models";
 import { newId } from "../../utils/id";
 import { addDays, dateKey, parseISODate } from "../../utils/date";
+import {
+  buildFreeformMealInput,
+  buildRecipeMealInput,
+  createMealWithRules
+} from "../../features/planner/plannerDomain";
+import { getHouseholdSize } from "../../features/settings/preferences";
 
 export async function listWeekTemplates() {
   const rows = await db.weekTemplates.orderBy("createdAt").reverse().toArray();
@@ -28,31 +34,59 @@ export async function deleteWeekTemplate(id: string) {
 }
 
 export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart: string, weekEnd: string) {
-  await db.transaction("rw", [db.plannedMeals], async () => {
-    const existing = await db.plannedMeals.toArray();
-    const idsToDelete = existing
-      .filter((meal) => {
-        const key = dateKey(meal.date);
-        return key >= dateKey(weekStart) && key <= dateKey(weekEnd);
-      })
-      .map((meal) => meal.id);
-    if (idsToDelete.length) await db.plannedMeals.bulkDelete(idsToDelete);
+  const existing = await db.plannedMeals.toArray();
+  const idsToDelete = existing
+    .filter((meal) => {
+      const key = dateKey(meal.date);
+      return key >= dateKey(weekStart) && key <= dateKey(weekEnd);
+    })
+    .map((meal) => meal.id);
+  if (idsToDelete.length) await db.plannedMeals.bulkDelete(idsToDelete);
 
-    const weekStartDate = parseISODate(dateKey(weekStart));
-    const now = new Date().toISOString();
-    const inserts: PlannedMeal[] = [];
-    template.days.forEach((day) => {
-      const targetDate = dateKey(addDays(weekStartDate, day.weekday));
-      day.meals.forEach((meal) => {
-        inserts.push({
-          ...meal,
-          id: newId(),
-          date: targetDate,
-          createdAt: now,
-          updatedAt: now
+  const householdSize = getHouseholdSize();
+  const weekStartDate = parseISODate(dateKey(weekStart));
+  let contextMeals = (await db.plannedMeals.toArray()).filter(
+    (meal) => meal.date < dateKey(weekStart) || meal.date > dateKey(weekEnd)
+  );
+
+  for (const day of template.days) {
+    const targetDate = dateKey(addDays(weekStartDate, day.weekday));
+    for (const meal of day.meals) {
+      if (meal.type === "recipe" && meal.recipeId) {
+        const result = await createMealWithRules({
+          input: buildRecipeMealInput({
+            date: targetDate,
+            mealSlotId: meal.mealSlotId,
+            recipeId: meal.recipeId,
+            servingsPlanned: meal.servingsPlanned,
+            householdSize,
+            notes: meal.notes
+          }),
+          householdSize,
+          currentMeals: contextMeals
         });
+        if (result.created) contextMeals = [...contextMeals, result.created];
+        continue;
+      }
+
+      const title =
+        meal.type === "leftover"
+          ? `Leftover: ${meal.freeformTitle || "Template meal"}`
+          : meal.freeformTitle || "Freeform";
+
+      // Templates do not retain enough source identity to safely recreate live leftover links,
+      // so leftover template entries are restored as freeform placeholders instead of stale references.
+      const result = await createMealWithRules({
+        input: buildFreeformMealInput({
+          date: targetDate,
+          mealSlotId: meal.mealSlotId,
+          freeformTitle: title,
+          notes: meal.notes
+        }),
+        householdSize,
+        currentMeals: contextMeals
       });
-    });
-    if (inserts.length) await db.plannedMeals.bulkAdd(inserts);
-  });
+      if (result.created) contextMeals = [...contextMeals, result.created];
+    }
+  }
 }
