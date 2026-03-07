@@ -511,15 +511,24 @@ button.danger:focus {
   table-layout: auto;
 }
 
+.recipes-table th,
+.recipes-table td {
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: top;
+}
+
 .recipes-table th:first-child,
 .recipes-table td:first-child {
   width: 72px;
+  white-space: nowrap;
 }
 
 .recipes-table th:nth-child(2),
 .recipes-table td:nth-child(2) {
   width: 36%;
   white-space: normal;
+  overflow-wrap: break-word;
   word-break: break-word;
 }
 
@@ -532,22 +541,26 @@ button.danger:focus {
 .recipes-table th:nth-child(4),
 .recipes-table td:nth-child(4) {
   width: 90px;
+  white-space: nowrap;
 }
 
 .recipes-table th:nth-child(5),
 .recipes-table td:nth-child(5) {
   width: 22%;
   white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .recipes-table th:nth-child(6),
 .recipes-table td:nth-child(6) {
   width: 90px;
+  white-space: nowrap;
 }
 
 .recipes-table th:nth-child(7),
 .recipes-table td:nth-child(7) {
   width: 110px;
+  white-space: nowrap;
 }
 
 .ingredients-table th:first-child,
@@ -572,6 +585,17 @@ button.danger:focus {
 .ingredients-table th:nth-child(4),
 .ingredients-table td:nth-child(4) {
   width: 160px;
+}
+
+.ingredients-table th:nth-child(5),
+.ingredients-table td:nth-child(5) {
+  width: 170px;
+}
+
+.ingredients-table th:nth-child(6),
+.ingredients-table td:nth-child(6) {
+  width: 96px;
+  white-space: nowrap;
 }
 
 .ingredients-table input {
