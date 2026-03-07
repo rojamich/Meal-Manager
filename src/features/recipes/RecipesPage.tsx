@@ -898,8 +898,8 @@ function RecipeEditor({
                 </button>
               </div>
               {ingredientError && <p className="muted">{ingredientError}</p>}
-              <div className="table-wrap">
-              <table className="table">
+              <div className="table-wrap ingredient-table-wrap">
+              <table className="table ingredients-table">
                 <thead>
                   <tr>
                     <th>Item</th>

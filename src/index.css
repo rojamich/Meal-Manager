@@ -148,6 +148,11 @@ a {
   overflow-y: visible;
 }
 
+.ingredient-table-wrap {
+  overflow-x: visible;
+  overflow-y: auto;
+}
+
 .table-actions {
   display: flex;
   gap: 8px;
@@ -487,6 +492,33 @@ button.danger:focus {
 .table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.ingredients-table {
+  width: 100%;
+  table-layout: auto;
+}
+
+.ingredients-table th:first-child,
+.ingredients-table td:first-child {
+  width: 45%;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.ingredients-table th:nth-child(2),
+.ingredients-table td:nth-child(2) {
+  width: 90px;
+}
+
+.ingredients-table th:nth-child(3),
+.ingredients-table td:nth-child(3) {
+  width: 70px;
+}
+
+.ingredients-table th:nth-child(4),
+.ingredients-table td:nth-child(4) {
+  width: 160px;
 }
 
 .table th, .table td {
