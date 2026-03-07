@@ -499,6 +499,13 @@ button.danger:focus {
   table-layout: auto;
 }
 
+.ingredients-table th,
+.ingredients-table td {
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: top;
+}
+
 .recipes-table {
   width: 100%;
   table-layout: auto;
@@ -547,6 +554,7 @@ button.danger:focus {
 .ingredients-table td:first-child {
   width: 45%;
   white-space: normal;
+  overflow-wrap: break-word;
   word-break: break-word;
 }
 
@@ -558,11 +566,17 @@ button.danger:focus {
 .ingredients-table th:nth-child(3),
 .ingredients-table td:nth-child(3) {
   width: 70px;
+  white-space: nowrap;
 }
 
 .ingredients-table th:nth-child(4),
 .ingredients-table td:nth-child(4) {
   width: 160px;
+}
+
+.ingredients-table input {
+  width: 100%;
+  min-width: 0;
 }
 
 .table th, .table td {
