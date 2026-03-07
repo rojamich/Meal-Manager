@@ -359,7 +359,7 @@ export default function RecipesPage() {
           </label>
         </div>
         <div className="table-wrap">
-        <table className="table">
+        <table className="table recipes-table">
           <thead>
             <tr>
               <th>Image</th>

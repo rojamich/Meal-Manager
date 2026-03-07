@@ -499,6 +499,50 @@ button.danger:focus {
   table-layout: auto;
 }
 
+.recipes-table {
+  width: 100%;
+  table-layout: auto;
+}
+
+.recipes-table th:first-child,
+.recipes-table td:first-child {
+  width: 72px;
+}
+
+.recipes-table th:nth-child(2),
+.recipes-table td:nth-child(2) {
+  width: 36%;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.recipes-table th:nth-child(3),
+.recipes-table td:nth-child(3) {
+  width: 20%;
+  white-space: normal;
+}
+
+.recipes-table th:nth-child(4),
+.recipes-table td:nth-child(4) {
+  width: 90px;
+}
+
+.recipes-table th:nth-child(5),
+.recipes-table td:nth-child(5) {
+  width: 22%;
+  white-space: normal;
+}
+
+.recipes-table th:nth-child(6),
+.recipes-table td:nth-child(6) {
+  width: 90px;
+}
+
+.recipes-table th:nth-child(7),
+.recipes-table td:nth-child(7) {
+  width: 110px;
+}
+
 .ingredients-table th:first-child,
 .ingredients-table td:first-child {
   width: 45%;
