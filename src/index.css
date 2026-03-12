@@ -526,15 +526,15 @@ button.danger:focus {
 
 .recipes-table th:nth-child(2),
 .recipes-table td:nth-child(2) {
-  width: 36%;
+  width: 44%;
   white-space: normal;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .recipes-table th:nth-child(3),
 .recipes-table td:nth-child(3) {
-  width: 20%;
+  width: 16%;
   white-space: normal;
 }
 
@@ -546,7 +546,7 @@ button.danger:focus {
 
 .recipes-table th:nth-child(5),
 .recipes-table td:nth-child(5) {
-  width: 22%;
+  width: 14%;
   white-space: normal;
   overflow-wrap: break-word;
 }
@@ -561,6 +561,13 @@ button.danger:focus {
 .recipes-table td:nth-child(7) {
   width: 110px;
   white-space: nowrap;
+}
+
+.recipe-title-button {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .ingredients-table th:first-child,

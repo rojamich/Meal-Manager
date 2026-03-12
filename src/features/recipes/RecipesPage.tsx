@@ -380,7 +380,7 @@ export default function RecipesPage() {
                   )}
                 </td>
                 <td data-label="Title">
-                  <button className="ghost" onClick={() => setSelected(recipe)}>
+                  <button className="ghost recipe-title-button" onClick={() => setSelected(recipe)}>
                     {recipe.title}
                   </button>
                 </td>
