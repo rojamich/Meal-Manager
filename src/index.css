@@ -518,48 +518,57 @@ button.danger:focus {
   vertical-align: top;
 }
 
-.recipes-table th:first-child,
-.recipes-table td:first-child {
-  width: 72px;
-  white-space: nowrap;
+.recipes-list-wrap {
+  overflow-x: auto;
 }
 
-.recipes-table th:nth-child(2),
-.recipes-table td:nth-child(2) {
-  width: 44%;
-  white-space: normal;
+.recipes-list-table {
+  min-width: 760px;
+}
+
+.recipes-list-table th,
+.recipes-list-table td {
   overflow-wrap: normal;
   word-break: normal;
-}
-
-.recipes-table th:nth-child(3),
-.recipes-table td:nth-child(3) {
-  width: 16%;
   white-space: normal;
 }
 
-.recipes-table th:nth-child(4),
-.recipes-table td:nth-child(4) {
-  width: 90px;
+.recipes-col-image {
+  width: 72px;
+  min-width: 72px;
   white-space: nowrap;
 }
 
-.recipes-table th:nth-child(5),
-.recipes-table td:nth-child(5) {
-  width: 14%;
-  white-space: normal;
-  overflow-wrap: break-word;
+.recipes-col-title {
+  width: 34%;
+  min-width: 220px;
 }
 
-.recipes-table th:nth-child(6),
-.recipes-table td:nth-child(6) {
-  width: 90px;
+.recipes-col-meal-types {
+  width: 18%;
+  min-width: 120px;
+}
+
+.recipes-col-servings {
+  width: 72px;
+  min-width: 72px;
   white-space: nowrap;
 }
 
-.recipes-table th:nth-child(7),
-.recipes-table td:nth-child(7) {
-  width: 110px;
+.recipes-col-metadata {
+  width: 24%;
+  min-width: 170px;
+}
+
+.recipes-col-cost {
+  width: 80px;
+  min-width: 80px;
+  white-space: nowrap;
+}
+
+.recipes-col-actions {
+  width: 96px;
+  min-width: 96px;
   white-space: nowrap;
 }
 
@@ -568,6 +577,18 @@ button.danger:focus {
   text-align: left;
   white-space: normal;
   line-height: 1.3;
+}
+
+.recipes-meal-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recipes-meal-types .tag {
+  margin-right: 0;
+  white-space: nowrap;
 }
 
 .ingredients-table th:first-child,

@@ -358,41 +358,43 @@ export default function RecipesPage() {
             />
           </label>
         </div>
-        <div className="table-wrap">
-        <table className="table recipes-table">
+        <div className="table-wrap recipes-list-wrap">
+        <table className="table recipes-table recipes-list-table">
           <thead>
             <tr>
-              <th>Image</th>
-              <th>Title</th>
-              <th>Meal types</th>
-              <th>Servings</th>
-              <th>Metadata</th>
-              <th>Cost</th>
-              <th></th>
+              <th className="recipes-col-image">Image</th>
+              <th className="recipes-col-title">Title</th>
+              <th className="recipes-col-meal-types">Meal types</th>
+              <th className="recipes-col-servings">Servings</th>
+              <th className="recipes-col-metadata">Metadata</th>
+              <th className="recipes-col-cost">Cost</th>
+              <th className="recipes-col-actions"></th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((recipe) => (
               <tr key={recipe.id}>
-                <td data-label="Image">
+                <td data-label="Image" className="recipes-col-image">
                   {recipe.imageUrl && (
                     <img src={recipe.imageUrl} alt={recipe.title} style={{ width: 48, height: 48, objectFit: "cover" }} />
                   )}
                 </td>
-                <td data-label="Title">
+                <td data-label="Title" className="recipes-col-title">
                   <button className="ghost recipe-title-button" onClick={() => setSelected(recipe)}>
                     {recipe.title}
                   </button>
                 </td>
-                <td data-label="Meal types">
-                  {recipe.mealTypes?.map((type) => (
-                    <span key={type} className="tag">{type}</span>
-                  ))}
+                <td data-label="Meal types" className="recipes-col-meal-types">
+                  <div className="recipes-meal-types">
+                    {recipe.mealTypes?.map((type) => (
+                      <span key={type} className="tag">{type}</span>
+                    ))}
+                  </div>
                 </td>
-                <td data-label="Servings">{recipeBaseServings(recipe)}</td>
-                <td data-label="Metadata">{recipeMetaSummary(recipe)}</td>
-                <td data-label="Cost">{recipe.estimatedCostPerServing ?? "-"}</td>
-                <td data-label="Actions" className="table-actions">
+                <td data-label="Servings" className="recipes-col-servings">{recipeBaseServings(recipe)}</td>
+                <td data-label="Metadata" className="recipes-col-metadata">{recipeMetaSummary(recipe)}</td>
+                <td data-label="Cost" className="recipes-col-cost">{recipe.estimatedCostPerServing ?? "-"}</td>
+                <td data-label="Actions" className="table-actions recipes-col-actions">
                   <button className="danger" onClick={() => removeRecipe(recipe.id)}>
                     Delete
                   </button>
