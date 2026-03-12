@@ -359,9 +359,10 @@ export default function PlannerPage() {
 
   const openInlineAdd = useCallback(
     async (slot: { date: string; mealSlotId: string }, anchorEl?: HTMLElement | null) => {
+      const nextAnchor = anchorEl ?? null;
       setActiveSlot(slot);
-      setPanelAnchorEl(anchorEl ?? null);
-      setPanelStyle(null);
+      setPanelAnchorEl(nextAnchor);
+      setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
       await refreshRecentMeals();
     },
@@ -472,35 +473,7 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!activeSlot || !panelAnchorEl) return;
     const updatePanelPosition = () => {
-      if (!panelRef.current) return;
-      const anchorRect = panelAnchorEl.getBoundingClientRect();
-      const panelWidth = panelRef.current.offsetWidth || 360;
-      const panelHeight = panelRef.current.offsetHeight || 320;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const margin = 12;
-      const gap = 8;
-
-      let left = anchorRect.left;
-      if (left + panelWidth > viewportWidth - margin) {
-        left = Math.max(margin, anchorRect.right - panelWidth);
-      }
-      left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - panelWidth - margin));
-
-      let top = anchorRect.bottom + gap;
-      if (top + panelHeight > viewportHeight - margin) {
-        top = Math.max(margin, anchorRect.top - panelHeight - gap);
-      }
-      top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - panelHeight - margin));
-
-      setPanelStyle({
-        position: "fixed",
-        top,
-        left,
-        width: Math.min(380, viewportWidth - margin * 2),
-        maxHeight: viewportHeight - margin * 2,
-        overflowY: "auto"
-      });
+      setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
     };
 
     updatePanelPosition();
@@ -922,7 +895,7 @@ export default function PlannerPage() {
   );
 
   const inlineOverlay =
-    activeSlot && panelStyle
+    activeSlot
       ? createPortal(
           <div className="planner-overlay-root">
             <InlineAddPanel
@@ -1408,7 +1381,8 @@ export default function PlannerPage() {
                       {meals.filter((meal) => meal.date === day && meal.mealSlotId === slot.id).length === 0 && (
                         <button
                           className="ghost"
-                          onClick={(e) => openInlineAdd({ date: day, mealSlotId: slot.id }, e.currentTarget)}
+                          type="button"
+                          onClick={(e) => void openInlineAdd({ date: day, mealSlotId: slot.id }, e.currentTarget)}
                         >
                           Add
                         </button>
@@ -1989,7 +1963,15 @@ function WeekCell({
         />
       ))}
       {meals.length === 0 && (
-        <button className="ghost" onClick={(e) => void onAdd(e.currentTarget)}>
+        <button
+          className="ghost"
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onAdd(e.currentTarget);
+          }}
+        >
           Add
         </button>
       )}
@@ -2140,7 +2122,15 @@ function WeekSlotCard({
         />
       ))}
       {meals.length === 0 && (
-        <button className="ghost" onClick={(e) => void onAdd(e.currentTarget)}>
+        <button
+          className="ghost"
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onAdd(e.currentTarget);
+          }}
+        >
           Add
         </button>
       )}
@@ -2449,6 +2439,49 @@ function useMediaQuery(query: string) {
 function formatWeekdayLabel(value: string) {
   const d = parseISODate(value);
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function buildInlinePanelStyle(anchorEl: HTMLElement | null, panelEl?: HTMLDivElement | null): CSSProperties {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const margin = 12;
+  const gap = 8;
+  const panelWidth = panelEl?.offsetWidth || 360;
+  const panelHeight = panelEl?.offsetHeight || 320;
+  const width = Math.min(380, viewportWidth - margin * 2);
+
+  if (!anchorEl) {
+    return {
+      position: "fixed",
+      top: margin,
+      left: Math.max(margin, (viewportWidth - width) / 2),
+      width,
+      maxHeight: viewportHeight - margin * 2,
+      overflowY: "auto"
+    };
+  }
+
+  const anchorRect = anchorEl.getBoundingClientRect();
+  let left = anchorRect.left;
+  if (left + panelWidth > viewportWidth - margin) {
+    left = Math.max(margin, anchorRect.right - panelWidth);
+  }
+  left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - panelWidth - margin));
+
+  let top = anchorRect.bottom + gap;
+  if (top + panelHeight > viewportHeight - margin) {
+    top = Math.max(margin, anchorRect.top - panelHeight - gap);
+  }
+  top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - panelHeight - margin));
+
+  return {
+    position: "fixed",
+    top,
+    left,
+    width,
+    maxHeight: viewportHeight - margin * 2,
+    overflowY: "auto"
+  };
 }
 
 function colorFromId(value: string) {
