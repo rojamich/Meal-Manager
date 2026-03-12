@@ -185,6 +185,81 @@ a {
   flex: 0 1 110px;
 }
 
+.ingredient-editor-row > button {
+  min-height: 42px;
+}
+
+.ingredients-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ingredient-grid-header,
+.ingredient-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) 90px 70px minmax(120px, 1fr) minmax(160px, 1.5fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ingredient-grid-header {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ingredient-list-body {
+  display: grid;
+  gap: 10px;
+}
+
+.ingredient-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--soft);
+}
+
+.ingredient-field {
+  min-width: 0;
+}
+
+.ingredient-field input,
+.ingredient-field select,
+.ingredient-field textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.ingredient-static-value {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.ingredient-card-label {
+  display: none;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ingredient-field-remove {
+  justify-self: end;
+}
+
+.ingredient-field-remove button {
+  white-space: nowrap;
+}
+
 .recipe-mealtype-row {
   align-items: center;
 }
@@ -840,6 +915,48 @@ details[open] > summary {
   .grocery-usage-entry {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .ingredient-editor-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .ingredient-editor-row > * {
+    width: 100%;
+  }
+
+  .ingredient-editor-row > button {
+    width: 100%;
+  }
+
+  .ingredient-grid-header {
+    display: none;
+  }
+
+  .ingredient-row {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+
+  .ingredient-field-item,
+  .ingredient-field-alt-group,
+  .ingredient-field-note,
+  .ingredient-field-remove {
+    grid-column: 1 / -1;
+  }
+
+  .ingredient-card-label {
+    display: block;
+  }
+
+  .ingredient-field-remove {
+    justify-self: stretch;
+  }
+
+  .ingredient-field-remove button {
+    width: 100%;
   }
 }
 

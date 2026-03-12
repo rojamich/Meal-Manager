@@ -487,6 +487,30 @@ function RecipeEditor({
       ),
     [pantryItems, ingredientFilter]
   );
+  const pantryItemById = useMemo(
+    () => new Map(pantryItems.map((item) => [item.id, item])),
+    [pantryItems]
+  );
+
+  function submitIngredientDraft() {
+    const qty = Number(ingredientDraft.quantity || 0);
+    if (!recipe.id) {
+      setIngredientError("Save the recipe first.");
+      return;
+    }
+    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
+      setIngredientError("Select a pantry item and enter a quantity > 0.");
+      return;
+    }
+    setIngredientError(null);
+    onAddIngredient(recipe.id, {
+      pantryItemId: ingredientDraft.pantryItemId,
+      quantity: qty,
+      prepNote: ingredientDraft.prepNote || undefined,
+      altGroup: ingredientDraft.altGroup.trim() || undefined
+    });
+    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+  }
 
   useEffect(() => {
     if (!pantryItems.length) return;
@@ -754,23 +778,7 @@ function RecipeEditor({
                   onKeyDown={(e) => {
                     if (e.key !== "Enter") return;
                     e.preventDefault();
-                    const qty = Number(ingredientDraft.quantity || 0);
-                    if (!recipe.id) {
-                      setIngredientError("Save the recipe first.");
-                      return;
-                    }
-                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
-                      setIngredientError("Select a pantry item and enter a quantity > 0.");
-                      return;
-                    }
-                    setIngredientError(null);
-                    onAddIngredient(recipe.id, {
-                      pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined,
-                      altGroup: ingredientDraft.altGroup.trim() || undefined
-                    });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                    submitIngredientDraft();
                   }}
                 />
                 <select
@@ -798,28 +806,12 @@ function RecipeEditor({
                   onKeyDown={(e) => {
                     if (e.key !== "Enter") return;
                     e.preventDefault();
-                    const qty = Number(ingredientDraft.quantity || 0);
-                    if (!recipe.id) {
-                      setIngredientError("Save the recipe first.");
-                      return;
-                    }
-                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
-                      setIngredientError("Select a pantry item and enter a quantity > 0.");
-                      return;
-                    }
-                    setIngredientError(null);
-                    onAddIngredient(recipe.id, {
-                      pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined,
-                      altGroup: ingredientDraft.altGroup.trim() || undefined
-                    });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                    submitIngredientDraft();
                   }}
                 />
                 {ingredientDraft.pantryItemId && (
                   <span className="muted">
-                    {pantryItems.find((p) => p.id === ingredientDraft.pantryItemId)?.baseUnit}
+                    {pantryItemById.get(ingredientDraft.pantryItemId)?.baseUnit}
                   </span>
                 )}
                 <input
@@ -829,23 +821,7 @@ function RecipeEditor({
                   onKeyDown={(e) => {
                     if (e.key !== "Enter") return;
                     e.preventDefault();
-                    const qty = Number(ingredientDraft.quantity || 0);
-                    if (!recipe.id) {
-                      setIngredientError("Save the recipe first.");
-                      return;
-                    }
-                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
-                      setIngredientError("Select a pantry item and enter a quantity > 0.");
-                      return;
-                    }
-                    setIngredientError(null);
-                    onAddIngredient(recipe.id, {
-                      pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined,
-                      altGroup: ingredientDraft.altGroup.trim() || undefined
-                    });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                    submitIngredientDraft();
                   }}
                 />
                 <input
@@ -855,98 +831,73 @@ function RecipeEditor({
                   onKeyDown={(e) => {
                     if (e.key !== "Enter") return;
                     e.preventDefault();
-                    const qty = Number(ingredientDraft.quantity || 0);
-                    if (!recipe.id) {
-                      setIngredientError("Save the recipe first.");
-                      return;
-                    }
-                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
-                      setIngredientError("Select a pantry item and enter a quantity > 0.");
-                      return;
-                    }
-                    setIngredientError(null);
-                    onAddIngredient(recipe.id, {
-                      pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined,
-                      altGroup: ingredientDraft.altGroup.trim() || undefined
-                    });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
+                    submitIngredientDraft();
                   }}
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    const qty = Number(ingredientDraft.quantity || 0);
-                    if (!recipe.id) {
-                      setIngredientError("Save the recipe first.");
-                      return;
-                    }
-                    if (!ingredientDraft.pantryItemId || !(qty > 0)) {
-                      setIngredientError("Select a pantry item and enter a quantity > 0.");
-                      return;
-                    }
-                    setIngredientError(null);
-                    onAddIngredient(recipe.id, {
-                      pantryItemId: ingredientDraft.pantryItemId,
-                      quantity: qty,
-                      prepNote: ingredientDraft.prepNote || undefined,
-                      altGroup: ingredientDraft.altGroup.trim() || undefined
-                    });
-                    setIngredientDraft({ pantryItemId: "", quantity: "1", prepNote: "", altGroup: "" });
-                  }}
+                  onClick={submitIngredientDraft}
                 >
                   Add Ingredient
                 </button>
               </div>
               {ingredientError && <p className="muted">{ingredientError}</p>}
-              <div className="table-wrap ingredient-table-wrap">
-              <table className="table ingredients-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Alt group</th>
-                    <th>Note</th>
-                    <th>Remove</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ingredients.map((ing) => (
-                    <tr key={ing.id}>
-                      <td data-label="Item">{pantryItems.find((p) => p.id === ing.pantryItemId)?.name || ""}</td>
-                      <td data-label="Qty">
-                        <input
-                          type="number"
-                          value={ing.quantity}
-                          step="0.01"
-                          min="0.01"
-                          onChange={(e) => onUpdateIngredient(ing.id, { quantity: Number(e.target.value) })}
-                        />
-                      </td>
-                      <td data-label="Unit">{pantryItems.find((p) => p.id === ing.pantryItemId)?.baseUnit || ""}</td>
-                      <td data-label="Alt group">
-                        <input
-                          value={ing.altGroup || ""}
-                          onChange={(e) => onUpdateIngredient(ing.id, { altGroup: e.target.value })}
-                        />
-                      </td>
-                      <td data-label="Note">
-                        <input
-                          value={ing.prepNote || ""}
-                          onChange={(e) => onUpdateIngredient(ing.id, { prepNote: e.target.value })}
-                        />
-                      </td>
-                      <td data-label="Remove" className="table-actions">
-                        <button className="danger" onClick={() => onDeleteIngredient(ing.id)}>
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="ingredients-list">
+                <div className="ingredient-grid-header">
+                  <span>Item</span>
+                  <span>Qty</span>
+                  <span>Unit</span>
+                  <span>Alt group</span>
+                  <span>Note</span>
+                  <span>Remove</span>
+                </div>
+                <div className="ingredient-list-body">
+                  {ingredients.map((ing) => {
+                    const pantryItem = pantryItemById.get(ing.pantryItemId);
+                    return (
+                      <div key={ing.id} className="ingredient-row">
+                        <div className="ingredient-field ingredient-field-item">
+                          <span className="ingredient-card-label">Item</span>
+                          <div className="ingredient-static-value">{pantryItem?.name || ""}</div>
+                        </div>
+                        <div className="ingredient-field ingredient-field-qty">
+                          <span className="ingredient-card-label">Qty</span>
+                          <input
+                            type="number"
+                            value={ing.quantity}
+                            step="0.01"
+                            min="0.01"
+                            onChange={(e) => onUpdateIngredient(ing.id, { quantity: Number(e.target.value) })}
+                          />
+                        </div>
+                        <div className="ingredient-field ingredient-field-unit">
+                          <span className="ingredient-card-label">Unit</span>
+                          <div className="ingredient-static-value">{pantryItem?.baseUnit || ""}</div>
+                        </div>
+                        <div className="ingredient-field ingredient-field-alt-group">
+                          <span className="ingredient-card-label">Alt group</span>
+                          <input
+                            value={ing.altGroup || ""}
+                            onChange={(e) => onUpdateIngredient(ing.id, { altGroup: e.target.value })}
+                          />
+                        </div>
+                        <div className="ingredient-field ingredient-field-note">
+                          <span className="ingredient-card-label">Note</span>
+                          <input
+                            value={ing.prepNote || ""}
+                            onChange={(e) => onUpdateIngredient(ing.id, { prepNote: e.target.value })}
+                          />
+                        </div>
+                        <div className="ingredient-field ingredient-field-remove">
+                          <span className="ingredient-card-label">Remove</span>
+                          <button className="danger" onClick={() => onDeleteIngredient(ing.id)}>
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </>
           )}
