@@ -4,7 +4,7 @@ import { PantryItem, PurchaseEntry } from "../../models";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { createPurchaseEntry, deletePurchaseEntry, listPurchaseEntries } from "../../db/repositories/purchaseRepo";
-import { toISODate } from "../../utils/date";
+import { dateKey } from "../../utils/date";
 
 export default function PricesSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -63,7 +63,7 @@ export default function PricesSection({ embedded = false }: { embedded?: boolean
           ))}
         </select>
         <input name="store" placeholder="Store" />
-        <input name="date" type="date" defaultValue={toISODate(new Date())} />
+        <input name="date" type="date" defaultValue={dateKey(new Date())} />
         <button type="submit">Add</button>
       </form>
       <table className="table">

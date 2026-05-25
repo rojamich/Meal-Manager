@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { BaseUnit, InventoryLot, PantryItem, StorageType } from "../../models";
 import {
+  countPantryItemReferences,
   createPantryItem,
   deletePantryItem,
   listPantryItems,
@@ -15,9 +16,10 @@ import {
   listInventoryLots
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { dateKey, parseISODate, toISODate } from "../../utils/date";
+import { dateKey } from "../../utils/date";
 import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
+import { useActiveLocationId } from "../locations/activeLocation";
 
 const categories = PANTRY_CATEGORY_OPTIONS.map((option) => option.key);
 const STORAGE_TYPE_OPTIONS: StorageType[] = ["pantry", "fridge", "freezer"];
@@ -32,7 +34,7 @@ export default function PantryPage() {
   const [lotError, setLotError] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string>("__ALL__");
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
-  const [emptyLocationId, setEmptyLocationId] = useState<string>("");
+  const [emptyLocationId, setEmptyLocationId] = useActiveLocationId();
   const selectedItem = items.find((item) => item.id === selectedItemId);
   const { requestChoice, modal } = useConfirmChoiceModal();
 
@@ -97,11 +99,21 @@ export default function PantryPage() {
   }
 
   async function removeItem(id: string) {
+    const { ingredientCount, lotCount, essentialCount, purchaseCount } = await countPantryItemReferences(id);
+    const parts: string[] = [];
+    if (ingredientCount > 0) parts.push(`${ingredientCount} recipe ingredient${ingredientCount === 1 ? "" : "s"}`);
+    if (lotCount > 0) parts.push(`${lotCount} inventory lot${lotCount === 1 ? "" : "s"}`);
+    if (essentialCount > 0) parts.push(`${essentialCount} essentials entry`);
+    if (purchaseCount > 0) parts.push(`${purchaseCount} purchase entries`);
+    const detail = parts.length
+      ? `Still referenced by: ${parts.join(", ")}. Deleting will leave dangling references — clean those up first if you want a tidy database.`
+      : undefined;
     const choice = await requestChoice({
       title: "Delete Pantry Item?",
       message: "This will remove the selected pantry item.",
+      detail,
       choices: [
-        { label: "Delete", value: "confirm-delete", tone: "danger" },
+        { label: parts.length ? "Delete anyway" : "Delete", value: "confirm-delete", tone: "danger" },
         { label: "Cancel", value: "cancel", tone: "neutral" }
       ]
     });
@@ -135,7 +147,7 @@ export default function PantryPage() {
     const formEl = e.currentTarget as HTMLFormElement | null;
     formEl?.reset();
     const purchasedInput = formEl?.querySelector<HTMLInputElement>('input[name="purchasedAt"]');
-    if (purchasedInput) purchasedInput.value = toISODate(new Date());
+    if (purchasedInput) purchasedInput.value = dateKey(new Date());
     await reloadLotsForCurrentView();
   }
 
@@ -277,7 +289,7 @@ export default function PantryPage() {
               <div className="row resource-toolbar lot-form-row">
                 <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
                 {selectedItem && <span className="muted">{selectedItem.baseUnit}</span>}
-                <input name="purchasedAt" type="date" defaultValue={toISODate(new Date())} />
+                <input name="purchasedAt" type="date" defaultValue={dateKey(new Date())} />
                 <input name="expiresAt" type="date" />
               </div>
               <div className="row resource-toolbar lot-form-row">

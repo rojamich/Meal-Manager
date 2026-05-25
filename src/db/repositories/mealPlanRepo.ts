@@ -7,8 +7,7 @@ export async function listMealSlots() {
 }
 
 export async function listPlannedMeals(startDate: string, endDate: string) {
-  const all = await db.plannedMeals.toArray();
-  return all.filter((meal) => meal.date >= startDate && meal.date <= endDate);
+  return db.plannedMeals.where("date").between(startDate, endDate, true, true).toArray();
 }
 
 export async function getPlannedMeal(id: string) {
@@ -37,10 +36,5 @@ export async function deletePlannedMeal(id: string) {
 }
 
 export async function deletePlannedMealsInRange(startDate: string, endDate: string) {
-  const all = await db.plannedMeals.toArray();
-  const ids = all
-    .filter((meal) => meal.date >= startDate && meal.date <= endDate)
-    .map((meal) => meal.id);
-  if (!ids.length) return;
-  await db.plannedMeals.bulkDelete(ids);
+  await db.plannedMeals.where("date").between(startDate, endDate, true, true).delete();
 }

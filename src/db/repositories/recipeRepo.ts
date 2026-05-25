@@ -48,6 +48,12 @@ export async function updateRecipe(id: string, changes: Partial<Recipe>) {
   await db.recipes.update(id, { ...normalizedChanges, updatedAt: now });
 }
 
+export async function countRecipeReferences(id: string) {
+  const plannedMealCount = await db.plannedMeals.where("recipeId").equals(id).count();
+  const ingredientCount = await db.recipeIngredients.where("recipeId").equals(id).count();
+  return { plannedMealCount, ingredientCount };
+}
+
 export async function deleteRecipe(id: string) {
   await db.recipeIngredients.where("recipeId").equals(id).delete();
   await db.recipes.delete(id);

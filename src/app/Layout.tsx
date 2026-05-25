@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import ActiveLocationPicker from "../features/locations/ActiveLocationPicker";
 
 export default function Layout() {
   const location = useLocation();
@@ -12,7 +13,9 @@ export default function Layout() {
         <NavLink to="/grocery">Grocery</NavLink>
         <NavLink to="/recipes">Recipes</NavLink>
         <NavLink to="/pantry">Pantry</NavLink>
+        <NavLink to="/locations">Locations</NavLink>
         <NavLink to="/settings">Settings</NavLink>
+        <ActiveLocationPicker />
       </nav>
       <main className={`container${isPlannerRoute ? " container--wide" : ""}`}>
         <Outlet />

@@ -1,5 +1,4 @@
-import { RefObject, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LocationProfile, MealSlot, PlannedMeal, Recipe, WeekTemplate } from "../../models";
 import {
@@ -7,16 +6,30 @@ import {
   listPlannedMeals,
   updatePlannedMeal
 } from "../../db/repositories/mealPlanRepo";
-import { listRecipes } from "../../db/repositories/recipeRepo";
+import { listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
+import { listActiveLots } from "../../db/repositories/inventoryRepo";
+import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { buildCookPlan, commitCook, CookPlan, uncookMeal } from "./cookPlan";
+import CookMealModal from "./CookMealModal";
+import ExpiringSoon from "./ExpiringSoon";
+import InlineAddPanel from "./InlineAddPanel";
+import MealLabel from "./MealLabel";
+import WeekCell from "./WeekCell";
+import WeekSlotCard from "./WeekSlotCard";
+import { useActiveLocationId } from "../locations/activeLocation";
+import {
+  buildInlinePanelStyle,
+  formatWeekdayLabel,
+  monthRange,
+  weekRange
+} from "./plannerHelpers";
+import { useMediaQuery } from "./useMediaQuery";
 import { formatDateLabel, parseISODate, addDays, dateKey } from "../../utils/date";
-import { Link } from "react-router-dom";
 import {
   closestCenter,
   DndContext,
   DragEndEvent,
   PointerSensor,
-  useDraggable,
-  useDroppable,
   useSensor,
   useSensors
 } from "@dnd-kit/core";
@@ -35,12 +48,11 @@ import {
   calculateRecipeMealLeftoverState,
   cloneMealWithRules,
   createMealWithRules,
-  defaultRecipeServings,
   deleteMealWithRules,
-  getEffectiveLeftoverRemaining,
-  listAvailableLeftoverMeals
+  getEffectiveLeftoverRemaining
 } from "./plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
+import { useToast } from "../../components/useToast";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
@@ -61,16 +73,6 @@ export default function PlannerPage() {
   const [inlineNotes, setInlineNotes] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
   const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
-  const [topFormDate, setTopFormDate] = useState(anchorDate);
-  const [topFormMealSlotId, setTopFormMealSlotId] = useState("");
-  const [topFormType, setTopFormType] = useState<PlannedMeal["type"]>("recipe");
-  const [topFormRecipeId, setTopFormRecipeId] = useState("");
-  const [topFormServings, setTopFormServings] = useState(String(householdSize));
-  const [topFormLeftoverSource, setTopFormLeftoverSource] = useState("");
-  const [topFormLeftoverServingsUsed, setTopFormLeftoverServingsUsed] = useState("1");
-  const [topFormIncludeAnyRecent, setTopFormIncludeAnyRecent] = useState(false);
-  const [topFormFreeformTitle, setTopFormFreeformTitle] = useState("");
-  const [topFormNotes, setTopFormNotes] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelAnchorEl, setPanelAnchorEl] = useState<HTMLElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
@@ -86,7 +88,7 @@ export default function PlannerPage() {
   const [templateLocationId, setTemplateLocationId] = useState("");
   const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [templateFilter, setTemplateFilter] = useState<"all" | "this">("all");
-  const [plannerLocationId, setPlannerLocationId] = useState("");
+  const [plannerLocationId] = useActiveLocationId();
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
   const [pendingPasteMeals, setPendingPasteMeals] = useState<PlannedMeal[]>([]);
@@ -99,6 +101,10 @@ export default function PlannerPage() {
     toMealSlotId: string;
   } | null>(null);
   const undoMoveTimerRef = useRef<number | null>(null);
+  const [cookMeal, setCookMeal] = useState<PlannedMeal | null>(null);
+  const [cookRecipe, setCookRecipe] = useState<Recipe | null>(null);
+  const [cookPlan, setCookPlan] = useState<CookPlan | null>(null);
+  const [cookServings, setCookServings] = useState<number>(0);
   const isMobileLayout = useMediaQuery("(max-width: 768px)");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -106,6 +112,7 @@ export default function PlannerPage() {
     })
   );
   const { requestChoice, modal } = useConfirmChoiceModal();
+  const { notify, toast } = useToast();
 
   function closePanel(reason: string, e?: Event) {
     void reason;
@@ -145,10 +152,6 @@ export default function PlannerPage() {
   useEffect(() => {
     refreshRecentMeals();
   }, [refreshRecentMeals]);
-
-  useEffect(() => {
-    setTopFormDate((prev) => prev || anchorDate);
-  }, [anchorDate]);
 
   const combinedLeftoverSourceMeals = useMemo(() => {
     const map = new Map<string, PlannedMeal>();
@@ -192,7 +195,7 @@ export default function PlannerPage() {
         skipLeftoverDecrement: options?.skipLeftoverDecrement
       });
       if (result.error) {
-        alert(result.error);
+        notify(result.error, "error");
         return undefined;
       }
       const created = result.created;
@@ -207,63 +210,6 @@ export default function PlannerPage() {
     },
     [anchorDate, applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals, view]
   );
-
-  async function addMeal(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    let payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null = null;
-    if (topFormType === "recipe") {
-      const recipe = recipes.find((row) => row.id === topFormRecipeId);
-      if (!recipe) return;
-      payload = buildRecipeMealInput({
-        date: topFormDate,
-        mealSlotId: topFormMealSlotId,
-        recipe,
-        servingsPlanned: Number(topFormServings || householdSize),
-        householdSize,
-        notes: topFormNotes
-      });
-    } else if (topFormType === "leftover") {
-      const servingsUsed = Math.max(Number(topFormLeftoverServingsUsed || 1), 1);
-      if (topFormLeftoverSource.startsWith("meal:")) {
-        const sourceMeal = combinedLeftoverSourceMeals.find((meal) => meal.id === topFormLeftoverSource.slice(5));
-        if (!sourceMeal) return;
-        payload = buildLeftoverMealInput({
-          date: topFormDate,
-          mealSlotId: topFormMealSlotId,
-          sourceMeal,
-          servingsUsed,
-          notes: topFormNotes
-        });
-      } else if (topFormLeftoverSource.startsWith("recipe:")) {
-        const sourceRecipe = recipes.find((row) => row.id === topFormLeftoverSource.slice(7));
-        payload = buildLeftoverMealInput({
-          date: topFormDate,
-          mealSlotId: topFormMealSlotId,
-          servingsUsed,
-          notes: topFormNotes,
-          freeformTitle: sourceRecipe?.title || "Leftover"
-        });
-      }
-    } else if (topFormFreeformTitle.trim()) {
-      payload = buildFreeformMealInput({
-        date: topFormDate,
-        mealSlotId: topFormMealSlotId,
-        freeformTitle: topFormFreeformTitle,
-        notes: topFormNotes
-      });
-    }
-    if (!payload) return;
-    const created = await createMealAndRefresh(payload);
-    if (!created) return;
-    setTopFormType("recipe");
-    setTopFormRecipeId("");
-    setTopFormServings(String(householdSize));
-    setTopFormLeftoverSource("");
-    setTopFormLeftoverServingsUsed("1");
-    setTopFormIncludeAnyRecent(false);
-    setTopFormFreeformTitle("");
-    setTopFormNotes("");
-  }
 
   async function removeMeal(id: string) {
     const choice = await requestChoice({
@@ -524,11 +470,6 @@ export default function PlannerPage() {
     [meals, selectedMealIds]
   );
 
-  const topFormLeftoverMeals = useMemo(
-    () => listAvailableLeftoverMeals(combinedLeftoverSourceMeals, householdSize, { includeAnyRecent: topFormIncludeAnyRecent }),
-    [combinedLeftoverSourceMeals, householdSize, topFormIncludeAnyRecent]
-  );
-
   const visibleTemplateList = useMemo(() => {
     const source =
       templateFilter === "all"
@@ -578,12 +519,21 @@ export default function PlannerPage() {
   const applyTemplate = useCallback(
     async (template: WeekTemplate) => {
       const week = weekRange(anchorDate);
-      if (!confirm(`Apply template "${template.name}" to this week and overwrite existing meals?`)) return;
+      const choice = await requestChoice({
+        title: "Apply Template?",
+        message: `Apply template "${template.name}" to this week?`,
+        detail: "Existing meals in this week will be overwritten.",
+        choices: [
+          { label: "Apply & overwrite", value: "apply", tone: "primary" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "apply") return;
       await applyWeekTemplateToWeek(template, week.start, week.end);
       await refreshMeals();
       setShowTemplates(false);
     },
-    [anchorDate, refreshMeals]
+    [anchorDate, refreshMeals, requestChoice]
   );
 
   const clearSelectState = useCallback(() => {
@@ -612,10 +562,18 @@ export default function PlannerPage() {
     async (sourceDate: string, targetDate: string) => {
       const sourceMeals = meals.filter((meal) => meal.date === sourceDate);
       if (!sourceMeals.length) {
-        alert("No meals to copy from that day.");
+        notify("No meals to copy from that day.", "info");
         return;
       }
-      if (!confirm(`Copy ${sourceMeals.length} meals to ${formatDateLabel(targetDate)}?`)) return;
+      const choice = await requestChoice({
+        title: "Copy Meals?",
+        message: `Copy ${sourceMeals.length} meals to ${formatDateLabel(targetDate)}?`,
+        choices: [
+          { label: "Copy", value: "copy", tone: "primary" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "copy") return;
       const errors: string[] = [];
       let contextMeals = [...meals, ...recentPlanned];
       for (const meal of sourceMeals) {
@@ -640,9 +598,9 @@ export default function PlannerPage() {
       setCopySourceDay(null);
       await refreshMeals();
       await refreshRecentMeals();
-      if (errors.length) alert(errors.join("\n"));
+      if (errors.length) notify(errors.join(" "), "error");
     },
-    [applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals]
+    [applySourceUpdate, householdSize, meals, notify, recentPlanned, refreshMeals, refreshRecentMeals, requestChoice]
   );
 
   const toggleMealSelected = useCallback((mealId: string) => {
@@ -661,6 +619,71 @@ export default function PlannerPage() {
       });
     },
     [meals]
+  );
+
+  const openCookModal = useCallback(
+    async (meal: PlannedMeal) => {
+      if (meal.type !== "recipe" || !meal.recipeId) return;
+      const recipe = recipes.find((r) => r.id === meal.recipeId);
+      if (!recipe) {
+        notify("Recipe is missing — can't deduct ingredients.", "error");
+        return;
+      }
+      const [allIngredients, lots, pantryItems] = await Promise.all([
+        listAllIngredients(),
+        listActiveLots(),
+        listPantryItems()
+      ]);
+      const recipeIngredients = allIngredients.filter((ing) => ing.recipeId === recipe.id);
+      const servings = Math.max(meal.servingsPlanned ?? householdSize, 1);
+      const plan = buildCookPlan({
+        recipe,
+        ingredients: recipeIngredients,
+        lots,
+        pantryItems,
+        locations,
+        servings,
+        locationId: plannerLocationId || undefined
+      });
+      setCookRecipe(recipe);
+      setCookMeal(meal);
+      setCookServings(servings);
+      setCookPlan(plan);
+    },
+    [householdSize, locations, notify, plannerLocationId, recipes]
+  );
+
+  const handleCookConfirm = useCallback(
+    async (plan: CookPlan) => {
+      if (!cookMeal) return;
+      await commitCook({ meal: cookMeal, plan });
+      const cookedAt = new Date().toISOString();
+      setMeals((prev: PlannedMeal[]) =>
+        prev.map((row: PlannedMeal) => (row.id === cookMeal.id ? { ...row, cookedAt } : row))
+      );
+      setRecentPlanned((prev: PlannedMeal[]) =>
+        prev.map((row: PlannedMeal) => (row.id === cookMeal.id ? { ...row, cookedAt } : row))
+      );
+      setCookMeal(null);
+      setCookRecipe(null);
+      setCookPlan(null);
+      notify("Marked cooked, pantry updated.", "success");
+    },
+    [cookMeal, notify]
+  );
+
+  const handleUncook = useCallback(
+    async (meal: PlannedMeal) => {
+      await uncookMeal(meal);
+      setMeals((prev: PlannedMeal[]) =>
+        prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
+      );
+      setRecentPlanned((prev: PlannedMeal[]) =>
+        prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
+      );
+      notify("Marked not cooked (pantry was not restored).", "info");
+    },
+    [notify]
   );
 
   const deleteSelectedMeals = useCallback(async () => {
@@ -682,8 +705,8 @@ export default function PlannerPage() {
   const copySelectedMeals = useCallback(() => {
     if (!selectedMeals.length) return;
     setPendingPasteMeals(selectedMeals);
-    alert("Select a target day and slot to paste.");
-  }, [selectedMeals]);
+    notify("Select a target day and slot to paste.", "info");
+  }, [notify, selectedMeals]);
 
   const pasteSelectedMeals = useCallback(
     async (targetDate: string, targetSlotId: string) => {
@@ -712,9 +735,9 @@ export default function PlannerPage() {
       clearSelectState();
       await refreshMeals();
       await refreshRecentMeals();
-      if (errors.length) alert(errors.join("\n"));
+      if (errors.length) notify(errors.join(" "), "error");
     },
-    [applySourceUpdate, clearSelectState, householdSize, meals, pendingPasteMeals, recentPlanned, refreshMeals, refreshRecentMeals, selectMode]
+    [applySourceUpdate, clearSelectState, householdSize, meals, notify, pendingPasteMeals, recentPlanned, refreshMeals, refreshRecentMeals, selectMode]
   );
 
   const deleteDayMeals = useCallback(async () => {
@@ -743,10 +766,18 @@ export default function PlannerPage() {
       const sourceMeals = await listPlannedMeals(dateKey(sourceStart), dateKey(sourceEnd));
       const count = sourceMeals.length;
       if (!count) {
-        alert("No meals to copy in the source week.");
+        notify("No meals to copy in the source week.", "info");
         return;
       }
-      if (!confirm(`Copy ${count} meals?`)) return;
+      const choice = await requestChoice({
+        title: "Copy Week?",
+        message: `Copy ${count} meals?`,
+        choices: [
+          { label: "Copy", value: "copy", tone: "primary" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "copy") return;
       const errors: string[] = [];
       let contextMeals = [...meals, ...recentPlanned];
       for (const meal of sourceMeals) {
@@ -770,9 +801,9 @@ export default function PlannerPage() {
       }
       await refreshMeals();
       await refreshRecentMeals();
-      if (errors.length) alert(errors.join("\n"));
+      if (errors.length) notify(errors.join(" "), "error");
     },
-    [anchorDate, applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals]
+    [anchorDate, applySourceUpdate, householdSize, meals, notify, recentPlanned, refreshMeals, refreshRecentMeals, requestChoice]
   );
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
@@ -817,16 +848,6 @@ export default function PlannerPage() {
     meals.forEach((meal) => map.set(meal.id, meal));
     return map;
   }, [meals]);
-
-  const recipeTitle = useCallback(
-    (recipeId?: string) => recipes.find((recipe) => recipe.id === recipeId)?.title || "Recipe",
-    [recipes]
-  );
-
-  const slotLabel = useCallback(
-    (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot",
-    [slots]
-  );
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
@@ -878,7 +899,7 @@ export default function PlannerPage() {
         if (!source) return;
         const remaining = getEffectiveLeftoverRemaining(source, householdSize);
         if (remaining <= 0) {
-          alert("No leftovers remaining");
+          notify("No leftovers remaining", "info");
           return;
         }
         await createMealAndRefresh(
@@ -891,7 +912,7 @@ export default function PlannerPage() {
         );
       }
     },
-    [DEBUG_DND, createMealAndRefresh, householdSize, mealsById, selectMode]
+    [DEBUG_DND, createMealAndRefresh, householdSize, mealsById, notify, selectMode]
   );
 
   const inlineOverlay =
@@ -960,14 +981,6 @@ export default function PlannerPage() {
             Month
           </button>
           <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
-          <select value={plannerLocationId} onChange={(e) => setPlannerLocationId(e.target.value)}>
-            <option value="">No location</option>
-            {locations.map((loc) => (
-              <option key={loc.id} value={loc.id}>
-                {loc.name}
-              </option>
-            ))}
-          </select>
           <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
             Templates
           </button>
@@ -1094,6 +1107,8 @@ export default function PlannerPage() {
         )}
       </section>
 
+      <ExpiringSoon locationId={plannerLocationId || undefined} />
+
       <section className="panel planner-screen-view">
         <h2>{view === "week" ? "Week" : "Month"} view</h2>
         <div className="grid planner-week-shell">
@@ -1158,6 +1173,8 @@ export default function PlannerPage() {
                                 setServingsEditValue(meal.servingsPlanned ?? householdSize);
                               }}
                               onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
+                              onCook={openCookModal}
+                              onUncook={handleUncook}
                               editingMealId={leftoverEditMealId}
                               editValue={leftoverEditValue}
                               onEditValue={setLeftoverEditValue}
@@ -1185,7 +1202,7 @@ export default function PlannerPage() {
                                   householdSize
                                 });
                                 if (next.overflowServings > 0) {
-                                  alert(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers were clamped to 0.`);
+                                  notify(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers clamped to 0.`, "info");
                                 }
                                 await updatePlannedMeal(mealId, {
                                   servingsPlanned: next.servingsPlanned,
@@ -1284,6 +1301,8 @@ export default function PlannerPage() {
                             setServingsEditValue(meal.servingsPlanned ?? householdSize);
                           }}
                           onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
+                          onCook={openCookModal}
+                          onUncook={handleUncook}
                           editingMealId={leftoverEditMealId}
                           editValue={leftoverEditValue}
                           onEditValue={setLeftoverEditValue}
@@ -1311,7 +1330,7 @@ export default function PlannerPage() {
                               householdSize
                             });
                             if (next.overflowServings > 0) {
-                              alert(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers were clamped to 0.`);
+                              notify(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers clamped to 0.`, "info");
                             }
                             await updatePlannedMeal(mealId, {
                               servingsPlanned: next.servingsPlanned,
@@ -1438,100 +1457,6 @@ export default function PlannerPage() {
         </table>
       </section>
 
-      <section className="panel no-print">
-        <h3>Add planned meal</h3>
-        <form className="grid" onSubmit={addMeal}>
-          <div className="row">
-            <input type="date" value={topFormDate} onChange={(e) => setTopFormDate(e.target.value)} required />
-            <select value={topFormMealSlotId} onChange={(e) => setTopFormMealSlotId(e.target.value)} required>
-              <option value="" disabled>Select slot</option>
-              {slots.map((slot) => (
-                <option key={slot.id} value={slot.id}>{slot.name}</option>
-              ))}
-            </select>
-            <select value={topFormType} onChange={(e) => setTopFormType(e.target.value as PlannedMeal["type"])}>
-              <option value="recipe">Recipe</option>
-              <option value="leftover">Leftover</option>
-              <option value="freeform">Freeform</option>
-            </select>
-          </div>
-          {topFormType === "recipe" && (
-            <>
-              <div className="row">
-                <select
-                  value={topFormRecipeId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setTopFormRecipeId(nextId);
-                    const selectedRecipe = recipes.find((recipe) => recipe.id === nextId);
-                    setTopFormServings(String(defaultRecipeServings(selectedRecipe, householdSize)));
-                  }}
-                >
-                  <option value="">Select recipe</option>
-                  {recipes.map((recipe) => (
-                    <option key={recipe.id} value={recipe.id}>{recipe.title}</option>
-                  ))}
-                </select>
-                <label className="field-stack">
-                  <span>Servings planned</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={topFormServings}
-                    onChange={(e) => setTopFormServings(e.target.value)}
-                  />
-                </label>
-              </div>
-              <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
-            </>
-          )}
-          {topFormType === "leftover" && (
-            <>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={topFormIncludeAnyRecent}
-                  onChange={(e) => setTopFormIncludeAnyRecent(e.target.checked)}
-                />
-                Any recent meal
-              </label>
-              <div className="row">
-                <select value={topFormLeftoverSource} onChange={(e) => setTopFormLeftoverSource(e.target.value)}>
-                  <option value="">Select source</option>
-                  {topFormLeftoverMeals.map((meal) => (
-                    <option key={meal.id} value={`meal:${meal.id}`}>
-                      {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | remaining {getEffectiveLeftoverRemaining(meal, householdSize)}
-                    </option>
-                  ))}
-                  {recipes.map((recipe) => (
-                    <option key={recipe.id} value={`recipe:${recipe.id}`}>
-                      Recipe: {recipe.title}
-                    </option>
-                  ))}
-                </select>
-                <label className="field-stack">
-                  <span>Servings used</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={topFormLeftoverServingsUsed}
-                    onChange={(e) => setTopFormLeftoverServingsUsed(e.target.value)}
-                  />
-                </label>
-              </div>
-            </>
-          )}
-          {topFormType === "freeform" && (
-            <input
-              value={topFormFreeformTitle}
-              onChange={(e) => setTopFormFreeformTitle(e.target.value)}
-              placeholder="Freeform title"
-            />
-          )}
-          <textarea value={topFormNotes} onChange={(e) => setTopFormNotes(e.target.value)} placeholder="Notes" />
-          <button type="submit">Add</button>
-        </form>
-      </section>
       {inlineOverlay}
       {lastDragMove && (
         <div
@@ -1571,947 +1496,25 @@ export default function PlannerPage() {
           </button>
         </div>
       )}
+      {cookMeal && cookPlan && (
+        <CookMealModal
+          open
+          meal={cookMeal}
+          recipe={cookRecipe || undefined}
+          servings={cookServings}
+          initialPlan={cookPlan}
+          onCancel={() => {
+            setCookMeal(null);
+            setCookRecipe(null);
+            setCookPlan(null);
+          }}
+          onConfirm={handleCookConfirm}
+        />
+      )}
       {modal}
+      {toast}
     </div>
   );
 }
 
-function InlineAddPanel({
-  recipes,
-  slots,
-  recentPlanned,
-  currentMeals,
-  inlineType,
-  setInlineType,
-  inlineRecipeId,
-  setInlineRecipeId,
-  inlineServings,
-  setInlineServings,
-  householdSize,
-  inlineLeftoverSource,
-  setInlineLeftoverSource,
-  inlineLeftoverServingsUsed,
-  setInlineLeftoverServingsUsed,
-  includeAnyRecent,
-  setIncludeAnyRecent,
-  inlineFreeformTitle,
-  setInlineFreeformTitle,
-  inlineNotes,
-  setInlineNotes,
-  recipeSearch,
-  setRecipeSearch,
-  panelRef,
-  panelStyle,
-  onSave,
-  onCancel
-}: {
-  recipes: Recipe[];
-  slots: MealSlot[];
-  recentPlanned: PlannedMeal[];
-  currentMeals: PlannedMeal[];
-  inlineType: PlannedMeal["type"];
-  setInlineType: (value: PlannedMeal["type"]) => void;
-  inlineRecipeId: string;
-  setInlineRecipeId: (value: string) => void;
-  inlineServings: string;
-  setInlineServings: (value: string) => void;
-  householdSize: number;
-  inlineLeftoverSource: string;
-  setInlineLeftoverSource: (value: string) => void;
-  inlineLeftoverServingsUsed: string;
-  setInlineLeftoverServingsUsed: (value: string) => void;
-  includeAnyRecent: boolean;
-  setIncludeAnyRecent: (value: boolean) => void;
-  inlineFreeformTitle: string;
-  setInlineFreeformTitle: (value: string) => void;
-  inlineNotes: string;
-  setInlineNotes: (value: string) => void;
-  recipeSearch: string;
-  setRecipeSearch: (value: string) => void;
-  panelRef: RefObject<HTMLDivElement>;
-  panelStyle?: CSSProperties | null;
-  onSave: () => void;
-  onCancel: () => void;
-}) {
-  const filteredRecipes = recipes.filter((recipe) =>
-    recipe.title.toLowerCase().includes(recipeSearch.trim().toLowerCase())
-  );
-  const mergedMeals = useMemo(() => {
-    const map = new Map<string, PlannedMeal>();
-    currentMeals.forEach((meal) => map.set(meal.id, meal));
-    recentPlanned.forEach((meal) => {
-      if (!map.has(meal.id)) map.set(meal.id, meal);
-    });
-    return Array.from(map.values());
-  }, [currentMeals, recentPlanned]);
-  const recentMealOptions = listAvailableLeftoverMeals(mergedMeals, householdSize, {
-    includeAnyRecent
-  });
-  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
-  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
-  const typeLabel = (type: PlannedMeal["type"]) =>
-    type === "recipe" ? "Recipe" : type === "leftover" ? "Leftover" : "Freeform";
-  const firstRecipeSearchRef = useRef<HTMLInputElement | null>(null);
-  const firstFreeformRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    if (inlineType === "recipe" && firstRecipeSearchRef.current) {
-      firstRecipeSearchRef.current.focus();
-    }
-    if (inlineType === "freeform" && firstFreeformRef.current) {
-      firstFreeformRef.current.focus();
-    }
-  }, [inlineType]);
-
-  return (
-    <div
-      className="panel planner-inline-panel"
-      ref={panelRef}
-      style={panelStyle ?? undefined}
-      data-planner-inline-panel="true"
-      onMouseDown={(e) => e.stopPropagation()}
-      onTouchStart={(e) => e.stopPropagation()}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-      }}
-    >
-      <div className="row">
-        <select value={inlineType} onChange={(e) => setInlineType(e.target.value as PlannedMeal["type"])}>
-          <option value="recipe">Recipe</option>
-          <option value="leftover">Leftover</option>
-          <option value="freeform">Freeform</option>
-        </select>
-        <button className="secondary" onClick={onCancel}>Cancel</button>
-      </div>
-
-      {inlineType === "recipe" && (
-        <>
-          {recipes.length === 0 ? (
-            <p>
-              No recipes yet. <Link className="tag" to="/recipes">Go to Recipes</Link>
-            </p>
-          ) : (
-            <>
-              <input
-                ref={firstRecipeSearchRef}
-                placeholder="Search recipes"
-                value={recipeSearch}
-                onChange={(e) => setRecipeSearch(e.target.value)}
-              />
-              <select
-                value={inlineRecipeId}
-                onChange={(e) => {
-                  const nextId = e.target.value;
-                  setInlineRecipeId(nextId);
-                  if (!nextId) {
-                    setInlineServings("");
-                    return;
-                  }
-                  const selectedRecipe = recipes.find((recipe) => recipe.id === nextId);
-                  setInlineServings(String(defaultRecipeServings(selectedRecipe, householdSize)));
-                }}
-              >
-                <option value="">Select recipe</option>
-                {filteredRecipes.map((recipe) => (
-                  <option key={recipe.id} value={recipe.id}>
-                    {recipe.title}
-                  </option>
-                ))}
-              </select>
-              <label className="field-stack">
-                <span>Servings planned</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={inlineServings}
-                  onChange={(e) => setInlineServings(e.target.value)}
-                />
-              </label>
-              <p className="muted field-note">Ingredients scale by servingsPlanned / baseServings.</p>
-            </>
-          )}
-        </>
-      )}
-
-      {inlineType === "leftover" && (
-        <>
-          {recentMealOptions.length === 0 && recipes.length === 0 ? (
-            <p>
-              No recent meals or recipes yet. <Link className="tag" to="/recipes">Go to Recipes</Link>
-            </p>
-          ) : (
-            <>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={includeAnyRecent}
-                  onChange={(e) => setIncludeAnyRecent(e.target.checked)}
-                />
-                Any recent meal
-              </label>
-              <select value={inlineLeftoverSource} onChange={(e) => setInlineLeftoverSource(e.target.value)}>
-                <option value="">Select source</option>
-                {recentMealOptions.map((meal) => (
-                  <option key={meal.id} value={`meal:${meal.id}`}>
-                    {recipeTitle(meal.recipeId)} | {meal.date} | {slotLabel(meal.mealSlotId)} | {typeLabel(meal.type)} | remaining {getEffectiveLeftoverRemaining(meal, householdSize)}
-                  </option>
-                ))}
-                {recipes.map((recipe) => (
-                  <option key={recipe.id} value={`recipe:${recipe.id}`}>
-                    Recipe: {recipe.title}
-                  </option>
-                ))}
-              </select>
-              <label className="field-stack">
-                <span>Servings used</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={inlineLeftoverServingsUsed}
-                  onChange={(e) => setInlineLeftoverServingsUsed(e.target.value)}
-                />
-              </label>
-            </>
-          )}
-        </>
-      )}
-
-      {inlineType === "freeform" && (
-        <>
-          <input
-            ref={firstFreeformRef}
-            placeholder="Title"
-            value={inlineFreeformTitle}
-            onChange={(e) => setInlineFreeformTitle(e.target.value)}
-          />
-        </>
-      )}
-
-      <textarea placeholder="Notes" value={inlineNotes} onChange={(e) => setInlineNotes(e.target.value)} />
-      <div className="row">
-        <button onClick={onSave}>Save</button>
-      </div>
-    </div>
-  );
-}
-
-function MealLabel({
-  meal,
-  recipes,
-  householdSize = 1,
-  showRemaining = true
-}: {
-  meal: PlannedMeal;
-  recipes: Recipe[];
-  householdSize?: number;
-  showRemaining?: boolean;
-}) {
-  if (meal.type === "recipe") {
-    const recipe = recipes.find((r) => r.id === meal.recipeId);
-    const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
-    return (
-      <span>
-        {recipe?.title || "Recipe"}
-        {showRemaining && typeof remaining === "number" && remaining > 0 ? ` (${remaining})` : ""}
-      </span>
-    );
-  }
-  if (meal.type === "leftover") {
-    return <span>{meal.freeformTitle ? `Leftover: ${meal.freeformTitle}` : "Leftover"}</span>;
-  }
-  return <span>{meal.freeformTitle || "Freeform"}</span>;
-}
-
-function WeekCell({
-  day,
-  slotId,
-  meals,
-  recipes,
-  allMealsMap,
-  slots,
-  householdSize,
-  onRemove,
-  onSetLeftovers,
-  onSetServings,
-  onAdd,
-  editingMealId,
-  editValue,
-  onEditValue,
-  onSaveEdit,
-  onCancelEdit,
-  servingsEditingMealId,
-  servingsEditValue,
-  onServingsEditValue,
-  onSaveServingsEdit,
-  onCancelServingsEdit,
-  inlinePanel,
-  onActivateMeal,
-  activeMealId,
-  onClearActions,
-  selectMode,
-  selectedMealIds,
-  onToggleSelected,
-  onCellClick
-}: {
-  day: string;
-  slotId: string;
-  meals: PlannedMeal[];
-  recipes: Recipe[];
-  allMealsMap: Map<string, PlannedMeal>;
-  slots: MealSlot[];
-  householdSize: number;
-  onRemove: (id: string) => void | Promise<void>;
-  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
-  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
-  onAdd: (anchorEl: HTMLElement) => void | Promise<void>;
-  editingMealId: string | null;
-  editValue: number;
-  onEditValue: (value: number) => void;
-  onSaveEdit: (mealId: string) => void | Promise<void>;
-  onCancelEdit: () => void;
-  servingsEditingMealId: string | null;
-  servingsEditValue: number;
-  onServingsEditValue: (value: number) => void;
-  onSaveServingsEdit: (mealId: string) => void | Promise<void>;
-  onCancelServingsEdit: () => void;
-  inlinePanel: ReactNode;
-  onActivateMeal: (mealId: string) => void;
-  activeMealId: string | null;
-  onClearActions: () => void;
-  selectMode: boolean;
-  selectedMealIds: string[];
-  onToggleSelected: (mealId: string) => void;
-  onCellClick: (day: string, slotId: string) => void | Promise<void>;
-}) {
-  const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
-  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
-  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
-
-  const colorForMeal = (meal: PlannedMeal) => {
-    let colorKey = meal.recipeId || meal.id;
-    if (meal.type === "leftover") {
-      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-      const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-      colorKey = source?.recipeId || colorKey;
-    }
-    return colorFromId(colorKey);
-  };
-
-  const sourceInfo = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return "";
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (!source) return "From: Unknown";
-    return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
-  };
-
-  const leftoverChipLabel = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return undefined;
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (source?.recipeId) return `Leftover: ${recipeTitle(source.recipeId)}`;
-    if (source?.freeformTitle) return `Leftover: ${source.freeformTitle}`;
-    if (meal.freeformTitle) return `Leftover: ${meal.freeformTitle}`;
-    return "Leftover";
-  };
-
-  return (
-    <td
-      ref={setNodeRef}
-      style={{
-        background: isOver ? "#dbeafe" : undefined,
-        boxShadow: isOver ? "inset 0 0 0 2px #2563eb" : undefined,
-        minHeight: 88,
-        verticalAlign: "top"
-      }}
-      onClick={() => {
-        onClearActions();
-        void onCellClick(day, slotId);
-      }}
-    >
-      {meals.map((meal) => (
-        <DraggableMeal
-          key={meal.id}
-          meal={meal}
-          recipes={recipes}
-          householdSize={householdSize}
-          color={colorForMeal(meal)}
-          sourceInfo={sourceInfo(meal)}
-          leftoverChipLabel={leftoverChipLabel(meal)}
-          onRemove={onRemove}
-          onSetLeftovers={onSetLeftovers}
-          onSetServings={onSetServings}
-          isEditing={editingMealId === meal.id}
-          editValue={editValue}
-          onEditValue={onEditValue}
-          onSaveEdit={() => onSaveEdit(meal.id)}
-          onCancelEdit={onCancelEdit}
-          isServingsEditing={servingsEditingMealId === meal.id}
-          servingsEditValue={servingsEditValue}
-          onServingsEditValue={onServingsEditValue}
-          onSaveServingsEdit={() => onSaveServingsEdit(meal.id)}
-          onCancelServingsEdit={onCancelServingsEdit}
-          onActivate={() => onActivateMeal(meal.id)}
-          isActionsOpen={activeMealId === meal.id}
-          selectMode={selectMode}
-          selected={selectedMealIds.includes(meal.id)}
-          onToggleSelected={() => onToggleSelected(meal.id)}
-          dragDisabled={selectMode}
-        />
-      ))}
-      {meals.length === 0 && (
-        <button
-          className="ghost"
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            void onAdd(e.currentTarget);
-          }}
-        >
-          Add
-        </button>
-      )}
-      {inlinePanel}
-    </td>
-  );
-}
-
-function WeekSlotCard({
-  day,
-  slotId,
-  slotName,
-  meals,
-  recipes,
-  allMealsMap,
-  slots,
-  householdSize,
-  onRemove,
-  onSetLeftovers,
-  onSetServings,
-  onAdd,
-  editingMealId,
-  editValue,
-  onEditValue,
-  onSaveEdit,
-  onCancelEdit,
-  servingsEditingMealId,
-  servingsEditValue,
-  onServingsEditValue,
-  onSaveServingsEdit,
-  onCancelServingsEdit,
-  inlinePanel,
-  onActivateMeal,
-  activeMealId,
-  onClearActions,
-  selectMode,
-  selectedMealIds,
-  onToggleSelected,
-  onCellClick
-}: {
-  day: string;
-  slotId: string;
-  slotName: string;
-  meals: PlannedMeal[];
-  recipes: Recipe[];
-  allMealsMap: Map<string, PlannedMeal>;
-  slots: MealSlot[];
-  householdSize: number;
-  onRemove: (id: string) => void | Promise<void>;
-  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
-  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
-  onAdd: (anchorEl: HTMLElement) => void | Promise<void>;
-  editingMealId: string | null;
-  editValue: number;
-  onEditValue: (value: number) => void;
-  onSaveEdit: (mealId: string) => void | Promise<void>;
-  onCancelEdit: () => void;
-  servingsEditingMealId: string | null;
-  servingsEditValue: number;
-  onServingsEditValue: (value: number) => void;
-  onSaveServingsEdit: (mealId: string) => void | Promise<void>;
-  onCancelServingsEdit: () => void;
-  inlinePanel: ReactNode;
-  onActivateMeal: (mealId: string) => void;
-  activeMealId: string | null;
-  onClearActions: () => void;
-  selectMode: boolean;
-  selectedMealIds: string[];
-  onToggleSelected: (mealId: string) => void;
-  onCellClick: (day: string, slotId: string) => void | Promise<void>;
-}) {
-  const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
-  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
-  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
-
-  const colorForMeal = (meal: PlannedMeal) => {
-    let colorKey = meal.recipeId || meal.id;
-    if (meal.type === "leftover") {
-      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-      const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-      colorKey = source?.recipeId || colorKey;
-    }
-    return colorFromId(colorKey);
-  };
-
-  const sourceInfo = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return "";
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (!source) return "From: Unknown";
-    return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
-  };
-
-  const leftoverChipLabel = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return undefined;
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (source?.recipeId) return `Leftover: ${recipeTitle(source.recipeId)}`;
-    if (source?.freeformTitle) return `Leftover: ${source.freeformTitle}`;
-    if (meal.freeformTitle) return `Leftover: ${meal.freeformTitle}`;
-    return "Leftover";
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      className="card"
-      style={{
-        marginTop: 10,
-        background: isOver ? "#dbeafe" : undefined,
-        boxShadow: isOver ? "inset 0 0 0 2px #2563eb" : undefined,
-        minHeight: 88
-      }}
-      onClick={() => {
-        onClearActions();
-        void onCellClick(day, slotId);
-      }}
-    >
-      <strong>{slotName}</strong>
-      {meals.map((meal) => (
-        <DraggableMeal
-          key={meal.id}
-          meal={meal}
-          recipes={recipes}
-          householdSize={householdSize}
-          color={colorForMeal(meal)}
-          sourceInfo={sourceInfo(meal)}
-          leftoverChipLabel={leftoverChipLabel(meal)}
-          onRemove={onRemove}
-          onSetLeftovers={onSetLeftovers}
-          onSetServings={onSetServings}
-          isEditing={editingMealId === meal.id}
-          editValue={editValue}
-          onEditValue={onEditValue}
-          onSaveEdit={() => onSaveEdit(meal.id)}
-          onCancelEdit={onCancelEdit}
-          isServingsEditing={servingsEditingMealId === meal.id}
-          servingsEditValue={servingsEditValue}
-          onServingsEditValue={onServingsEditValue}
-          onSaveServingsEdit={() => onSaveServingsEdit(meal.id)}
-          onCancelServingsEdit={onCancelServingsEdit}
-          onActivate={() => onActivateMeal(meal.id)}
-          isActionsOpen={activeMealId === meal.id}
-          selectMode={selectMode}
-          selected={selectedMealIds.includes(meal.id)}
-          onToggleSelected={() => onToggleSelected(meal.id)}
-          dragDisabled={selectMode}
-        />
-      ))}
-      {meals.length === 0 && (
-        <button
-          className="ghost"
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            void onAdd(e.currentTarget);
-          }}
-        >
-          Add
-        </button>
-      )}
-      {inlinePanel}
-    </div>
-  );
-}
-
-function DraggableMeal({
-  meal,
-  recipes,
-  householdSize,
-  color,
-  sourceInfo,
-  leftoverChipLabel,
-  onRemove,
-  onSetLeftovers,
-  onSetServings,
-  isEditing,
-  editValue,
-  onEditValue,
-  onSaveEdit,
-  onCancelEdit,
-  isServingsEditing,
-  servingsEditValue,
-  onServingsEditValue,
-  onSaveServingsEdit,
-  onCancelServingsEdit,
-  onActivate,
-  isActionsOpen,
-  selectMode,
-  selected,
-  onToggleSelected,
-  dragDisabled
-}: {
-  meal: PlannedMeal;
-  recipes: Recipe[];
-  householdSize: number;
-  color: string;
-  sourceInfo: string;
-  leftoverChipLabel?: string;
-  onRemove: (id: string) => void | Promise<void>;
-  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
-  onSetServings: (meal: PlannedMeal) => void | Promise<void>;
-  isEditing: boolean;
-  editValue: number;
-  onEditValue: (value: number) => void;
-  onSaveEdit: () => void | Promise<void>;
-  onCancelEdit: () => void;
-  isServingsEditing: boolean;
-  servingsEditValue: number;
-  onServingsEditValue: (value: number) => void;
-  onSaveServingsEdit: () => void | Promise<void>;
-  onCancelServingsEdit: () => void;
-  onActivate: () => void;
-  isActionsOpen: boolean;
-  selectMode: boolean;
-  selected: boolean;
-  onToggleSelected: () => void;
-  dragDisabled: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `meal:${meal.id}`,
-    disabled: dragDisabled
-  });
-  const style = {
-    opacity: isDragging ? 0.6 : 1,
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
-  };
-  const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
-
-  return (
-    <div
-      ref={setNodeRef}
-      className="meal-chip"
-      style={{
-        ...style,
-        borderLeft: `4px solid ${color}`,
-        paddingLeft: 6,
-        background: tintFromAccent(color),
-        color: "#0f172a"
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (selectMode) return;
-        onActivate();
-      }}
-    >
-      {selectMode ? (
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelected()}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Select meal"
-        />
-      ) : (
-        <button
-          className="drag-handle"
-          type="button"
-          {...attributes}
-          {...listeners}
-          aria-label="Drag meal"
-          onClick={(e) => e.stopPropagation()}
-        >
-          ::
-        </button>
-      )}
-      <span
-        className="meal-primary-label"
-        title={meal.type === "leftover" ? sourceInfo : undefined}
-        tabIndex={meal.type === "leftover" ? 0 : -1}
-        aria-label={meal.type === "leftover" ? sourceInfo : undefined}
-      >
-        {meal.type === "leftover" && leftoverChipLabel ? (
-          leftoverChipLabel
-        ) : (
-          <MealLabel meal={meal} recipes={recipes} householdSize={householdSize} showRemaining={false} />
-        )}
-      </span>
-      {meal.type === "recipe" && (
-        <>
-          <LeftoverBadge
-            mealId={meal.id}
-            remaining={remaining}
-            onClick={() => onSetLeftovers(meal)}
-            disabled={selectMode}
-          />
-          <button
-            className="secondary"
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void onSetServings(meal);
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            Servings
-          </button>
-        </>
-      )}
-      <button
-        className="danger"
-        onClick={(e) => {
-          e.stopPropagation();
-          void onRemove(meal.id);
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        x
-      </button>
-      {isActionsOpen && (
-        <div
-          className="action-sheet mobile-only"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {meal.type === "recipe" && meal.recipeId && (
-            <button
-              className="secondary"
-              type="button"
-              onClick={() => {
-                const baseUrl = window.location.href.split("#")[0];
-                const servings = Math.max(meal.servingsPlanned ?? 1, 1);
-                window.open(`${baseUrl}#/cook/${meal.recipeId}?servings=${servings}`, "_blank");
-              }}
-            >
-              Cook
-            </button>
-          )}
-          <button className="danger" onClick={() => void onRemove(meal.id)}>
-            Delete
-          </button>
-          {meal.type === "recipe" && (
-            <button className="secondary" onClick={() => void onSetServings(meal)}>
-              Servings
-            </button>
-          )}
-        </div>
-      )}
-      {meal.type === "recipe" && isEditing && (
-        <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-          <label className="field-stack compact-field">
-            <span>Leftovers remaining</span>
-            <input
-              type="number"
-              min="0"
-              value={editValue}
-              onChange={(e) => onEditValue(Number(e.target.value))}
-              style={{ width: 96 }}
-            />
-          </label>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveEdit(); }}>
-            Save
-          </button>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }}>
-            Cancel
-          </button>
-        </div>
-      )}
-      {meal.type === "recipe" && isServingsEditing && (
-        <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-          <label className="field-stack compact-field">
-            <span>Servings planned</span>
-            <input
-              type="number"
-              min="1"
-              value={servingsEditValue}
-              onChange={(e) => onServingsEditValue(Number(e.target.value))}
-              style={{ width: 96 }}
-            />
-          </label>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveServingsEdit(); }}>
-            Save
-          </button>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelServingsEdit(); }}>
-            Cancel
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LeftoverBadge({
-  mealId,
-  remaining,
-  onClick,
-  disabled = false
-}: {
-  mealId: string;
-  remaining?: number;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  const canDrag = !disabled && typeof remaining === "number" && remaining > 0;
-  const { attributes, listeners, setNodeRef } = useDraggable({
-    id: `leftover:${mealId}`,
-    disabled: !canDrag
-  });
-  if (!canDrag) {
-    return (
-      <button
-        className="leftover-badge"
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClick();
-        }}
-        style={{ opacity: 0.9 }}
-        title="Set leftovers"
-      >
-        {typeof remaining === "number" ? `${remaining} left` : "Leftovers"}
-      </button>
-    );
-  }
-  const label = `${remaining} left`;
-  return (
-    <button
-      ref={setNodeRef}
-      className="leftover-badge"
-      type="button"
-      {...attributes}
-      {...listeners}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      style={{ opacity: canDrag ? 1 : 0.9 }}
-      title={canDrag ? "Drag to create leftover" : "Set leftovers"}
-    >
-      {label}
-    </button>
-  );
-}
-
-// Leftover badge serves as the drag handle; no separate token needed.
-
-function useMediaQuery(query: string) {
-  const getMatches = useCallback(
-    () => (typeof window !== "undefined" ? window.matchMedia(query).matches : false),
-    [query]
-  );
-  const [matches, setMatches] = useState<boolean>(getMatches);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia(query);
-    const onChange = (event: MediaQueryListEvent) => setMatches(event.matches);
-    setMatches(mediaQuery.matches);
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", onChange);
-      return () => mediaQuery.removeEventListener("change", onChange);
-    }
-    const legacy = mediaQuery as MediaQueryList & {
-      addListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-      removeListener?: (listener: (event: MediaQueryListEvent) => void) => void;
-    };
-    legacy.addListener?.(onChange);
-    return () => legacy.removeListener?.(onChange);
-  }, [query]);
-
-  return matches;
-}
-
-function formatWeekdayLabel(value: string) {
-  const d = parseISODate(value);
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function buildInlinePanelStyle(anchorEl: HTMLElement | null, panelEl?: HTMLDivElement | null): CSSProperties {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const margin = 12;
-  const gap = 8;
-  const panelWidth = panelEl?.offsetWidth || 360;
-  const panelHeight = panelEl?.offsetHeight || 320;
-  const width = Math.min(380, viewportWidth - margin * 2);
-
-  if (!anchorEl) {
-    return {
-      position: "fixed",
-      top: margin,
-      left: Math.max(margin, (viewportWidth - width) / 2),
-      width,
-      maxHeight: viewportHeight - margin * 2,
-      overflowY: "auto"
-    };
-  }
-
-  const anchorRect = anchorEl.getBoundingClientRect();
-  let left = anchorRect.left;
-  if (left + panelWidth > viewportWidth - margin) {
-    left = Math.max(margin, anchorRect.right - panelWidth);
-  }
-  left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - panelWidth - margin));
-
-  let top = anchorRect.bottom + gap;
-  if (top + panelHeight > viewportHeight - margin) {
-    top = Math.max(margin, anchorRect.top - panelHeight - gap);
-  }
-  top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - panelHeight - margin));
-
-  return {
-    position: "fixed",
-    top,
-    left,
-    width,
-    maxHeight: viewportHeight - margin * 2,
-    overflowY: "auto"
-  };
-}
-
-function colorFromId(value: string) {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) % 360;
-  }
-  return `hsl(${hash}, 48%, 38%)`;
-}
-
-function effectiveBaseServings(recipe?: Recipe | null) {
-  return Math.max(recipe?.baseServings ?? recipe?.defaultServings ?? 1, 1);
-}
-
-function tintFromAccent(accent: string) {
-  const match = /hsl\((\d+),\s*(\d+)%?,\s*(\d+)%\)/.exec(accent);
-  if (!match) return "#f1f5f9";
-  const hue = Number(match[1]);
-  return `hsl(${hue}, 28%, 92%)`;
-}
-
-function weekRange(anchorDate: string) {
-  const start = parseISODate(anchorDate);
-  const end = addDays(start, 6);
-  return { start: dateKey(start), end: dateKey(end) };
-}
-
-function monthRange(anchorDate: string) {
-  const d = parseISODate(anchorDate);
-  const start = new Date(d.getFullYear(), d.getMonth(), 1);
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  return { start: dateKey(start), end: dateKey(end) };
-}

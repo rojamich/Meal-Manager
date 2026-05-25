@@ -78,6 +78,7 @@ export interface PlannedMeal {
   freeformTitle?: string;
   notes?: string;
   servingsPlanned?: number;
+  cookedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

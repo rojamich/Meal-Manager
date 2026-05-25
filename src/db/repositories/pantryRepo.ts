@@ -32,6 +32,16 @@ export async function updatePantryItem(id: string, changes: Partial<PantryItem>)
   await db.pantryItems.update(id, { ...changes, updatedAt: now });
 }
 
+export async function countPantryItemReferences(id: string) {
+  const [ingredientCount, lotCount, essentialCount, purchaseCount] = await Promise.all([
+    db.recipeIngredients.where("pantryItemId").equals(id).count(),
+    db.inventoryLots.where("pantryItemId").equals(id).count(),
+    db.essentialItems.where("pantryItemId").equals(id).count(),
+    db.purchaseEntries.where("pantryItemId").equals(id).count()
+  ]);
+  return { ingredientCount, lotCount, essentialCount, purchaseCount };
+}
+
 export async function deletePantryItem(id: string) {
   await db.pantryItems.delete(id);
 }

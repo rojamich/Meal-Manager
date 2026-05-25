@@ -66,6 +66,16 @@ a {
   background: #e0f2fe;
 }
 
+.active-location-picker {
+  margin-left: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 13px;
+  max-width: 180px;
+}
+
 .container {
   max-width: 1200px;
   width: 100%;
@@ -413,6 +423,149 @@ button.danger:focus {
   flex-wrap: wrap;
   justify-content: flex-end;
   margin-top: 18px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 100;
+  max-width: 90vw;
+  padding: 10px 16px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  animation: toast-in 160ms ease-out;
+}
+
+.toast-info {
+  background: #1f2937;
+}
+
+.toast-success {
+  background: #166534;
+}
+
+.toast-error {
+  background: #b91c1c;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.cook-modal {
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.cook-modal-sub {
+  margin: 0 0 12px;
+}
+
+.cook-modal-body {
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cook-ingredient {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.cook-ingredient.muted {
+  opacity: 0.55;
+}
+
+.cook-ingredient-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cook-shortfall {
+  color: #b45309;
+  font-size: 12px;
+}
+
+.cook-allocations {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cook-allocation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.cook-allocation-row input[type="number"] {
+  width: 90px;
+}
+
+.cook-shortfall-summary {
+  color: #b45309;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.cooked-badge {
+  font-size: 11px;
+  color: #166534;
+  background: #dcfce7;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.expiring-soon {
+  border-left: 4px solid #f59e0b;
+}
+
+.expiring-soon-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.expiring-soon-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.expiring-soon-row.expired .expiring-soon-name {
+  color: #b91c1c;
+}
+
+.expiring-soon-when {
+  color: #b45309;
+  font-weight: 500;
+}
+
+.expiring-soon-when.expired {
+  color: #b91c1c;
 }
 
 .ingredient-select {

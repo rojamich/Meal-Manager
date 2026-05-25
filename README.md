@@ -1,6 +1,6 @@
 # Meal Manager (Offline PWA)
 
-Local-first meal planner and grocery list generator that works fully offline using IndexedDB. Optional Firebase sync scaffolding is included but disabled by default.
+Local-first meal planner and grocery list generator that works fully offline using IndexedDB.
 
 ## Local development
 
@@ -34,7 +34,3 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - Go to Settings -> Backup.
 - Click Export JSON to download a full backup of all local data.
 - Use Import JSON to restore on another device. Import replaces existing data.
-
-## Firebase sync (disabled)
-
-Set `VITE_ENABLE_FIREBASE_SYNC=true` in `.env.local` to enable the stub. You must wire up Firebase SDK and auth if you want real sync.

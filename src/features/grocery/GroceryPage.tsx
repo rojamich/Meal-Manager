@@ -12,10 +12,12 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
-import { addDays, toISODate } from "../../utils/date";
+import { addDays, dateKey } from "../../utils/date";
 import { average, unitPrice } from "../../utils/price";
 import { pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
+import { useToast } from "../../components/useToast";
+import { getActiveLocationId } from "../locations/activeLocation";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -33,16 +35,17 @@ export default function GroceryPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
   const { requestChoice, modal } = useConfirmChoiceModal();
+  const { notify, toast } = useToast();
 
-  const [settings, setSettings] = useState<GrocerySettings>({
-    startDate: toISODate(new Date()),
-    endDate: toISODate(addDays(new Date(), 7)),
+  const [settings, setSettings] = useState<GrocerySettings>(() => ({
+    startDate: dateKey(new Date()),
+    endDate: dateKey(addDays(new Date(), 7)),
     expiryBufferDays: 2,
     includeEssentials: true,
     treatPantryAsEmpty: false,
-    locationId: "",
+    locationId: getActiveLocationId(),
     stayDays: 0
-  });
+  }));
 
   const refresh = useCallback(async (preferredListId?: string) => {
     const listsData = await listGroceryLists();
@@ -210,7 +213,7 @@ export default function GroceryPage() {
       })
       .join("\n");
     await copyText(text);
-    alert("Copied to clipboard");
+    notify("Copied to clipboard", "success");
   }
 
   function parseAltOptions(line: GroceryLine) {
@@ -225,7 +228,7 @@ export default function GroceryPage() {
   async function performAddChecked(selectionMap: Record<string, string>) {
     if (!selectedListId) return;
     const today = new Date();
-    const purchasedAt = toISODate(today);
+    const purchasedAt = dateKey(today);
     const selectedList = lists.find((list) => list.id === selectedListId);
     const note = selectedList ? `From grocery list ${selectedList.startDate}-${selectedList.endDate}` : "From grocery list";
     const locationId = settings.locationId || undefined;
@@ -249,7 +252,7 @@ export default function GroceryPage() {
         if (isCountUnit(item.baseUnit)) quantity = Math.round(quantity);
         if (!quantity || quantity <= 0) return;
         const expiresAt = item.defaultShelfLifeDays
-          ? toISODate(addDays(today, item.defaultShelfLifeDays))
+          ? dateKey(addDays(today, item.defaultShelfLifeDays))
           : undefined;
         await createInventoryLot({
           pantryItemId: chosenId,
@@ -514,6 +517,7 @@ export default function GroceryPage() {
         ))}
       </section>
       {modal}
+      {toast}
     </div>
   );
 }

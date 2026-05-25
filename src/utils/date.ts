@@ -1,7 +1,3 @@
-export function toISODate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
 export function dateKey(input: Date | string) {
   if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
   const date = typeof input === "string" ? new Date(input) : input;

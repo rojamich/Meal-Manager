@@ -200,7 +200,41 @@ export async function exportAll(): Promise<ExportBundle> {
   return bundle;
 }
 
-export async function importAll(bundle: ExportBundle, replaceAll = true) {
+function validateBundle(bundle: unknown): ExportBundle {
+  if (!bundle || typeof bundle !== "object") {
+    throw new Error("Backup file is not a valid JSON object.");
+  }
+  const b = bundle as Partial<ExportBundle> & { data?: any };
+  if (!b.data || typeof b.data !== "object") {
+    throw new Error("Backup file is missing the 'data' section.");
+  }
+  const arr = (value: unknown) => (Array.isArray(value) ? value : []);
+  const data = {
+    pantryItems: arr(b.data.pantryItems),
+    inventoryLots: arr(b.data.inventoryLots),
+    recipes: arr(b.data.recipes),
+    recipeIngredients: arr(b.data.recipeIngredients),
+    mealSlots: arr(b.data.mealSlots),
+    plannedMeals: arr(b.data.plannedMeals),
+    essentialItems: arr(b.data.essentialItems),
+    locationProfiles: arr(b.data.locationProfiles),
+    purchaseEntries: arr(b.data.purchaseEntries),
+    groceryLists: arr(b.data.groceryLists),
+    groceryLines: arr(b.data.groceryLines),
+    weekTemplates: arr(b.data.weekTemplates)
+  };
+  if (!data.pantryItems.length && !data.recipes.length && !data.plannedMeals.length) {
+    throw new Error("Backup file looks empty — no pantry items, recipes, or planned meals found.");
+  }
+  return {
+    version: typeof b.version === "number" ? b.version : 1,
+    exportedAt: typeof b.exportedAt === "string" ? b.exportedAt : new Date().toISOString(),
+    data
+  };
+}
+
+export async function importAll(rawBundle: unknown, replaceAll = true) {
+  const bundle = validateBundle(rawBundle);
   await db.transaction(
     "rw",
     [
@@ -219,31 +253,33 @@ export async function importAll(bundle: ExportBundle, replaceAll = true) {
     ],
     async () => {
       if (replaceAll) {
-        await db.pantryItems.clear();
-        await db.inventoryLots.clear();
-        await db.recipes.clear();
-        await db.recipeIngredients.clear();
-        await db.mealSlots.clear();
-        await db.plannedMeals.clear();
-        await db.essentialItems.clear();
-        await db.locationProfiles.clear();
-        await db.purchaseEntries.clear();
-        await db.groceryLists.clear();
-        await db.groceryLines.clear();
-        await db.weekTemplates.clear();
+        await Promise.all([
+          db.pantryItems.clear(),
+          db.inventoryLots.clear(),
+          db.recipes.clear(),
+          db.recipeIngredients.clear(),
+          db.mealSlots.clear(),
+          db.plannedMeals.clear(),
+          db.essentialItems.clear(),
+          db.locationProfiles.clear(),
+          db.purchaseEntries.clear(),
+          db.groceryLists.clear(),
+          db.groceryLines.clear(),
+          db.weekTemplates.clear()
+        ]);
       }
-      await db.pantryItems.bulkAdd(bundle.data.pantryItems);
-      await db.inventoryLots.bulkAdd(bundle.data.inventoryLots);
-      await db.recipes.bulkAdd(bundle.data.recipes);
-      await db.recipeIngredients.bulkAdd(bundle.data.recipeIngredients);
-      await db.mealSlots.bulkAdd(bundle.data.mealSlots);
-      await db.plannedMeals.bulkAdd(bundle.data.plannedMeals);
-      await db.essentialItems.bulkAdd(bundle.data.essentialItems);
-      await db.locationProfiles.bulkAdd(bundle.data.locationProfiles);
-      await db.purchaseEntries.bulkAdd(bundle.data.purchaseEntries);
-      await db.groceryLists.bulkAdd(bundle.data.groceryLists);
-      await db.groceryLines.bulkAdd(bundle.data.groceryLines);
-      await db.weekTemplates.bulkAdd(bundle.data.weekTemplates || []);
+      await db.pantryItems.bulkPut(bundle.data.pantryItems);
+      await db.inventoryLots.bulkPut(bundle.data.inventoryLots);
+      await db.recipes.bulkPut(bundle.data.recipes);
+      await db.recipeIngredients.bulkPut(bundle.data.recipeIngredients);
+      await db.mealSlots.bulkPut(bundle.data.mealSlots);
+      await db.plannedMeals.bulkPut(bundle.data.plannedMeals);
+      await db.essentialItems.bulkPut(bundle.data.essentialItems);
+      await db.locationProfiles.bulkPut(bundle.data.locationProfiles);
+      await db.purchaseEntries.bulkPut(bundle.data.purchaseEntries);
+      await db.groceryLists.bulkPut(bundle.data.groceryLists);
+      await db.groceryLines.bulkPut(bundle.data.groceryLines);
+      await db.weekTemplates.bulkPut(bundle.data.weekTemplates);
     }
   );
   await seedDefaults();

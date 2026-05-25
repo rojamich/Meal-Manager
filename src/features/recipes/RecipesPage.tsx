@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { PantryItem, Recipe, RecipeIngredient } from "../../models";
 import {
   addIngredient,
+  countRecipeReferences,
   createRecipe,
   deleteIngredient,
   deleteRecipe,
@@ -17,7 +18,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { listMealSlots, listPlannedMeals } from "../../db/repositories/mealPlanRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
-import { dateKey, toISODate } from "../../utils/date";
+import { dateKey } from "../../utils/date";
 import { getHouseholdSize } from "../settings/preferences";
 import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
@@ -197,9 +198,15 @@ export default function RecipesPage() {
   }
 
   async function removeRecipe(id: string) {
+    const { plannedMealCount } = await countRecipeReferences(id);
+    const detail =
+      plannedMealCount > 0
+        ? `This recipe is used in ${plannedMealCount} planned meal${plannedMealCount === 1 ? "" : "s"}. Deleting will leave them as "Recipe" placeholders on the planner.`
+        : undefined;
     const choice = await requestChoice({
       title: "Delete Recipe?",
-      message: "This will remove the selected recipe.",
+      message: "This will remove the selected recipe and its ingredient list.",
+      detail,
       choices: [
         { label: "Delete", value: "confirm-delete", tone: "danger" },
         { label: "Cancel", value: "cancel", tone: "neutral" }
@@ -220,8 +227,16 @@ export default function RecipesPage() {
     if (!pantryItemId || !(quantity > 0)) return;
     const existing = ingredients.find((ing) => ing.pantryItemId === pantryItemId);
     if (existing) {
-      const shouldMerge = confirm("This pantry item is already in the recipe. Merge quantities?");
-      if (!shouldMerge) return;
+      const choice = await requestChoice({
+        title: "Merge Ingredient?",
+        message: "This pantry item is already in the recipe.",
+        detail: "Merging will add the new quantity to the existing line.",
+        choices: [
+          { label: "Merge quantities", value: "merge", tone: "primary" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "merge") return;
       const mergedNote = [existing.prepNote, prepNote].filter(Boolean).join(" / ") || undefined;
       await updateIngredient(existing.id, {
         quantity: existing.quantity + quantity,
@@ -476,7 +491,7 @@ function RecipeEditor({
   const [ingredientError, setIngredientError] = useState<string | null>(null);
   const [noMatches, setNoMatches] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [plannerDate, setPlannerDate] = useState(toISODate(new Date()));
+  const [plannerDate, setPlannerDate] = useState(dateKey(new Date()));
   const [plannerSlotId, setPlannerSlotId] = useState("");
   const [plannerServings, setPlannerServings] = useState("");
   const [plannerMessage, setPlannerMessage] = useState("");
@@ -555,7 +570,7 @@ function RecipeEditor({
     setIngredientFilter("");
     setIngredientError(null);
     setSavedAt(null);
-    setPlannerDate(toISODate(new Date()));
+    setPlannerDate(dateKey(new Date()));
     setPlannerSlotId(mealSlots[0]?.id || "");
     setPlannerServings(String(recipeBaseServings(recipe)));
     setPlannerMessage("");
