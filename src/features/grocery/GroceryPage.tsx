@@ -87,6 +87,17 @@ export default function GroceryPage() {
 
   useEffect(() => {
     refresh();
+    const onRefresh = () => refresh();
+    window.addEventListener("grocery-lists-updated", onRefresh);
+    window.addEventListener("pantry-items-updated", onRefresh);
+    window.addEventListener("locations-updated", onRefresh);
+    window.addEventListener("purchases-updated", onRefresh);
+    return () => {
+      window.removeEventListener("grocery-lists-updated", onRefresh);
+      window.removeEventListener("pantry-items-updated", onRefresh);
+      window.removeEventListener("locations-updated", onRefresh);
+      window.removeEventListener("purchases-updated", onRefresh);
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -106,7 +117,10 @@ export default function GroceryPage() {
 
   useEffect(() => {
     if (!selectedListId) return;
-    listGroceryLines(selectedListId).then(setLines);
+    const reloadLines = () => listGroceryLines(selectedListId).then(setLines);
+    reloadLines();
+    window.addEventListener("grocery-lines-updated", reloadLines);
+    return () => window.removeEventListener("grocery-lines-updated", reloadLines);
   }, [selectedListId]);
 
   async function handleGenerate() {

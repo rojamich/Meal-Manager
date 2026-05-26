@@ -2,6 +2,7 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./Layout";
 import PantryPage from "../features/pantry/PantryPage";
 import RecipesPage from "../features/recipes/RecipesPage";
+import RecipeEditPage from "../features/recipes/RecipeEditPage";
 import RecipePrint from "../features/recipes/RecipePrint";
 import CookPage from "../features/recipes/CookPage";
 import PlannerPage from "../features/planner/PlannerPage";
@@ -19,6 +20,8 @@ export default function App() {
           <Route path="planner" element={<PlannerPage />} />
           <Route path="grocery" element={<GroceryPage />} />
           <Route path="recipes" element={<RecipesPage />} />
+          <Route path="recipes/new" element={<RecipeEditPage />} />
+          <Route path="recipes/:id" element={<RecipeEditPage />} />
           <Route path="recipes/:id/print" element={<RecipePrint />} />
           <Route path="pantry" element={<PantryPage />} />
           <Route path="locations" element={<LocationsPage />} />

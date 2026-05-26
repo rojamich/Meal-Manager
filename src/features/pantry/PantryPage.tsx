@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { BaseUnit, InventoryLot, PantryItem, StorageType } from "../../models";
 import {
   countPantryItemReferences,
@@ -21,8 +22,18 @@ import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabe
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useActiveLocationId } from "../locations/activeLocation";
 
-const categories = PANTRY_CATEGORY_OPTIONS.map((option) => option.key);
 const STORAGE_TYPE_OPTIONS: StorageType[] = ["pantry", "fridge", "freezer"];
+
+const BLANK_ITEM: PantryItem = {
+  id: "",
+  name: "",
+  category: "produce",
+  storageType: "pantry",
+  baseUnit: "count",
+  notes: "",
+  createdAt: "",
+  updatedAt: ""
+};
 
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([]);
@@ -52,36 +63,51 @@ export default function PantryPage() {
     setLocations([...(await listLocations())]);
   }, []);
 
-  async function loadLots(itemId: string, locationId?: string) {
-    const all =
-      itemId === "__ALL__"
-        ? await listActiveLots(locationId)
-        : await listInventoryLots(itemId);
-    const today = dateKey(new Date());
-    const active = all.filter((lot) => {
-      if (lot.archivedAt) return false;
-      if (locationId && lot.locationId !== locationId) return false;
-      if (!lot.expiresAt) return true;
-      return dateKey(lot.expiresAt) >= today;
-    });
-    setLots([...active]);
-  }
+  const loadLots = useCallback(
+    async (itemId: string, locationId?: string) => {
+      const all =
+        itemId === "__ALL__"
+          ? await listActiveLots(locationId)
+          : await listInventoryLots(itemId);
+      const today = dateKey(new Date());
+      const active = all.filter((lot) => {
+        if (lot.archivedAt) return false;
+        if (locationId && lot.locationId !== locationId) return false;
+        if (!lot.expiresAt) return true;
+        return dateKey(lot.expiresAt) >= today;
+      });
+      setLots([...active]);
+    },
+    []
+  );
 
-  async function reloadLotsForCurrentView() {
+  const reloadLotsForCurrentView = useCallback(async () => {
     if (!selectedItemId) {
       setLots([]);
       return;
     }
     await loadLots(selectedItemId, emptyLocationId || undefined);
-  }
+  }, [emptyLocationId, loadLots, selectedItemId]);
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    const onSync = () => {
+      refresh();
+      void reloadLotsForCurrentView();
+    };
+    window.addEventListener("pantry-items-updated", onSync);
+    window.addEventListener("inventory-updated", onSync);
+    window.addEventListener("locations-updated", onSync);
+    return () => {
+      window.removeEventListener("pantry-items-updated", onSync);
+      window.removeEventListener("inventory-updated", onSync);
+      window.removeEventListener("locations-updated", onSync);
+    };
+  }, [refresh, reloadLotsForCurrentView]);
 
   useEffect(() => {
-    reloadLotsForCurrentView();
-  }, [selectedItemId, emptyLocationId]);
+    void reloadLotsForCurrentView();
+  }, [reloadLotsForCurrentView]);
 
   async function saveItem(form: PantryItem | Omit<PantryItem, "id" | "createdAt" | "updatedAt">) {
     setError(null);
@@ -119,7 +145,7 @@ export default function PantryPage() {
     });
     if (choice !== "confirm-delete") return;
     await deletePantryItem(id);
-    if (selectedItemId === id) setSelectedItemId("");
+    if (selectedItemId === id) setSelectedItemId("__ALL__");
     await refresh();
   }
 
@@ -173,7 +199,7 @@ export default function PantryPage() {
   }
 
   return (
-    <div className="grid grid-2 resource-two-panel">
+    <div className="grid">
       <section className="panel">
         <div className="row resource-toolbar">
           <input
@@ -189,76 +215,61 @@ export default function PantryPage() {
               </option>
             ))}
           </select>
-          <button
-            onClick={() =>
-              setEditing({
-                id: "",
-                name: "",
-                category: "produce",
-                storageType: "pantry",
-                baseUnit: "count",
-                notes: "",
-                createdAt: "",
-                updatedAt: ""
-              })
-            }
-          >
-            Add Item
-          </button>
+          <button onClick={() => setEditing({ ...BLANK_ITEM })}>Add Item</button>
         </div>
         {error && <p style={{ color: "#dc2626" }}>{error}</p>}
         <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Storage Type</th>
-              <th>Unit</th>
-              <th>Shelf life</th>
-              <th>After Opening</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((item) => (
-              <tr key={item.id}>
-                <td data-label="Name">
-                  <button className="ghost" onClick={() => setSelectedItemId(item.id)}>
-                    {item.name}
-                  </button>
-                </td>
-                <td data-label="Category">{pantryCategoryLabel(item.category)}</td>
-                <td data-label="Storage Type">{item.storageType || "pantry"}</td>
-                <td data-label="Unit">{item.baseUnit}</td>
-                <td data-label="Shelf life">
-                  {item.defaultShelfLifeDays == null ? "—" : `${item.defaultShelfLifeDays}d`}
-                </td>
-                <td data-label="After opening">{item.defaultAfterOpeningDays == null ? "-" : `${item.defaultAfterOpeningDays}d`}</td>
-                <td data-label="Actions" className="table-actions">
-                  <button className="secondary" onClick={() => setEditing(item)}>
-                    Edit
-                  </button>
-                  <button className="danger" onClick={() => removeItem(item.id)}>
-                    Delete
-                  </button>
-                </td>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Storage Type</th>
+                <th>Unit</th>
+                <th>Shelf life</th>
+                <th>After Opening</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filtered.map((item) => (
+                <tr key={item.id}>
+                  <td data-label="Name">
+                    <button className="ghost" onClick={() => setEditing(item)}>
+                      {item.name}
+                    </button>
+                  </td>
+                  <td data-label="Category">{pantryCategoryLabel(item.category)}</td>
+                  <td data-label="Storage Type">{item.storageType || "pantry"}</td>
+                  <td data-label="Unit">{item.baseUnit}</td>
+                  <td data-label="Shelf life">
+                    {item.defaultShelfLifeDays == null ? "—" : `${item.defaultShelfLifeDays}d`}
+                  </td>
+                  <td data-label="After opening">{item.defaultAfterOpeningDays == null ? "-" : `${item.defaultAfterOpeningDays}d`}</td>
+                  <td data-label="Actions" className="table-actions">
+                    <button className="secondary" onClick={() => setSelectedItemId(item.id)}>
+                      View lots
+                    </button>
+                    <button className="secondary" onClick={() => setEditing(item)}>
+                      Edit
+                    </button>
+                    <button className="danger" onClick={() => removeItem(item.id)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="muted">No pantry items match your filters.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
       <section className="panel">
-        <h2>Pantry Item</h2>
-        {editing ? (
-          <PantryForm item={editing} onCancel={() => setEditing(null)} onSave={saveItem} />
-        ) : (
-          <p>Select an item to manage lots or click Add Item.</p>
-        )}
-
-        <hr />
         <h3>Inventory Lots</h3>
         <div className="row resource-toolbar">
           <select value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
@@ -283,31 +294,30 @@ export default function PantryPage() {
             </button>
           </div>
         </div>
-        <div className={selectedItemId ? "" : "mobile-hide"}>
-          {selectedItemId && selectedItemId !== "__ALL__" && (
-            <form className="grid" onSubmit={addLot}>
-              <div className="row resource-toolbar lot-form-row">
-                <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
-                {selectedItem && <span className="muted">{selectedItem.baseUnit}</span>}
-                <input name="purchasedAt" type="date" defaultValue={dateKey(new Date())} />
-                <input name="expiresAt" type="date" />
-              </div>
-              <div className="row resource-toolbar lot-form-row">
-                <select name="locationId" defaultValue="">
-                  <option value="">No location</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
-                <input name="notes" placeholder="Notes" />
-                <button type="submit">Add Lot</button>
-              </div>
-              {lotError && <p className="muted">{lotError}</p>}
-            </form>
-          )}
-          <div className="table-wrap">
+        {selectedItemId && selectedItemId !== "__ALL__" && (
+          <form className="grid" onSubmit={addLot}>
+            <div className="row resource-toolbar lot-form-row">
+              <input name="quantity" type="number" step="0.01" placeholder="Quantity" required />
+              {selectedItem && <span className="muted">{selectedItem.baseUnit}</span>}
+              <input name="purchasedAt" type="date" defaultValue={dateKey(new Date())} />
+              <input name="expiresAt" type="date" />
+            </div>
+            <div className="row resource-toolbar lot-form-row">
+              <select name="locationId" defaultValue="">
+                <option value="">No location</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+              <input name="notes" placeholder="Notes" />
+              <button type="submit">Add Lot</button>
+            </div>
+            {lotError && <p className="muted">{lotError}</p>}
+          </form>
+        )}
+        <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -347,11 +357,53 @@ export default function PantryPage() {
               )}
             </tbody>
           </table>
-          </div>
         </div>
       </section>
+
+      <PantryFormModal
+        item={editing}
+        onCancel={() => setEditing(null)}
+        onSave={saveItem}
+      />
       {modal}
     </div>
+  );
+}
+
+function PantryFormModal({
+  item,
+  onSave,
+  onCancel
+}: {
+  item: PantryItem | null;
+  onSave: (input: any) => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    if (!item) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [item, onCancel]);
+
+  if (!item || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="confirm-modal-backdrop"
+      role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div className="confirm-modal" role="dialog" aria-modal="true" style={{ maxWidth: 520 }}>
+        <h2>{item.id ? "Edit Pantry Item" : "New Pantry Item"}</h2>
+        <PantryForm item={item} onSave={onSave} onCancel={onCancel} />
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -373,6 +425,18 @@ function PantryForm({
     defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
     notes: item.notes || ""
   });
+
+  useEffect(() => {
+    setForm({
+      name: item.name,
+      category: normalizePantryCategoryKey(item.category || "produce"),
+      storageType: item.storageType || "pantry",
+      baseUnit: item.baseUnit || "count",
+      defaultShelfLifeDays: item.defaultShelfLifeDays || "",
+      defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
+      notes: item.notes || ""
+    });
+  }, [item.id]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -399,6 +463,7 @@ function PantryForm({
         onChange={(e) => setForm({ ...form, name: e.target.value })}
         placeholder="Name"
         required
+        autoFocus
       />
       <div className="row resource-toolbar form-row-grid">
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -443,11 +508,11 @@ function PantryForm({
         onChange={(e) => setForm({ ...form, notes: e.target.value })}
         placeholder="Notes"
       />
-      <div className="row resource-toolbar">
-        <button type="submit">Save</button>
+      <div className="confirm-modal-actions">
         <button type="button" className="secondary" onClick={onCancel}>
           Cancel
         </button>
+        <button type="submit">Save</button>
       </div>
     </form>
   );

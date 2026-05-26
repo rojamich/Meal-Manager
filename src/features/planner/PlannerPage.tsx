@@ -125,9 +125,23 @@ export default function PlannerPage() {
     listLocations().then(setLocations);
     listWeekTemplates().then(setTemplates);
     const loadPeople = () => listPeople().then(setPeople);
+    const loadRecipes = () => listRecipes().then(setRecipes);
+    const loadSlots = () => listMealSlots().then(setSlots);
+    const loadLocations = () => listLocations().then(setLocations);
+    const loadTemplates = () => listWeekTemplates().then(setTemplates);
     loadPeople();
     window.addEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
-    return () => window.removeEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
+    window.addEventListener("recipes-updated", loadRecipes);
+    window.addEventListener("meal-slots-updated", loadSlots);
+    window.addEventListener("locations-updated", loadLocations);
+    window.addEventListener("week-templates-updated", loadTemplates);
+    return () => {
+      window.removeEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
+      window.removeEventListener("recipes-updated", loadRecipes);
+      window.removeEventListener("meal-slots-updated", loadSlots);
+      window.removeEventListener("locations-updated", loadLocations);
+      window.removeEventListener("week-templates-updated", loadTemplates);
+    };
   }, []);
 
   const refreshMeals = useCallback(async () => {
@@ -139,6 +153,9 @@ export default function PlannerPage() {
 
   useEffect(() => {
     refreshMeals();
+    const handler = () => refreshMeals();
+    window.addEventListener("planned-meals-updated", handler);
+    return () => window.removeEventListener("planned-meals-updated", handler);
   }, [refreshMeals]);
 
   const createMealAndRefresh = useCallback(
@@ -1105,15 +1122,23 @@ export default function PlannerPage() {
                             <button className="danger" onClick={() => removeMeal(meal.id)}>x</button>
                           </div>
                         ))}
-                      {meals.filter((meal) => meal.date === day && meal.mealSlotId === slot.id).length === 0 && (
-                        <button
-                          className="ghost"
-                          type="button"
-                          onClick={(e) => void openInlineAdd({ date: day, mealSlotId: slot.id }, e.currentTarget)}
-                        >
-                          Add
-                        </button>
-                      )}
+                      {(() => {
+                        const cellHasMeals = meals.some(
+                          (meal) => meal.date === day && meal.mealSlotId === slot.id
+                        );
+                        return (
+                          <button
+                            className={cellHasMeals ? "ghost cell-add cell-add-compact" : "ghost cell-add"}
+                            type="button"
+                            aria-label={cellHasMeals ? "Add another meal" : "Add meal"}
+                            onClick={(e) =>
+                              void openInlineAdd({ date: day, mealSlotId: slot.id }, e.currentTarget)
+                            }
+                          >
+                            {cellHasMeals ? "+" : "Add"}
+                          </button>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>

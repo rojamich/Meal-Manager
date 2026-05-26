@@ -9,7 +9,18 @@ import {
   updatePerson
 } from "../../db/repositories/peopleRepo";
 
-const DEFAULT_COLORS = ["#2563eb", "#db2777", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+const DEFAULT_COLORS = [
+  "#2563eb", // blue
+  "#db2777", // pink
+  "#16a34a", // green
+  "#d97706", // amber
+  "#7c3aed", // purple
+  "#0891b2", // cyan
+  "#dc2626", // red
+  "#0f766e", // teal
+  "#ca8a04", // yellow
+  "#64748b"  // slate
+];
 
 export default function PeopleSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [people, setPeople] = useState<Person[]>([]);
@@ -70,11 +81,22 @@ export default function PeopleSection({ embedded = false }: { embedded?: boolean
                 <input value={person.name} onChange={(e) => rename(person.id, e.target.value)} />
               </td>
               <td data-label="Color">
-                <input
-                  type="color"
-                  value={person.color || "#64748b"}
-                  onChange={(e) => recolor(person.id, e.target.value)}
-                />
+                <div className="color-swatch-row">
+                  {DEFAULT_COLORS.map((color) => {
+                    const isActive = (person.color || "").toLowerCase() === color.toLowerCase();
+                    return (
+                      <button
+                        key={color}
+                        type="button"
+                        className={isActive ? "color-swatch color-swatch-active" : "color-swatch"}
+                        style={{ background: color }}
+                        aria-label={`Use color ${color}`}
+                        aria-pressed={isActive}
+                        onClick={() => recolor(person.id, color)}
+                      />
+                    );
+                  })}
+                </div>
               </td>
               <td data-label="Actions">
                 <button className="danger" onClick={() => remove(person.id)}>

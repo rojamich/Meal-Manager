@@ -575,6 +575,49 @@ button.danger:focus {
   flex-shrink: 0;
 }
 
+.cell-add {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.cell-add-compact {
+  width: auto;
+  padding: 2px 10px;
+  font-size: 14px;
+  line-height: 1;
+  margin-top: 4px;
+  opacity: 0.6;
+}
+
+.cell-add-compact:hover {
+  opacity: 1;
+}
+
+.color-swatch-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.color-swatch-active {
+  box-shadow: 0 0 0 2px #0f172a;
+}
+
 .expiring-soon {
   border-left: 4px solid #f59e0b;
 }

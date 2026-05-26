@@ -110,19 +110,19 @@ export default function WeekCell({
           dragDisabled={selectMode}
         />
       ))}
-      {meals.length === 0 && (
-        <button
-          className="ghost"
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            void onAdd(e.currentTarget);
-          }}
-        >
-          Add
-        </button>
-      )}
+      <button
+        className={meals.length === 0 ? "ghost cell-add" : "ghost cell-add cell-add-compact"}
+        type="button"
+        aria-label={meals.length === 0 ? "Add meal" : "Add another meal"}
+        title={meals.length === 0 ? "Add meal" : "Add another meal"}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          void onAdd(e.currentTarget);
+        }}
+      >
+        {meals.length === 0 ? "Add" : "+"}
+      </button>
       {inlinePanel}
     </td>
   );

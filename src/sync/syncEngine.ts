@@ -16,6 +16,26 @@ export type SyncStatus = "off" | "starting" | "syncing" | "synced" | "error";
 
 export const SYNC_REMOTE_APPLIED_EVENT = "sync-remote-applied";
 
+// When the sync engine applies a remote change to a Dexie table, it also dispatches
+// the existing domain event for that table so UI listeners refresh without code changes.
+// Tables that didn't have a domain event get one here.
+const TABLE_DOMAIN_EVENTS: Record<string, string[]> = {
+  pantryItems: ["pantry-items-updated"],
+  inventoryLots: ["inventory-updated"],
+  recipes: ["recipes-updated"],
+  recipeIngredients: ["recipe-ingredients-updated"],
+  mealSlots: ["meal-slots-updated"],
+  plannedMeals: ["planned-meals-updated"],
+  essentialItems: ["essentials-updated"],
+  locationProfiles: ["locations-updated"],
+  purchaseEntries: ["purchases-updated"],
+  groceryLists: ["grocery-lists-updated"],
+  groceryLines: ["grocery-lines-updated"],
+  weekTemplates: ["week-templates-updated"],
+  people: ["people-updated"],
+  cookedPortions: ["cooked-portions-updated"]
+};
+
 export interface SyncRemoteAppliedDetail {
   tableName: string;
   docId: string;
@@ -108,22 +128,36 @@ class SyncEngine {
     }
     this.householdId = householdId;
     this.setStatus("starting");
+    console.log(`[sync] start mode=${mode} household=${householdId}`);
 
     try {
       if (mode === "join") {
+        console.log("[sync] wiping local data (join)");
         await this.wipeLocal();
       }
 
       // Pull everything once before attaching live listeners so the initial state is consistent.
+      console.log("[sync] initial pull starting");
       await this.initialPull(householdId);
+      console.log("[sync] initial pull complete");
 
-      if (mode === "create" || mode === "reconnect") {
-        await this.pushAllLocal(householdId);
-      }
-
+      // Attach listeners + hooks BEFORE pushing local, so any changes that happen during the
+      // push are captured. This also lets us flip to "synced" sooner — the user sees live updates
+      // while leftover local docs get pushed in the background.
       this.attachListeners(householdId);
       this.attachHooks(householdId);
       this.setStatus("synced");
+      console.log("[sync] listeners attached, status=synced");
+
+      if (mode === "create" || mode === "reconnect") {
+        // Background push — don't block the UI. Errors get surfaced via status.
+        this.pushAllLocal(householdId)
+          .then(() => console.log("[sync] background push complete"))
+          .catch((err) => {
+            console.warn("[sync] background push failed", err);
+            this.setStatus("error", err?.message || "Background push failed.");
+          });
+      }
     } catch (err: any) {
       console.error("[sync] start failed", err);
       this.setStatus("error", err?.message || "Sync failed.");
@@ -266,6 +300,12 @@ class SyncEngine {
               };
               if (typeof window !== "undefined") {
                 window.dispatchEvent(new CustomEvent(SYNC_REMOTE_APPLIED_EVENT, { detail }));
+                // Also dispatch the per-table domain events so plain components refresh
+                // without needing to know anything about sync.
+                const domainEvents = TABLE_DOMAIN_EVENTS[spec.name] || [];
+                for (const eventName of domainEvents) {
+                  window.dispatchEvent(new CustomEvent(eventName));
+                }
               }
               // Re-notify subscribers so they can pick up the lastIncomingAt change.
               this.listeners.forEach((l) => l(this.status, this.error || undefined));
