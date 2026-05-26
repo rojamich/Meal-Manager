@@ -61,30 +61,20 @@ export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart:
             servingsPlanned: meal.servingsPlanned,
             householdSize,
             notes: meal.notes
-          }),
-          householdSize,
-          currentMeals: contextMeals
+          })
         });
         if (result.created) contextMeals = [...contextMeals, result.created];
         continue;
       }
 
-      const title =
-        meal.type === "leftover"
-          ? `Leftover: ${meal.freeformTitle || "Template meal"}`
-          : meal.freeformTitle || "Freeform";
-
-      // Templates do not retain enough source identity to safely recreate live leftover links,
-      // so leftover template entries are restored as freeform placeholders instead of stale references.
+      const title = meal.freeformTitle || "Freeform";
       const result = await createMealWithRules({
         input: buildFreeformMealInput({
           date: targetDate,
           mealSlotId: meal.mealSlotId,
           freeformTitle: title,
           notes: meal.notes
-        }),
-        householdSize,
-        currentMeals: contextMeals
+        })
       });
       if (result.created) contextMeals = [...contextMeals, result.created];
     }

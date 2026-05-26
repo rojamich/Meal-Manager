@@ -1,29 +1,19 @@
 import { PlannedMeal, Recipe } from "../../models";
-import { getEffectiveLeftoverRemaining } from "./plannerDomain";
 
 export default function MealLabel({
   meal,
-  recipes,
-  householdSize = 1,
-  showRemaining = true
+  recipes
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
+  /** Kept for backward compatibility with callers that still pass it. */
   householdSize?: number;
+  /** Kept for backward compatibility with callers that still pass it. */
   showRemaining?: boolean;
 }) {
   if (meal.type === "recipe") {
     const recipe = recipes.find((r) => r.id === meal.recipeId);
-    const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
-    return (
-      <span>
-        {recipe?.title || "Recipe"}
-        {showRemaining && typeof remaining === "number" && remaining > 0 ? ` (${remaining})` : ""}
-      </span>
-    );
-  }
-  if (meal.type === "leftover") {
-    return <span>{meal.freeformTitle ? `Leftover: ${meal.freeformTitle}` : "Leftover"}</span>;
+    return <span>{recipe?.title || "Recipe"}</span>;
   }
   return <span>{meal.freeformTitle || "Freeform"}</span>;
 }

@@ -1,6 +1,6 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LocationProfile, MealSlot, PlannedMeal, Recipe, WeekTemplate } from "../../models";
+import { LocationProfile, MealSlot, Person, PlannedMeal, Recipe, WeekTemplate } from "../../models";
 import {
   listMealSlots,
   listPlannedMeals,
@@ -9,9 +9,12 @@ import {
 import { listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { listPeople, PEOPLE_UPDATED_EVENT } from "../../db/repositories/peopleRepo";
 import { buildCookPlan, commitCook, CookPlan, uncookMeal } from "./cookPlan";
 import CookMealModal from "./CookMealModal";
 import ExpiringSoon from "./ExpiringSoon";
+import FridgePanel from "./FridgePanel";
+import TripSetupModal from "./TripSetupModal";
 import InlineAddPanel from "./InlineAddPanel";
 import MealLabel from "./MealLabel";
 import WeekCell from "./WeekCell";
@@ -43,13 +46,10 @@ import {
 import { getHouseholdSize } from "../settings/preferences";
 import {
   buildFreeformMealInput,
-  buildLeftoverMealInput,
   buildRecipeMealInput,
-  calculateRecipeMealLeftoverState,
   cloneMealWithRules,
   createMealWithRules,
-  deleteMealWithRules,
-  getEffectiveLeftoverRemaining
+  deleteMealWithRules
 } from "./plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
@@ -65,19 +65,15 @@ export default function PlannerPage() {
   const [inlineType, setInlineType] = useState<PlannedMeal["type"]>("recipe");
   const [inlineRecipeId, setInlineRecipeId] = useState("");
   const [inlineServings, setInlineServings] = useState("");
-  const [inlineLeftoverSource, setInlineLeftoverSource] = useState("");
   const [householdSize] = useState<number>(getHouseholdSize());
-  const [inlineLeftoverServingsUsed, setInlineLeftoverServingsUsed] = useState("1");
-  const [includeAnyRecent, setIncludeAnyRecent] = useState(false);
   const [inlineFreeformTitle, setInlineFreeformTitle] = useState("");
   const [inlineNotes, setInlineNotes] = useState("");
+  const [inlineAssignedTo, setInlineAssignedTo] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
-  const [recentPlanned, setRecentPlanned] = useState<PlannedMeal[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelAnchorEl, setPanelAnchorEl] = useState<HTMLElement | null>(null);
   const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null);
-  const [leftoverEditMealId, setLeftoverEditMealId] = useState<string | null>(null);
-  const [leftoverEditValue, setLeftoverEditValue] = useState<number>(0);
   const [servingsEditMealId, setServingsEditMealId] = useState<string | null>(null);
   const [servingsEditValue, setServingsEditValue] = useState<number>(householdSize);
   const [activeMealActionsId, setActiveMealActionsId] = useState<string | null>(null);
@@ -101,6 +97,7 @@ export default function PlannerPage() {
     toMealSlotId: string;
   } | null>(null);
   const undoMoveTimerRef = useRef<number | null>(null);
+  const [tripModalOpen, setTripModalOpen] = useState(false);
   const [cookMeal, setCookMeal] = useState<PlannedMeal | null>(null);
   const [cookRecipe, setCookRecipe] = useState<Recipe | null>(null);
   const [cookPlan, setCookPlan] = useState<CookPlan | null>(null);
@@ -127,6 +124,10 @@ export default function PlannerPage() {
     listRecipes().then(setRecipes);
     listLocations().then(setLocations);
     listWeekTemplates().then(setTemplates);
+    const loadPeople = () => listPeople().then(setPeople);
+    loadPeople();
+    window.addEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
+    return () => window.removeEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
   }, []);
 
   const refreshMeals = useCallback(async () => {
@@ -136,79 +137,26 @@ export default function PlannerPage() {
     return data;
   }, [anchorDate, view]);
 
-  const refreshRecentMeals = useCallback(async () => {
-    const range = weekRange(anchorDate);
-    const rangeStart = parseISODate(range.start);
-    const start = addDays(rangeStart, -14);
-    const recent = await listPlannedMeals(dateKey(start), dateKey(range.end));
-    setRecentPlanned([...recent]);
-    return recent;
-  }, [anchorDate]);
-
   useEffect(() => {
     refreshMeals();
   }, [refreshMeals]);
 
-  useEffect(() => {
-    refreshRecentMeals();
-  }, [refreshRecentMeals]);
-
-  const combinedLeftoverSourceMeals = useMemo(() => {
-    const map = new Map<string, PlannedMeal>();
-    meals.forEach((meal) => map.set(meal.id, meal));
-    recentPlanned.forEach((meal) => {
-      if (!map.has(meal.id)) map.set(meal.id, meal);
-    });
-    return Array.from(map.values());
-  }, [meals, recentPlanned]);
-
-  const applySourceUpdate = useCallback(
-    (sourceUpdate?: { mealId: string; leftoverServingsRemaining: number }) => {
-      if (!sourceUpdate) return;
-      setMeals((prev: PlannedMeal[]) =>
-        prev.map((meal: PlannedMeal) =>
-          meal.id === sourceUpdate.mealId
-            ? { ...meal, leftoverServingsRemaining: sourceUpdate.leftoverServingsRemaining }
-            : meal
-        )
-      );
-      setRecentPlanned((prev: PlannedMeal[]) =>
-        prev.map((meal: PlannedMeal) =>
-          meal.id === sourceUpdate.mealId
-            ? { ...meal, leftoverServingsRemaining: sourceUpdate.leftoverServingsRemaining }
-            : meal
-        )
-      );
-    },
-    []
-  );
-
   const createMealAndRefresh = useCallback(
-    async (
-      payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">,
-      options?: { skipLeftoverDecrement?: boolean }
-    ) => {
-      const result = await createMealWithRules({
-        input: payload,
-        householdSize,
-        currentMeals: [...meals, ...recentPlanned],
-        skipLeftoverDecrement: options?.skipLeftoverDecrement
-      });
+    async (payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) => {
+      const result = await createMealWithRules({ input: payload });
       if (result.error) {
         notify(result.error, "error");
         return undefined;
       }
       const created = result.created;
-      applySourceUpdate(result.sourceUpdate);
       const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
       if (created && created.date >= range.start && created.date <= range.end) {
         setMeals((prev: PlannedMeal[]) => [...prev, created as PlannedMeal]);
       }
       await refreshMeals();
-      await refreshRecentMeals();
       return created;
     },
-    [anchorDate, applySourceUpdate, householdSize, meals, recentPlanned, refreshMeals, refreshRecentMeals, view]
+    [anchorDate, notify, refreshMeals, view]
   );
 
   async function removeMeal(id: string) {
@@ -226,93 +174,46 @@ export default function PlannerPage() {
 
   const deleteMealsBatch = useCallback(
     async (mealIds: string[]) => {
-      const knownMeals = Array.from(new Map([...meals, ...recentPlanned].map((meal) => [meal.id, meal])).values());
       const mealIdSet = new Set(mealIds);
-      const mealsToDelete = knownMeals
-        .filter((meal) => mealIdSet.has(meal.id))
-        .sort((a, b) => {
-          if (a.type === b.type) return a.date.localeCompare(b.date);
-          if (a.type === "leftover") return -1;
-          if (b.type === "leftover") return 1;
-          return a.date.localeCompare(b.date);
-        });
+      const mealsToDelete = meals.filter((meal) => mealIdSet.has(meal.id));
       if (!mealsToDelete.length) return;
 
-      let contextMeals = [...knownMeals];
       for (const meal of mealsToDelete) {
-        const result = await deleteMealWithRules({
-          meal,
-          householdSize,
-          currentMeals: contextMeals
-        });
-        if (result.sourceUpdate) {
-          contextMeals = contextMeals.map((row) =>
-            row.id === result.sourceUpdate?.mealId
-              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
-              : row
-          );
-        }
-        contextMeals = contextMeals.filter((row) => row.id !== meal.id);
+        await deleteMealWithRules({ meal });
       }
 
-      const remainingById = new Map(contextMeals.map((meal) => [meal.id, meal]));
-      setMeals((prev: PlannedMeal[]) =>
-        prev
-          .filter((row: PlannedMeal) => !mealIdSet.has(row.id))
-          .map((row: PlannedMeal) => remainingById.get(row.id) || row)
-      );
-      setRecentPlanned((prev: PlannedMeal[]) =>
-        prev
-          .filter((row: PlannedMeal) => !mealIdSet.has(row.id))
-          .map((row: PlannedMeal) => remainingById.get(row.id) || row)
-      );
+      setMeals((prev: PlannedMeal[]) => prev.filter((row: PlannedMeal) => !mealIdSet.has(row.id)));
       setSelectedMealIds((prev) => prev.filter((id) => !mealIdSet.has(id)));
       if (servingsEditMealId && mealIdSet.has(servingsEditMealId)) {
         setServingsEditMealId(null);
-      }
-      if (leftoverEditMealId && mealIdSet.has(leftoverEditMealId)) {
-        setLeftoverEditMealId(null);
       }
       if (activeMealActionsId && mealIdSet.has(activeMealActionsId)) {
         setActiveMealActionsId(null);
       }
       await refreshMeals();
-      await refreshRecentMeals();
     },
-    [
-      activeMealActionsId,
-      householdSize,
-      leftoverEditMealId,
-      meals,
-      recentPlanned,
-      refreshMeals,
-      refreshRecentMeals,
-      servingsEditMealId
-    ]
+    [activeMealActionsId, meals, refreshMeals, servingsEditMealId]
   );
 
   const resetInline = useCallback(() => {
     setInlineType("recipe");
     setInlineRecipeId("");
     setInlineServings("");
-    setInlineLeftoverSource("");
-    setInlineLeftoverServingsUsed("1");
-    setIncludeAnyRecent(false);
     setInlineFreeformTitle("");
     setInlineNotes("");
+    setInlineAssignedTo("");
     setRecipeSearch("");
   }, []);
 
   const openInlineAdd = useCallback(
-    async (slot: { date: string; mealSlotId: string }, anchorEl?: HTMLElement | null) => {
+    (slot: { date: string; mealSlotId: string }, anchorEl?: HTMLElement | null) => {
       const nextAnchor = anchorEl ?? null;
       setActiveSlot(slot);
       setPanelAnchorEl(nextAnchor);
       setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
-      await refreshRecentMeals();
     },
-    [refreshRecentMeals, resetInline]
+    [resetInline]
   );
 
   const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
@@ -326,50 +227,22 @@ export default function PlannerPage() {
         recipe,
         servingsPlanned: Number(inlineServings || householdSize || 1),
         householdSize,
-        notes: inlineNotes
+        notes: inlineNotes,
+        assignedTo: inlineAssignedTo || undefined
       });
-    }
-    if (inlineType === "leftover") {
-      if (!inlineLeftoverSource) return null;
-      const servingsUsed = Math.max(Number(inlineLeftoverServingsUsed || 1), 1);
-      if (inlineLeftoverSource.startsWith("meal:")) {
-        const mealId = inlineLeftoverSource.slice(5);
-        const sourceMeal = combinedLeftoverSourceMeals.find((meal) => meal.id === mealId);
-        if (!sourceMeal) return null;
-        return buildLeftoverMealInput({
-          date: activeSlot.date,
-          mealSlotId: activeSlot.mealSlotId,
-          sourceMeal,
-          servingsUsed,
-          notes: inlineNotes
-        });
-      }
-      if (inlineLeftoverSource.startsWith("recipe:")) {
-        const recipeId = inlineLeftoverSource.slice(7);
-        const recipe = recipes.find((r) => r.id === recipeId);
-        return buildLeftoverMealInput({
-          date: activeSlot.date,
-          mealSlotId: activeSlot.mealSlotId,
-          servingsUsed,
-          notes: inlineNotes,
-          freeformTitle: recipe?.title || "Leftover"
-        });
-      }
-      return null;
     }
     if (!inlineFreeformTitle.trim()) return null;
     return buildFreeformMealInput({
       date: activeSlot.date,
       mealSlotId: activeSlot.mealSlotId,
       freeformTitle: inlineFreeformTitle,
-      notes: inlineNotes
+      notes: inlineNotes,
+      assignedTo: inlineAssignedTo || undefined
     });
   }, [
     activeSlot,
-    combinedLeftoverSourceMeals,
+    inlineAssignedTo,
     inlineFreeformTitle,
-    inlineLeftoverSource,
-    inlineLeftoverServingsUsed,
     inlineNotes,
     inlineRecipeId,
     inlineServings,
@@ -490,16 +363,7 @@ export default function PlannerPage() {
           mealSlotId: meal.mealSlotId,
           type: meal.type,
           recipeId: meal.recipeId,
-          sourcePlannedMealId: meal.sourcePlannedMealId,
-          leftoverSourceMealId: meal.leftoverSourceMealId,
-          leftoverServingsRemaining: meal.leftoverServingsRemaining,
-          freeformTitle:
-            meal.type === "leftover"
-              ? meal.freeformTitle ||
-                recipes.find((recipe) => recipe.id === (mealsById.get(meal.leftoverSourceMealId || meal.sourcePlannedMealId || "")?.recipeId))?.title ||
-                mealsById.get(meal.leftoverSourceMealId || meal.sourcePlannedMealId || "")?.freeformTitle ||
-                "Leftover"
-              : meal.freeformTitle,
+          freeformTitle: meal.freeformTitle,
           notes: meal.notes,
           servingsPlanned: meal.servingsPlanned
         }));
@@ -575,32 +439,20 @@ export default function PlannerPage() {
       });
       if (choice !== "copy") return;
       const errors: string[] = [];
-      let contextMeals = [...meals, ...recentPlanned];
       for (const meal of sourceMeals) {
         const result = await cloneMealWithRules({
           meal,
           targetDate,
           targetMealSlotId: meal.mealSlotId,
-          householdSize,
-          currentMeals: contextMeals
+          householdSize
         });
-        if (result.sourceUpdate) {
-          applySourceUpdate(result.sourceUpdate);
-          contextMeals = contextMeals.map((row) =>
-            row.id === result.sourceUpdate?.mealId
-              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
-              : row
-          );
-        }
-        if (result.created) contextMeals = [...contextMeals, result.created];
         if (result.error) errors.push(result.error);
       }
       setCopySourceDay(null);
       await refreshMeals();
-      await refreshRecentMeals();
       if (errors.length) notify(errors.join(" "), "error");
     },
-    [applySourceUpdate, householdSize, meals, notify, recentPlanned, refreshMeals, refreshRecentMeals, requestChoice]
+    [householdSize, meals, notify, refreshMeals, requestChoice]
   );
 
   const toggleMealSelected = useCallback((mealId: string) => {
@@ -656,12 +508,14 @@ export default function PlannerPage() {
   const handleCookConfirm = useCallback(
     async (plan: CookPlan) => {
       if (!cookMeal) return;
-      await commitCook({ meal: cookMeal, plan });
+      await commitCook({
+        meal: cookMeal,
+        plan,
+        recipe: cookRecipe || undefined,
+        locationId: plannerLocationId || undefined
+      });
       const cookedAt = new Date().toISOString();
       setMeals((prev: PlannedMeal[]) =>
-        prev.map((row: PlannedMeal) => (row.id === cookMeal.id ? { ...row, cookedAt } : row))
-      );
-      setRecentPlanned((prev: PlannedMeal[]) =>
         prev.map((row: PlannedMeal) => (row.id === cookMeal.id ? { ...row, cookedAt } : row))
       );
       setCookMeal(null);
@@ -669,7 +523,7 @@ export default function PlannerPage() {
       setCookPlan(null);
       notify("Marked cooked, pantry updated.", "success");
     },
-    [cookMeal, notify]
+    [cookMeal, cookRecipe, notify, plannerLocationId]
   );
 
   const handleUncook = useCallback(
@@ -678,10 +532,7 @@ export default function PlannerPage() {
       setMeals((prev: PlannedMeal[]) =>
         prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
       );
-      setRecentPlanned((prev: PlannedMeal[]) =>
-        prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
-      );
-      notify("Marked not cooked (pantry was not restored).", "info");
+      notify("Marked not cooked (the cooked portion in your fridge stays).", "info");
     },
     [notify]
   );
@@ -712,32 +563,20 @@ export default function PlannerPage() {
     async (targetDate: string, targetSlotId: string) => {
       if (!selectMode || !pendingPasteMeals.length) return;
       const errors: string[] = [];
-      let contextMeals = [...meals, ...recentPlanned];
       for (const meal of pendingPasteMeals) {
         const result = await cloneMealWithRules({
           meal,
           targetDate,
           targetMealSlotId: targetSlotId,
-          householdSize,
-          currentMeals: contextMeals
+          householdSize
         });
-        if (result.sourceUpdate) {
-          applySourceUpdate(result.sourceUpdate);
-          contextMeals = contextMeals.map((row) =>
-            row.id === result.sourceUpdate?.mealId
-              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
-              : row
-          );
-        }
-        if (result.created) contextMeals = [...contextMeals, result.created];
         if (result.error) errors.push(result.error);
       }
       clearSelectState();
       await refreshMeals();
-      await refreshRecentMeals();
       if (errors.length) notify(errors.join(" "), "error");
     },
-    [applySourceUpdate, clearSelectState, householdSize, meals, notify, pendingPasteMeals, recentPlanned, refreshMeals, refreshRecentMeals, selectMode]
+    [clearSelectState, householdSize, notify, pendingPasteMeals, refreshMeals, selectMode]
   );
 
   const deleteDayMeals = useCallback(async () => {
@@ -779,31 +618,19 @@ export default function PlannerPage() {
       });
       if (choice !== "copy") return;
       const errors: string[] = [];
-      let contextMeals = [...meals, ...recentPlanned];
       for (const meal of sourceMeals) {
         const result = await cloneMealWithRules({
           meal,
           targetDate: dateKey(addDays(parseISODate(meal.date), targetOffsetDays - sourceOffsetDays)),
           targetMealSlotId: meal.mealSlotId,
-          householdSize,
-          currentMeals: contextMeals
+          householdSize
         });
-        if (result.sourceUpdate) {
-          applySourceUpdate(result.sourceUpdate);
-          contextMeals = contextMeals.map((row) =>
-            row.id === result.sourceUpdate?.mealId
-              ? { ...row, leftoverServingsRemaining: result.sourceUpdate.leftoverServingsRemaining }
-              : row
-          );
-        }
-        if (result.created) contextMeals = [...contextMeals, result.created];
         if (result.error) errors.push(result.error);
       }
       await refreshMeals();
-      await refreshRecentMeals();
       if (errors.length) notify(errors.join(" "), "error");
     },
-    [anchorDate, applySourceUpdate, householdSize, meals, notify, recentPlanned, refreshMeals, refreshRecentMeals, requestChoice]
+    [anchorDate, householdSize, notify, refreshMeals, requestChoice]
   );
 
   const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
@@ -893,26 +720,8 @@ export default function PlannerPage() {
         return;
       }
 
-      if (activeId.startsWith("leftover:")) {
-        const sourceId = activeId.slice(9);
-        const source = mealsById.get(sourceId);
-        if (!source) return;
-        const remaining = getEffectiveLeftoverRemaining(source, householdSize);
-        if (remaining <= 0) {
-          notify("No leftovers remaining", "info");
-          return;
-        }
-        await createMealAndRefresh(
-          buildLeftoverMealInput({
-            date: day,
-            mealSlotId: slotId,
-            sourceMeal: source,
-            servingsUsed: 1
-          })
-        );
-      }
     },
-    [DEBUG_DND, createMealAndRefresh, householdSize, mealsById, notify, selectMode]
+    [DEBUG_DND, mealsById, selectMode]
   );
 
   const inlineOverlay =
@@ -922,8 +731,7 @@ export default function PlannerPage() {
             <InlineAddPanel
               recipes={recipes}
               slots={slots}
-              recentPlanned={recentPlanned}
-              currentMeals={meals}
+              people={people}
               inlineType={inlineType}
               setInlineType={setInlineType}
               inlineRecipeId={inlineRecipeId}
@@ -931,16 +739,12 @@ export default function PlannerPage() {
               inlineServings={inlineServings}
               setInlineServings={setInlineServings}
               householdSize={householdSize}
-              inlineLeftoverSource={inlineLeftoverSource}
-              setInlineLeftoverSource={setInlineLeftoverSource}
-              inlineLeftoverServingsUsed={inlineLeftoverServingsUsed}
-              setInlineLeftoverServingsUsed={setInlineLeftoverServingsUsed}
-              includeAnyRecent={includeAnyRecent}
-              setIncludeAnyRecent={setIncludeAnyRecent}
               inlineFreeformTitle={inlineFreeformTitle}
               setInlineFreeformTitle={setInlineFreeformTitle}
               inlineNotes={inlineNotes}
               setInlineNotes={setInlineNotes}
+              inlineAssignedTo={inlineAssignedTo}
+              setInlineAssignedTo={setInlineAssignedTo}
               recipeSearch={recipeSearch}
               setRecipeSearch={setRecipeSearch}
               panelRef={panelRef}
@@ -981,6 +785,9 @@ export default function PlannerPage() {
             Month
           </button>
           <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} />
+          <button onClick={() => setTripModalOpen(true)}>
+            Start trip
+          </button>
           <button className="secondary" onClick={() => setShowTemplates((prev) => !prev)}>
             Templates
           </button>
@@ -1107,6 +914,7 @@ export default function PlannerPage() {
         )}
       </section>
 
+      <FridgePanel locationId={plannerLocationId || undefined} />
       <ExpiringSoon locationId={plannerLocationId || undefined} />
 
       <section className="panel planner-screen-view">
@@ -1158,76 +966,26 @@ export default function PlannerPage() {
                               slotId={slot.id}
                               meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
                               recipes={recipes}
-                              allMealsMap={mealsById}
                               slots={slots}
+                              people={people}
                               householdSize={householdSize}
                               onRemove={removeMeal}
-                              onSetLeftovers={async (meal) => {
-                                setServingsEditMealId(null);
-                                setLeftoverEditMealId(meal.id);
-                                setLeftoverEditValue(getEffectiveLeftoverRemaining(meal, householdSize));
-                              }}
                               onSetServings={(meal) => {
-                                setLeftoverEditMealId(null);
                                 setServingsEditMealId(meal.id);
                                 setServingsEditValue(meal.servingsPlanned ?? householdSize);
                               }}
                               onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
                               onCook={openCookModal}
                               onUncook={handleUncook}
-                              editingMealId={leftoverEditMealId}
-                              editValue={leftoverEditValue}
-                              onEditValue={setLeftoverEditValue}
-                              onSaveEdit={async (mealId) => {
-                                const value = Math.max(Number(leftoverEditValue || 0), 0);
-                                await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
-                                setMeals((prev: PlannedMeal[]) =>
-                                  prev.map((m: PlannedMeal) =>
-                                    m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
-                                  )
-                                );
-                                setLeftoverEditMealId(null);
-                              }}
-                              onCancelEdit={() => setLeftoverEditMealId(null)}
                               servingsEditingMealId={servingsEditMealId}
                               servingsEditValue={servingsEditValue}
                               onServingsEditValue={setServingsEditValue}
                               onSaveServingsEdit={async (mealId) => {
-                                const meal = meals.find((row) => row.id === mealId);
-                                if (!meal || meal.type !== "recipe") return;
-                                const next = calculateRecipeMealLeftoverState({
-                                  meal,
-                                  meals,
-                                  nextServingsPlanned: servingsEditValue,
-                                  householdSize
-                                });
-                                if (next.overflowServings > 0) {
-                                  notify(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers clamped to 0.`, "info");
-                                }
-                                await updatePlannedMeal(mealId, {
-                                  servingsPlanned: next.servingsPlanned,
-                                  leftoverServingsRemaining: next.leftoverServingsRemaining
-                                });
+                                const next = Math.max(servingsEditValue, 1);
+                                await updatePlannedMeal(mealId, { servingsPlanned: next });
                                 setMeals((prev: PlannedMeal[]) =>
                                   prev.map((row: PlannedMeal) =>
-                                    row.id === mealId
-                                      ? {
-                                          ...row,
-                                          servingsPlanned: next.servingsPlanned,
-                                          leftoverServingsRemaining: next.leftoverServingsRemaining
-                                        }
-                                      : row
-                                  )
-                                );
-                                setRecentPlanned((prev: PlannedMeal[]) =>
-                                  prev.map((row: PlannedMeal) =>
-                                    row.id === mealId
-                                      ? {
-                                          ...row,
-                                          servingsPlanned: next.servingsPlanned,
-                                          leftoverServingsRemaining: next.leftoverServingsRemaining
-                                        }
-                                      : row
+                                    row.id === mealId ? { ...row, servingsPlanned: next } : row
                                   )
                                 );
                                 setServingsEditMealId(null);
@@ -1286,76 +1044,26 @@ export default function PlannerPage() {
                           slotName={slot.name}
                           meals={meals.filter((meal) => meal.mealSlotId === slot.id && meal.date === day)}
                           recipes={recipes}
-                          allMealsMap={mealsById}
                           slots={slots}
+                          people={people}
                           householdSize={householdSize}
                           onRemove={removeMeal}
-                          onSetLeftovers={async (meal) => {
-                            setServingsEditMealId(null);
-                            setLeftoverEditMealId(meal.id);
-                            setLeftoverEditValue(getEffectiveLeftoverRemaining(meal, householdSize));
-                          }}
                           onSetServings={(meal) => {
-                            setLeftoverEditMealId(null);
                             setServingsEditMealId(meal.id);
                             setServingsEditValue(meal.servingsPlanned ?? householdSize);
                           }}
                           onAdd={(anchorEl) => openInlineAdd({ date: day, mealSlotId: slot.id }, anchorEl)}
                           onCook={openCookModal}
                           onUncook={handleUncook}
-                          editingMealId={leftoverEditMealId}
-                          editValue={leftoverEditValue}
-                          onEditValue={setLeftoverEditValue}
-                          onSaveEdit={async (mealId) => {
-                            const value = Math.max(Number(leftoverEditValue || 0), 0);
-                            await updatePlannedMeal(mealId, { leftoverServingsRemaining: value });
-                            setMeals((prev: PlannedMeal[]) =>
-                              prev.map((m: PlannedMeal) =>
-                                m.id === mealId ? { ...m, leftoverServingsRemaining: value } : m
-                              )
-                            );
-                            setLeftoverEditMealId(null);
-                          }}
-                          onCancelEdit={() => setLeftoverEditMealId(null)}
                           servingsEditingMealId={servingsEditMealId}
                           servingsEditValue={servingsEditValue}
                           onServingsEditValue={setServingsEditValue}
                           onSaveServingsEdit={async (mealId) => {
-                            const meal = meals.find((row) => row.id === mealId);
-                            if (!meal || meal.type !== "recipe") return;
-                            const next = calculateRecipeMealLeftoverState({
-                              meal,
-                              meals,
-                              nextServingsPlanned: servingsEditValue,
-                              householdSize
-                            });
-                            if (next.overflowServings > 0) {
-                              notify(`This meal already has ${next.allocatedLeftovers} leftover servings allocated. Remaining leftovers clamped to 0.`, "info");
-                            }
-                            await updatePlannedMeal(mealId, {
-                              servingsPlanned: next.servingsPlanned,
-                              leftoverServingsRemaining: next.leftoverServingsRemaining
-                            });
+                            const next = Math.max(servingsEditValue, 1);
+                            await updatePlannedMeal(mealId, { servingsPlanned: next });
                             setMeals((prev: PlannedMeal[]) =>
                               prev.map((row: PlannedMeal) =>
-                                row.id === mealId
-                                  ? {
-                                      ...row,
-                                      servingsPlanned: next.servingsPlanned,
-                                      leftoverServingsRemaining: next.leftoverServingsRemaining
-                                    }
-                                  : row
-                              )
-                            );
-                            setRecentPlanned((prev: PlannedMeal[]) =>
-                              prev.map((row: PlannedMeal) =>
-                                row.id === mealId
-                                  ? {
-                                      ...row,
-                                      servingsPlanned: next.servingsPlanned,
-                                      leftoverServingsRemaining: next.leftoverServingsRemaining
-                                    }
-                                  : row
+                                row.id === mealId ? { ...row, servingsPlanned: next } : row
                               )
                             );
                             setServingsEditMealId(null);
@@ -1496,6 +1204,15 @@ export default function PlannerPage() {
           </button>
         </div>
       )}
+      <TripSetupModal
+        open={tripModalOpen}
+        initialLocationId={plannerLocationId || undefined}
+        initialStartDate={anchorDate}
+        onClose={() => {
+          setTripModalOpen(false);
+          void refreshMeals();
+        }}
+      />
       {cookMeal && cookPlan && (
         <CookMealModal
           open

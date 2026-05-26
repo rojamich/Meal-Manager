@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type { ChangeEvent } from "react";
 import EssentialsSection from "../essentials/EssentialsSection";
+import PeopleSection from "../people/PeopleSection";
 import PricesSection from "../prices/PricesSection";
+import SyncSection from "../sync/SyncSection";
 import { exportAll, importAll } from "../../db/db";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
 import { useToast } from "../../components/useToast";
@@ -39,6 +41,11 @@ export default function SettingsPage() {
   return (
     <div className="grid">
       <details className="panel" open>
+        <summary>Sync</summary>
+        <SyncSection embedded />
+      </details>
+
+      <details className="panel" open>
         <summary>Planner Defaults</summary>
         <label>
           Household size
@@ -69,6 +76,10 @@ export default function SettingsPage() {
         {importError && <p style={{ color: "#dc2626" }}>{importError}</p>}
       </details>
 
+      <details className="panel" open>
+        <summary>People</summary>
+        <PeopleSection embedded />
+      </details>
       <details className="panel">
         <summary>Essentials</summary>
         <EssentialsSection embedded />

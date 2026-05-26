@@ -64,7 +64,30 @@ export interface MealSlot {
   sortOrder: number;
 }
 
-export type PlannedMealType = "recipe" | "leftover" | "freeform";
+export interface Person {
+  id: string;
+  name: string;
+  color?: string;
+  sortOrder: number;
+}
+
+export interface CookedPortion {
+  id: string;
+  recipeId?: string;
+  freeformTitle?: string;
+  servingsTotal: number;
+  servingsRemaining: number;
+  cookedAt: string;
+  expiresAt?: string;
+  locationId?: string;
+  sourcePlannedMealId?: string;
+  archivedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PlannedMealType = "recipe" | "freeform";
 
 export interface PlannedMeal {
   id: string;
@@ -78,6 +101,7 @@ export interface PlannedMeal {
   freeformTitle?: string;
   notes?: string;
   servingsPlanned?: number;
+  assignedTo?: string;
   cookedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -179,11 +203,13 @@ export interface ExportBundle {
     recipeIngredients: RecipeIngredient[];
     mealSlots: MealSlot[];
     plannedMeals: PlannedMeal[];
+    people?: Person[];
     essentialItems: EssentialItem[];
     locationProfiles: LocationProfile[];
     purchaseEntries: PurchaseEntry[];
     groceryLists: GroceryList[];
     groceryLines: GroceryLine[];
     weekTemplates: WeekTemplate[];
+    cookedPortions?: CookedPortion[];
   };
 }

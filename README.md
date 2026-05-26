@@ -34,3 +34,51 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - Go to Settings -> Backup.
 - Click Export JSON to download a full backup of all local data.
 - Use Import JSON to restore on another device. Import replaces existing data.
+
+## Cloud sync (optional)
+
+Cloud sync lets two devices share the same data over Firebase Firestore.
+
+### One-time Firebase setup
+
+1. Create a free project at <https://console.firebase.google.com>.
+2. In the project, enable:
+   - **Authentication** → Sign-in method → **Anonymous** → Enable.
+   - **Cloud Firestore** → Create database → Production mode → pick a region.
+3. Add a web app (gear icon → Project settings → Your apps → Web).
+4. Copy the config values into a new `.env.local` at the project root using this exact format:
+
+   ```env
+   VITE_FIREBASE_API_KEY=...
+   VITE_FIREBASE_AUTH_DOMAIN=...
+   VITE_FIREBASE_PROJECT_ID=...
+   VITE_FIREBASE_STORAGE_BUCKET=...
+   VITE_FIREBASE_MESSAGING_SENDER_ID=...
+   VITE_FIREBASE_APP_ID=...
+   ```
+
+   The API key for a web client is meant to be public — security is enforced by Firestore rules below.
+
+### Set Firestore security rules
+
+This repo includes `firestore.rules` at the root. Apply it once:
+
+**Option A — via the Firebase console (easiest):**
+1. In the Firebase console, open **Firestore Database → Rules**.
+2. Replace the entire contents with the file [`firestore.rules`](./firestore.rules).
+3. Click **Publish**.
+
+**Option B — via the Firebase CLI (if you already have it installed):**
+```sh
+npm install -g firebase-tools
+firebase login
+firebase init firestore   # pick your project; accept defaults; let it use firestore.rules
+firebase deploy --only firestore:rules
+```
+
+### Using sync
+
+1. In the app: **Settings → Sync → Create household**. Copy the 6-character invite code.
+2. On the second device, install the same app, open **Settings → Sync → Join household**, enter the code.
+3. From then on, changes on either device flow to the other (offline writes queue and replay).
+4. Joining replaces the second device's local data with the household's. Export a JSON backup first if anything on it matters.

@@ -1,27 +1,17 @@
 import { useDraggable } from "@dnd-kit/core";
 import { PlannedMeal, Recipe } from "../../models";
-import { getEffectiveLeftoverRemaining } from "./plannerDomain";
 import { tintFromAccent } from "./plannerHelpers";
-import LeftoverBadge from "./LeftoverBadge";
 import MealLabel from "./MealLabel";
 
 export default function DraggableMeal({
   meal,
   recipes,
-  householdSize,
   color,
-  sourceInfo,
-  leftoverChipLabel,
+  personBadge,
   onRemove,
-  onSetLeftovers,
   onSetServings,
   onCook,
   onUncook,
-  isEditing,
-  editValue,
-  onEditValue,
-  onSaveEdit,
-  onCancelEdit,
   isServingsEditing,
   servingsEditValue,
   onServingsEditValue,
@@ -36,20 +26,12 @@ export default function DraggableMeal({
 }: {
   meal: PlannedMeal;
   recipes: Recipe[];
-  householdSize: number;
   color: string;
-  sourceInfo: string;
-  leftoverChipLabel?: string;
+  personBadge?: { name: string; initial: string; color: string };
   onRemove: (id: string) => void | Promise<void>;
-  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   onCook: (meal: PlannedMeal) => void | Promise<void>;
   onUncook: (meal: PlannedMeal) => void | Promise<void>;
-  isEditing: boolean;
-  editValue: number;
-  onEditValue: (value: number) => void;
-  onSaveEdit: () => void | Promise<void>;
-  onCancelEdit: () => void;
   isServingsEditing: boolean;
   servingsEditValue: number;
   onServingsEditValue: (value: number) => void;
@@ -70,7 +52,6 @@ export default function DraggableMeal({
     opacity: isDragging ? 0.6 : 1,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
   };
-  const remaining = getEffectiveLeftoverRemaining(meal, householdSize);
 
   return (
     <div
@@ -109,26 +90,21 @@ export default function DraggableMeal({
           ::
         </button>
       )}
-      <span
-        className="meal-primary-label"
-        title={meal.type === "leftover" ? sourceInfo : undefined}
-        tabIndex={meal.type === "leftover" ? 0 : -1}
-        aria-label={meal.type === "leftover" ? sourceInfo : undefined}
-      >
-        {meal.type === "leftover" && leftoverChipLabel ? (
-          leftoverChipLabel
-        ) : (
-          <MealLabel meal={meal} recipes={recipes} householdSize={householdSize} showRemaining={false} />
-        )}
+      {personBadge && (
+        <span
+          className="person-badge"
+          style={{ background: personBadge.color }}
+          title={personBadge.name}
+          aria-label={`Assigned to ${personBadge.name}`}
+        >
+          {personBadge.initial}
+        </span>
+      )}
+      <span className="meal-primary-label">
+        <MealLabel meal={meal} recipes={recipes} />
       </span>
       {meal.type === "recipe" && (
         <>
-          <LeftoverBadge
-            mealId={meal.id}
-            remaining={remaining}
-            onClick={() => onSetLeftovers(meal)}
-            disabled={selectMode}
-          />
           <button
             className="secondary"
             type="button"
@@ -144,7 +120,7 @@ export default function DraggableMeal({
             <button
               type="button"
               className="cooked-badge"
-              title="Mark not cooked (pantry will not be restored)"
+              title="Mark not cooked (the cooked portion in your fridge stays)"
               onClick={(e) => {
                 e.stopPropagation();
                 void onUncook(meal);
@@ -205,26 +181,6 @@ export default function DraggableMeal({
               Servings
             </button>
           )}
-        </div>
-      )}
-      {meal.type === "recipe" && isEditing && (
-        <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-          <label className="field-stack compact-field">
-            <span>Leftovers remaining</span>
-            <input
-              type="number"
-              min="0"
-              value={editValue}
-              onChange={(e) => onEditValue(Number(e.target.value))}
-              style={{ width: 96 }}
-            />
-          </label>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); void onSaveEdit(); }}>
-            Save
-          </button>
-          <button className="secondary" onClick={(e) => { e.stopPropagation(); onCancelEdit(); }}>
-            Cancel
-          </button>
         </div>
       )}
       {meal.type === "recipe" && isServingsEditing && (

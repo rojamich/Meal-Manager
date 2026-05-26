@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Security rules for Meal Manager sync.
+//
+// Model:
+// - Each household is a root document `households/{householdId}`.
+// - The household doc lists `memberIds: [uid, uid, ...]`.
+// - All shared data lives in subcollections of that household
+//   (recipes, plannedMeals, pantryItems, etc.).
+// - An invite-code lookup is stored in `inviteCodes/{code} = { householdId }`.
+// - Any authenticated user (incl. anonymous) can read invite codes by exact ID
+//   to redeem them, then atomically add themselves to the household members.
+//
+// Anyone NOT a member of a household cannot read or write its data.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper — current uid must exist
+    function isSignedIn() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Helper — current uid is a member of this household
+    function isMember(householdId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/households/$(householdId))
+        && request.auth.uid in
+             get(/databases/$(database)/documents/households/$(householdId)).data.memberIds;
+    }
+
+    // Household doc — only members can read.
+    // Create: any signed-in user, but they must include themselves as the only member.
+    // Update: any current member; updates must keep the creator as a member or add
+    //   the current user (to support join-by-invite atomically).
+    // Delete: any current member.
+    match /households/{householdId} {
+      allow read: if isMember(householdId);
+
+      allow create: if isSignedIn()
+        && request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() == 1
+        && request.resource.data.memberIds[0] == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && (
+          // Existing member can update freely (within their household)
+          (request.auth.uid in resource.data.memberIds)
+          ||
+          // Joining: must be adding only yourself, must keep existing members
+          (
+            request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+            && request.auth.uid in request.resource.data.memberIds
+          )
+        );
+
+      allow delete: if isMember(householdId);
+
+      // Shared collections — full CRUD by household members only
+      match /{collection}/{docId} {
+        allow read, write: if isMember(householdId);
+      }
+    }
+
+    // Invite codes — short doc { householdId } at /inviteCodes/{code}
+    // Any signed-in user can read a specific code (to redeem it).
+    // Members can create / delete codes for their own household.
+    match /inviteCodes/{code} {
+      allow get: if isSignedIn();
+      allow list: if false; // never list all codes
+
+      allow create: if isSignedIn()
+        && request.resource.data.householdId is string
+        && isMember(request.resource.data.householdId);
+
+      allow delete: if isSignedIn()
+        && isMember(resource.data.householdId);
+
+      // Codes are immutable once created (delete + recreate to rotate)
+      allow update: if false;
+    }
+  }
+}

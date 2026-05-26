@@ -1,8 +1,19 @@
 import type { ReactNode } from "react";
 import { useDroppable } from "@dnd-kit/core";
-import { MealSlot, PlannedMeal, Recipe } from "../../models";
+import { MealSlot, Person, PlannedMeal, Recipe } from "../../models";
 import DraggableMeal from "./DraggableMeal";
-import { colorFromId, formatWeekdayLabel } from "./plannerHelpers";
+import { colorFromId } from "./plannerHelpers";
+
+function personBadgeFor(meal: PlannedMeal, people: Person[]) {
+  if (!meal.assignedTo) return undefined;
+  const person = people.find((p) => p.id === meal.assignedTo);
+  if (!person) return undefined;
+  return {
+    name: person.name,
+    initial: person.name.charAt(0).toUpperCase() || "?",
+    color: person.color || "#64748b"
+  };
+}
 
 export default function WeekSlotCard({
   day,
@@ -10,20 +21,14 @@ export default function WeekSlotCard({
   slotName,
   meals,
   recipes,
-  allMealsMap,
-  slots,
-  householdSize,
+  slots: _slots,
+  people,
+  householdSize: _householdSize,
   onRemove,
-  onSetLeftovers,
   onSetServings,
   onAdd,
   onCook,
   onUncook,
-  editingMealId,
-  editValue,
-  onEditValue,
-  onSaveEdit,
-  onCancelEdit,
   servingsEditingMealId,
   servingsEditValue,
   onServingsEditValue,
@@ -43,20 +48,15 @@ export default function WeekSlotCard({
   slotName: string;
   meals: PlannedMeal[];
   recipes: Recipe[];
-  allMealsMap: Map<string, PlannedMeal>;
+  allMealsMap?: Map<string, PlannedMeal>;
   slots: MealSlot[];
+  people: Person[];
   householdSize: number;
   onRemove: (id: string) => void | Promise<void>;
-  onSetLeftovers: (meal: PlannedMeal) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   onAdd: (anchorEl: HTMLElement) => void | Promise<void>;
   onCook: (meal: PlannedMeal) => void | Promise<void>;
   onUncook: (meal: PlannedMeal) => void | Promise<void>;
-  editingMealId: string | null;
-  editValue: number;
-  onEditValue: (value: number) => void;
-  onSaveEdit: (mealId: string) => void | Promise<void>;
-  onCancelEdit: () => void;
   servingsEditingMealId: string | null;
   servingsEditValue: number;
   onServingsEditValue: (value: number) => void;
@@ -72,36 +72,7 @@ export default function WeekSlotCard({
   onCellClick: (day: string, slotId: string) => void | Promise<void>;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `cell:${day}:${slotId}` });
-  const recipeTitle = (recipeId?: string) => recipes.find((r) => r.id === recipeId)?.title || "Recipe";
-  const slotLabel = (mealSlotId?: string) => slots.find((slot) => slot.id === mealSlotId)?.name || "Slot";
-
-  const colorForMeal = (meal: PlannedMeal) => {
-    let colorKey = meal.recipeId || meal.id;
-    if (meal.type === "leftover") {
-      const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-      const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-      colorKey = source?.recipeId || colorKey;
-    }
-    return colorFromId(colorKey);
-  };
-
-  const sourceInfo = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return "";
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (!source) return "From: Unknown";
-    return `From: ${recipeTitle(source.recipeId)} (${formatWeekdayLabel(source.date)} ${slotLabel(source.mealSlotId)})`;
-  };
-
-  const leftoverChipLabel = (meal: PlannedMeal) => {
-    if (meal.type !== "leftover") return undefined;
-    const sourceId = meal.leftoverSourceMealId || meal.sourcePlannedMealId;
-    const source = sourceId ? allMealsMap.get(sourceId) : undefined;
-    if (source?.recipeId) return `Leftover: ${recipeTitle(source.recipeId)}`;
-    if (source?.freeformTitle) return `Leftover: ${source.freeformTitle}`;
-    if (meal.freeformTitle) return `Leftover: ${meal.freeformTitle}`;
-    return "Leftover";
-  };
+  const colorForMeal = (meal: PlannedMeal) => colorFromId(meal.recipeId || meal.id);
 
   return (
     <div
@@ -124,20 +95,12 @@ export default function WeekSlotCard({
           key={meal.id}
           meal={meal}
           recipes={recipes}
-          householdSize={householdSize}
           color={colorForMeal(meal)}
-          sourceInfo={sourceInfo(meal)}
-          leftoverChipLabel={leftoverChipLabel(meal)}
+          personBadge={personBadgeFor(meal, people)}
           onRemove={onRemove}
-          onSetLeftovers={onSetLeftovers}
           onSetServings={onSetServings}
           onCook={onCook}
           onUncook={onUncook}
-          isEditing={editingMealId === meal.id}
-          editValue={editValue}
-          onEditValue={onEditValue}
-          onSaveEdit={() => onSaveEdit(meal.id)}
-          onCancelEdit={onCancelEdit}
           isServingsEditing={servingsEditingMealId === meal.id}
           servingsEditValue={servingsEditValue}
           onServingsEditValue={onServingsEditValue}

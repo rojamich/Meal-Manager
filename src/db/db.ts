@@ -8,12 +8,16 @@ import {
   PlannedMeal,
   EssentialItem,
   LocationProfile,
+  Person,
+  CookedPortion,
   PurchaseEntry,
   GroceryList,
   GroceryLine,
   WeekTemplate,
   ExportBundle
 } from "../models";
+import { STARTER_WEEK_TEMPLATES } from "./seedTemplates";
+import { newId } from "../utils/id";
 
 class MealDb extends Dexie {
   pantryItems!: Table<PantryItem, string>;
@@ -28,6 +32,8 @@ class MealDb extends Dexie {
   groceryLists!: Table<GroceryList, string>;
   groceryLines!: Table<GroceryLine, string>;
   weekTemplates!: Table<WeekTemplate, string>;
+  people!: Table<Person, string>;
+  cookedPortions!: Table<CookedPortion, string>;
 
   constructor() {
     super("meal-manager-db");
@@ -156,6 +162,65 @@ class MealDb extends Dexie {
           if (!item.storageType) item.storageType = "pantry";
         });
       });
+
+    this.version(7).stores({
+      pantryItems: "id, name, category, storageType",
+      inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+      recipes: "id, title",
+      recipeIngredients: "id, recipeId, pantryItemId",
+      mealSlots: "id, sortOrder",
+      plannedMeals: "id, date, mealSlotId, type, recipeId, assignedTo",
+      essentialItems: "id, pantryItemId, category",
+      locationProfiles: "id, name",
+      purchaseEntries: "id, pantryItemId, locationId, date",
+      groceryLists: "id, createdAt, startDate, endDate, locationId",
+      groceryLines: "id, groceryListId, pantryItemId, checked",
+      weekTemplates: "id, name, locationId, createdAt",
+      people: "id, name, sortOrder"
+    });
+
+    this.version(8).stores({
+      pantryItems: "id, name, category, storageType",
+      inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+      recipes: "id, title",
+      recipeIngredients: "id, recipeId, pantryItemId",
+      mealSlots: "id, sortOrder",
+      plannedMeals: "id, date, mealSlotId, type, recipeId, assignedTo",
+      essentialItems: "id, pantryItemId, category",
+      locationProfiles: "id, name",
+      purchaseEntries: "id, pantryItemId, locationId, date",
+      groceryLists: "id, createdAt, startDate, endDate, locationId",
+      groceryLines: "id, groceryListId, pantryItemId, checked",
+      weekTemplates: "id, name, locationId, createdAt",
+      people: "id, name, sortOrder",
+      cookedPortions: "id, recipeId, cookedAt, archivedAt, locationId, sourcePlannedMealId"
+    });
+
+    this.version(9)
+      .stores({
+        pantryItems: "id, name, category, storageType",
+        inventoryLots: "id, pantryItemId, locationId, archivedAt, expiresAt",
+        recipes: "id, title",
+        recipeIngredients: "id, recipeId, pantryItemId",
+        mealSlots: "id, sortOrder",
+        plannedMeals: "id, date, mealSlotId, type, recipeId, assignedTo",
+        essentialItems: "id, pantryItemId, category",
+        locationProfiles: "id, name",
+        purchaseEntries: "id, pantryItemId, locationId, date",
+        groceryLists: "id, createdAt, startDate, endDate, locationId",
+        groceryLines: "id, groceryListId, pantryItemId, checked",
+        weekTemplates: "id, name, locationId, createdAt",
+        people: "id, name, sortOrder",
+        cookedPortions: "id, recipeId, cookedAt, archivedAt, locationId, sourcePlannedMealId"
+      })
+      .upgrade(async (tx) => {
+        await tx.table("plannedMeals").toCollection().modify((meal: any) => {
+          if (meal.type === "leftover") {
+            meal.type = "freeform";
+            if (!meal.freeformTitle) meal.freeformTitle = "Leftovers";
+          }
+        });
+      });
   }
 }
 
@@ -176,6 +241,24 @@ async function seedDefaults() {
       { id: "snack", name: "Snack", sortOrder: 4 }
     ]);
   }
+  const peopleCount = await db.people.count();
+  if (peopleCount === 0) {
+    await db.people.bulkAdd([
+      { id: "person-mike", name: "Mike", color: "#2563eb", sortOrder: 1 },
+      { id: "person-jen", name: "Jen", color: "#db2777", sortOrder: 2 }
+    ]);
+  }
+  const templateCount = await db.weekTemplates.count();
+  if (templateCount === 0) {
+    const now = new Date().toISOString();
+    await db.weekTemplates.bulkAdd(
+      STARTER_WEEK_TEMPLATES.map((template) => ({
+        ...template,
+        id: newId(),
+        createdAt: now
+      }))
+    );
+  }
 }
 
 export async function exportAll(): Promise<ExportBundle> {
@@ -194,7 +277,9 @@ export async function exportAll(): Promise<ExportBundle> {
       purchaseEntries: await db.purchaseEntries.toArray(),
       groceryLists: await db.groceryLists.toArray(),
       groceryLines: await db.groceryLines.toArray(),
-      weekTemplates: await db.weekTemplates.toArray()
+      weekTemplates: await db.weekTemplates.toArray(),
+      people: await db.people.toArray(),
+      cookedPortions: await db.cookedPortions.toArray()
     }
   };
   return bundle;
@@ -221,7 +306,9 @@ function validateBundle(bundle: unknown): ExportBundle {
     purchaseEntries: arr(b.data.purchaseEntries),
     groceryLists: arr(b.data.groceryLists),
     groceryLines: arr(b.data.groceryLines),
-    weekTemplates: arr(b.data.weekTemplates)
+    weekTemplates: arr(b.data.weekTemplates),
+    people: arr(b.data.people),
+    cookedPortions: arr(b.data.cookedPortions)
   };
   if (!data.pantryItems.length && !data.recipes.length && !data.plannedMeals.length) {
     throw new Error("Backup file looks empty — no pantry items, recipes, or planned meals found.");
@@ -249,7 +336,9 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
       db.purchaseEntries,
       db.groceryLists,
       db.groceryLines,
-      db.weekTemplates
+      db.weekTemplates,
+      db.people,
+      db.cookedPortions
     ],
     async () => {
       if (replaceAll) {
@@ -265,7 +354,9 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
           db.purchaseEntries.clear(),
           db.groceryLists.clear(),
           db.groceryLines.clear(),
-          db.weekTemplates.clear()
+          db.weekTemplates.clear(),
+          db.people.clear(),
+          db.cookedPortions.clear()
         ]);
       }
       await db.pantryItems.bulkPut(bundle.data.pantryItems);
@@ -280,6 +371,8 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
       await db.groceryLists.bulkPut(bundle.data.groceryLists);
       await db.groceryLines.bulkPut(bundle.data.groceryLines);
       await db.weekTemplates.bulkPut(bundle.data.weekTemplates);
+      await db.people.bulkPut(bundle.data.people || []);
+      await db.cookedPortions.bulkPut(bundle.data.cookedPortions || []);
     }
   );
   await seedDefaults();

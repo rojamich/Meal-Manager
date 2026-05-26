@@ -4,8 +4,22 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./app/App";
 import "./index.css";
 import { initDb } from "./db/db";
+import { ensureSignedIn } from "./sync/auth";
+import { getActiveHouseholdId } from "./sync/householdRepo";
+import { syncEngine } from "./sync/syncEngine";
 
-initDb();
+async function boot() {
+  await initDb();
+  try {
+    const uid = await ensureSignedIn();
+    if (uid && getActiveHouseholdId()) {
+      await syncEngine.start(getActiveHouseholdId(), "reconnect");
+    }
+  } catch (err) {
+    console.warn("[sync] startup failed", err);
+  }
+}
+void boot();
 registerSW({
   immediate: true
 });

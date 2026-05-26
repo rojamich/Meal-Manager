@@ -1,7 +1,11 @@
 import { InventoryLot, LocationProfile, PantryItem, PlannedMeal, Recipe, RecipeIngredient } from "../../models";
 import { applyLotConsumption } from "../../db/repositories/inventoryRepo";
 import { updatePlannedMeal } from "../../db/repositories/mealPlanRepo";
+import { createCookedPortion } from "../../db/repositories/cookedPortionsRepo";
+import { addDays, dateKey } from "../../utils/date";
 import { roundQty } from "../../utils/math";
+
+const DEFAULT_COOKED_SHELF_LIFE_DAYS = 4;
 
 export interface CookLotAllocation {
   lotId: string;
@@ -162,9 +166,11 @@ export function buildCookPlan({
 export interface CommitCookInput {
   meal: PlannedMeal;
   plan: CookPlan;
+  recipe?: Recipe;
+  locationId?: string;
 }
 
-export async function commitCook({ meal, plan }: CommitCookInput) {
+export async function commitCook({ meal, plan, recipe, locationId }: CommitCookInput) {
   const consumptions = plan.ingredients
     .filter((ing) => !ing.altGroupSkipped)
     .flatMap((ing) =>
@@ -175,7 +181,19 @@ export async function commitCook({ meal, plan }: CommitCookInput) {
   if (consumptions.length) {
     await applyLotConsumption(consumptions);
   }
-  await updatePlannedMeal(meal.id, { cookedAt: new Date().toISOString() });
+  const cookedAt = new Date().toISOString();
+  const servingsTotal = Math.max(meal.servingsPlanned ?? 1, 1);
+  await createCookedPortion({
+    recipeId: meal.recipeId,
+    freeformTitle: meal.recipeId ? undefined : meal.freeformTitle || recipe?.title || "Cooked meal",
+    servingsTotal,
+    servingsRemaining: servingsTotal,
+    cookedAt,
+    expiresAt: dateKey(addDays(new Date(), DEFAULT_COOKED_SHELF_LIFE_DAYS)),
+    locationId,
+    sourcePlannedMealId: meal.id
+  });
+  await updatePlannedMeal(meal.id, { cookedAt });
 }
 
 export async function uncookMeal(meal: PlannedMeal) {
