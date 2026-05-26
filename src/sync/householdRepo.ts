@@ -8,8 +8,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
-  updateDoc,
-  writeBatch
+  updateDoc
 } from "firebase/firestore";
 import { ensureSignedIn } from "./auth";
 import { getFirebaseDb } from "./firebase";
@@ -93,18 +92,28 @@ export async function createHousehold(name?: string): Promise<{ householdId: str
   const householdRef = doc(collection(db, "households"));
   const code = await uniqueInviteCode();
 
-  const batch = writeBatch(db);
-  batch.set(householdRef, {
+  // NOTE: must be sequential, not a batch. The invite-code rule checks
+  // isMember(householdId) via get(), which can't see writes from the same batch.
+  await setDoc(householdRef, {
     name: name || null,
     ownerId: uid,
     memberIds: [uid],
     createdAt: serverTimestamp()
   });
-  batch.set(doc(db, "inviteCodes", code), {
-    householdId: householdRef.id,
-    createdAt: serverTimestamp()
-  });
-  await batch.commit();
+  try {
+    await setDoc(doc(db, "inviteCodes", code), {
+      householdId: householdRef.id,
+      createdAt: serverTimestamp()
+    });
+  } catch (err) {
+    // Best-effort cleanup so we don't leave an orphan household if invite-code create fails.
+    try {
+      await deleteDoc(householdRef);
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
 
   setActive(householdRef.id, code);
   return { householdId: householdRef.id, code };
@@ -176,13 +185,17 @@ export async function rotateInviteCode(): Promise<string> {
   if (!householdId) throw new Error("No active household.");
   const oldCode = getActiveInviteCode();
   const newCode = await uniqueInviteCode();
-  const batch = writeBatch(db);
-  batch.set(doc(db, "inviteCodes", newCode), {
+  await setDoc(doc(db, "inviteCodes", newCode), {
     householdId,
     createdAt: serverTimestamp()
   });
-  if (oldCode) batch.delete(doc(db, "inviteCodes", oldCode));
-  await batch.commit();
+  if (oldCode) {
+    try {
+      await deleteDoc(doc(db, "inviteCodes", oldCode));
+    } catch {
+      /* ignore */
+    }
+  }
   setActive(householdId, newCode);
   return newCode;
 }
@@ -213,5 +226,3 @@ export function subscribeToHousehold(
   );
 }
 
-// Convenience: also call setDoc helper for new households created via batch above so TS knows it.
-void setDoc;

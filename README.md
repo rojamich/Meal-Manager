@@ -76,6 +76,22 @@ firebase init firestore   # pick your project; accept defaults; let it use fires
 firebase deploy --only firestore:rules
 ```
 
+### Enable sync on the deployed site (GitHub Pages)
+
+`.env.local` is git-ignored, so the GitHub Actions build doesn't have access to your Firebase config. Add the values as **repository secrets** so they're injected at build time:
+
+1. In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret.**
+2. Add each of these (same names and values as in `.env.local`):
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_PROJECT_ID`
+   - `VITE_FIREBASE_STORAGE_BUCKET`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+   - `VITE_FIREBASE_APP_ID`
+3. Push to `main` (or re-run the latest workflow) — the next deploy will include them.
+
+These are public client values; the security model is the Firestore rules, not hiding the API key.
+
 ### Using sync
 
 1. In the app: **Settings → Sync → Create household**. Copy the 6-character invite code.

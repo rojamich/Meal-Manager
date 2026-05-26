@@ -74,7 +74,11 @@ export function getFirebaseDb(): Firestore | null {
     cachedDb = initializeFirestore(app, {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager()
-      })
+      }),
+      // Many ad-blockers (uBlock, Brave Shields, AdGuard) block Firestore's default
+      // WebChannel transport. Auto-detect falls back to long polling over plain HTTPS,
+      // which they generally let through.
+      experimentalAutoDetectLongPolling: true
     });
   } catch (err) {
     if (typeof console !== "undefined") {
