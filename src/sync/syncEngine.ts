@@ -14,6 +14,18 @@ import { getFirebaseDb } from "./firebase";
 export type SyncMode = "create" | "join" | "reconnect";
 export type SyncStatus = "off" | "starting" | "syncing" | "synced" | "error";
 
+export const SYNC_REMOTE_APPLIED_EVENT = "sync-remote-applied";
+
+export interface SyncRemoteAppliedDetail {
+  tableName: string;
+  docId: string;
+  type: "added" | "modified" | "removed";
+  data: any | null;
+  previous: any | null;
+}
+
+const ECHO_GUARD_MS = 4000;
+
 interface SyncListener {
   (status: SyncStatus, error?: string): void;
 }
@@ -59,10 +71,16 @@ class SyncEngine {
   private hookHandlers: Array<{ table: Table<any, string>; event: string; fn: any }> = [];
   private inflight = new Set<string>(); // `${table}:${id}` currently being applied from cloud
   private pendingPushes = new Map<string, any | null>(); // `${table}:${id}` → data or null for delete
+  private recentLocalPushes = new Map<string, number>(); // `${table}:${id}` → ts of last outgoing push
   private flushHandle: number | null = null;
+  private lastIncomingAt: number | null = null;
 
   getStatus(): { status: SyncStatus; householdId: string | null; error: string | null } {
     return { status: this.status, householdId: this.householdId, error: this.error };
+  }
+
+  getLastIncomingAt(): number | null {
+    return this.lastIncomingAt;
   }
 
   subscribe(listener: SyncListener): () => void {
@@ -135,6 +153,8 @@ class SyncEngine {
     }
     this.pendingPushes.clear();
     this.inflight.clear();
+    this.recentLocalPushes.clear();
+    this.lastIncomingAt = null;
     this.householdId = null;
     this.setStatus("off");
   }
@@ -206,6 +226,21 @@ class SyncEngine {
           snap.docChanges().forEach(async (change) => {
             const id = change.doc.id;
             const key = `${spec.name}:${id}`;
+            const isPendingLocalWrite = change.doc.metadata.hasPendingWrites;
+            const recentlyPushedAt = this.recentLocalPushes.get(key);
+            const isEcho =
+              isPendingLocalWrite ||
+              (recentlyPushedAt != null && Date.now() - recentlyPushedAt < ECHO_GUARD_MS);
+
+            let previous: any = null;
+            if (!isEcho) {
+              try {
+                previous = (await spec.table().get(id)) || null;
+              } catch {
+                previous = null;
+              }
+            }
+
             this.inflight.add(key);
             try {
               if (change.type === "removed") {
@@ -218,6 +253,22 @@ class SyncEngine {
               console.warn(`[sync] listener apply failed for ${key}`, err);
             } finally {
               this.inflight.delete(key);
+            }
+
+            if (!isEcho) {
+              this.lastIncomingAt = Date.now();
+              const detail: SyncRemoteAppliedDetail = {
+                tableName: spec.name,
+                docId: id,
+                type: change.type,
+                data: change.type === "removed" ? null : (change.doc.data() as any),
+                previous
+              };
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent(SYNC_REMOTE_APPLIED_EVENT, { detail }));
+              }
+              // Re-notify subscribers so they can pick up the lastIncomingAt change.
+              this.listeners.forEach((l) => l(this.status, this.error || undefined));
             }
           });
         },
@@ -286,8 +337,10 @@ class SyncEngine {
     this.pendingPushes.clear();
     this.setStatus("syncing");
     let lastError: string | null = null;
+    const now = Date.now();
     for (const [key, data] of entries) {
       const [tableName, docId] = key.split(":");
+      this.recentLocalPushes.set(key, now);
       try {
         const ref = doc(fdb, "households", householdId, tableName, docId);
         if (data == null) {
@@ -299,6 +352,10 @@ class SyncEngine {
         console.warn(`[sync] push failed for ${key}`, err);
         lastError = err?.message || String(err);
       }
+    }
+    // Prune the echo-guard map periodically.
+    for (const [k, ts] of this.recentLocalPushes) {
+      if (now - ts > ECHO_GUARD_MS * 2) this.recentLocalPushes.delete(k);
     }
     if (lastError) {
       this.setStatus("error", lastError);

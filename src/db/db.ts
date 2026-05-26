@@ -232,6 +232,15 @@ export async function initDb() {
 }
 
 async function seedDefaults() {
+  // When the device is connected to a sync household, the cloud is the source of truth.
+  // Skip local seeding so deleted items don't get resurrected on reload (and pushed back up).
+  if (typeof window !== "undefined") {
+    try {
+      if (window.localStorage.getItem("active-household-id")) return;
+    } catch {
+      /* ignore storage errors */
+    }
+  }
   const count = await db.mealSlots.count();
   if (count === 0) {
     await db.mealSlots.bulkAdd([

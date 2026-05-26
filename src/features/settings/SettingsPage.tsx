@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { ChangeEvent } from "react";
 import EssentialsSection from "../essentials/EssentialsSection";
 import PeopleSection from "../people/PeopleSection";
 import PricesSection from "../prices/PricesSection";
-import SyncSection from "../sync/SyncSection";
+
+const SyncSection = lazy(() => import("../sync/SyncSection"));
 import { exportAll, importAll } from "../../db/db";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
 import { useToast } from "../../components/useToast";
@@ -42,7 +43,9 @@ export default function SettingsPage() {
     <div className="grid">
       <details className="panel" open>
         <summary>Sync</summary>
-        <SyncSection embedded />
+        <Suspense fallback={<p className="muted">Loading sync…</p>}>
+          <SyncSection embedded />
+        </Suspense>
       </details>
 
       <details className="panel" open>

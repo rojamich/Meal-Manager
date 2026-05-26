@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import ActiveLocationPicker from "../features/locations/ActiveLocationPicker";
+import SyncActivityWatcher from "../components/SyncActivityWatcher";
 
 export default function Layout() {
   const location = useLocation();
@@ -20,6 +21,7 @@ export default function Layout() {
       <main className={`container${isPlannerRoute ? " container--wide" : ""}`}>
         <Outlet />
       </main>
+      <SyncActivityWatcher />
     </div>
   );
 }

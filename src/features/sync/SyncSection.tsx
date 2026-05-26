@@ -30,6 +30,18 @@ function statusLabel(status: SyncStatus) {
   }
 }
 
+function relativeTime(ts: number): string {
+  const diffMs = Date.now() - ts;
+  const sec = Math.max(Math.round(diffMs / 1000), 0);
+  if (sec < 60) return "just now";
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  return `${day}d ago`;
+}
+
 function statusClass(status: SyncStatus) {
   switch (status) {
     case "synced":
@@ -49,6 +61,8 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
   const configured = isFirebaseConfigured();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("off");
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastIncomingAt, setLastIncomingAt] = useState<number | null>(null);
+  const [, forceTick] = useState(0);
   const [householdId, setHouseholdId] = useState<string>(() => getActiveHouseholdId());
   const [inviteCode, setInviteCode] = useState<string>(() => getActiveInviteCode());
   const [memberCount, setMemberCount] = useState<number>(0);
@@ -62,9 +76,16 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
     const unsub = syncEngine.subscribe((next, err) => {
       setSyncStatus(next);
       setSyncError(err || null);
+      setLastIncomingAt(syncEngine.getLastIncomingAt());
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!lastIncomingAt) return;
+    const id = window.setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [lastIncomingAt]);
 
   useEffect(() => {
     const handler = () => {
@@ -192,6 +213,11 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
         {householdId && (
           <span className="muted">
             {memberCount} member{memberCount === 1 ? "" : "s"}
+          </span>
+        )}
+        {householdId && lastIncomingAt && (
+          <span className="muted" title="Most recent change from another device">
+            • Last update from another device: {relativeTime(lastIncomingAt)}
           </span>
         )}
       </div>
