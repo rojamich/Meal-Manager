@@ -18,6 +18,8 @@ import { pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { getActiveLocationId } from "../locations/activeLocation";
+import { getUnitDisplayMode } from "../settings/preferences";
+import { imperialAlternate } from "../../utils/unitConversion";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -36,6 +38,24 @@ export default function GroceryPage() {
   );
   const { requestChoice, modal } = useConfirmChoiceModal();
   const { notify, toast } = useToast();
+  const [unitDisplayMode, setUnitDisplayModeState] = useState(() => getUnitDisplayMode());
+
+  useEffect(() => {
+    const handler = () => setUnitDisplayModeState(getUnitDisplayMode());
+    window.addEventListener("unit-display-mode-changed", handler);
+    return () => window.removeEventListener("unit-display-mode-changed", handler);
+  }, []);
+
+  const formatQty = useCallback(
+    (qty: number, unit: string) => {
+      if (!(qty > 0)) return "-";
+      const base = `${qty} ${unit}`;
+      if (unitDisplayMode !== "metric-plus-imperial") return base;
+      const alt = imperialAlternate(qty, unit);
+      return alt ? `${base} · ≈ ${alt}` : base;
+    },
+    [unitDisplayMode]
+  );
 
   const [settings, setSettings] = useState<GrocerySettings>(() => ({
     startDate: dateKey(new Date()),
@@ -222,7 +242,7 @@ export default function GroceryPage() {
       .map((line) => {
         const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
         const name = line.freeformLabel || item?.name || "Item";
-        const qtyText = line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-";
+        const qtyText = formatQty(line.toBuyQty, line.unit);
         return `${name} - ${qtyText}`;
       })
       .join("\n");
@@ -463,10 +483,15 @@ export default function GroceryPage() {
                     return (
                       <Fragment key={line.id}>
                       <tr key={line.id} className={line.freeformLabel && line.toBuyQty === 0 ? "note-row" : undefined}>
-                        <td data-label="Item">{line.freeformLabel || item?.name}</td>
-                        <td data-label="To buy">
-                          {line.toBuyQty > 0 ? `${line.toBuyQty} ${line.unit}` : "-"}
+                        <td data-label="Item">
+                          {line.freeformLabel || item?.name}
+                          {item?.notes && (
+                            <div className="muted" style={{ fontSize: 12, marginTop: 2, fontWeight: 400 }}>
+                              {item.notes}
+                            </div>
+                          )}
                         </td>
+                        <td data-label="To buy">{formatQty(line.toBuyQty, line.unit)}</td>
                         <td data-label="Purchased">
                           {line.checked && line.toBuyQty > 0 && (line.pantryItemId || line.altOptionsJson) ? (
                             <input

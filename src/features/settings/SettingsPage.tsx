@@ -7,12 +7,14 @@ import PricesSection from "../prices/PricesSection";
 const SyncSection = lazy(() => import("../sync/SyncSection"));
 import { exportAll, importAll } from "../../db/db";
 import { seedExampleData } from "../../db/seedExamples";
-import { getHouseholdSize, setHouseholdSize } from "./preferences";
+import { getHouseholdSize, getUnitDisplayMode, setHouseholdSize, setUnitDisplayMode } from "./preferences";
+import type { UnitDisplayMode } from "../../utils/unitConversion";
 import { useToast } from "../../components/useToast";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
+  const [unitDisplayMode, setUnitDisplayModeState] = useState<UnitDisplayMode>(getUnitDisplayMode());
   const [seedingBusy, setSeedingBusy] = useState(false);
   const { notify, toast } = useToast();
 
@@ -84,6 +86,23 @@ export default function SettingsPage() {
           />
         </label>
         <p className="muted">Used for default planned servings and leftover calculations.</p>
+        <hr style={{ margin: "12px 0" }} />
+        <label>
+          <input
+            type="checkbox"
+            checked={unitDisplayMode === "metric-plus-imperial"}
+            onChange={(e) => {
+              const next: UnitDisplayMode = e.target.checked ? "metric-plus-imperial" : "metric";
+              setUnitDisplayModeState(next);
+              setUnitDisplayMode(next);
+              window.dispatchEvent(new CustomEvent("unit-display-mode-changed"));
+            }}
+          />
+          {" "}Show imperial alongside metric on the grocery list
+        </label>
+        <p className="muted" style={{ fontSize: 12 }}>
+          Displays oz/lb next to grams and fl oz/cups next to ml. Helpful when shopping in countries that use imperial.
+        </p>
       </details>
 
       <details className="panel" open>

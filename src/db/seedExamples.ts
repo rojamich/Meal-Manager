@@ -17,36 +17,39 @@ interface PantrySpec {
   baseUnit: BaseUnit;
   defaultShelfLifeDays?: number;
   defaultAfterOpeningDays?: number;
+  /** Buying-form hint shown inline on the grocery list. Use to call out raw vs cooked,
+   * drained vs canned, typical pack size, etc. */
+  notes?: string;
 }
 
 const PANTRY_ITEMS: PantrySpec[] = [
-  { name: "Eggs", category: "dairy", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 28, defaultAfterOpeningDays: 7 },
-  { name: "Bread", category: "bakery", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5 },
-  { name: "Rice", category: "pantry_dry", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 365 },
-  { name: "Cilantro", category: "produce", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5 },
-  { name: "Carrots", category: "produce", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 30, defaultAfterOpeningDays: 14 },
-  { name: "Spicy garlic chili sauce", category: "condiments", storageType: "fridge", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 180 },
-  { name: "Frozen breaded chicken", category: "protein_frozen", storageType: "freezer", baseUnit: "count", defaultShelfLifeDays: 180, defaultAfterOpeningDays: 30 },
-  { name: "Hot sauce", category: "condiments", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 730 },
-  { name: "Bell peppers", category: "produce", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5 },
-  { name: "Onion", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 30, defaultAfterOpeningDays: 7 },
-  { name: "Garlic", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 60, defaultAfterOpeningDays: 21 },
-  { name: "Soy sauce", category: "condiments", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 365 },
-  { name: "Olive oil", category: "pantry_dry", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 180 },
-  { name: "Butter", category: "dairy", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 60, defaultAfterOpeningDays: 21 },
-  { name: "Spicy mayo", category: "condiments", storageType: "fridge", baseUnit: "ml", defaultShelfLifeDays: 90, defaultAfterOpeningDays: 60 },
-  { name: "Garlic powder", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730 },
-  { name: "Paprika", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730 },
-  { name: "Onion powder", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730 },
-  { name: "Corn (canned)", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 5 },
-  { name: "Bananas", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 7 },
-  { name: "Coffee", category: "pantry_dry", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 180, defaultAfterOpeningDays: 60 },
-  { name: "Chicken thighs", category: "protein_fresh", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 3, defaultAfterOpeningDays: 1 },
-  { name: "Shrimp", category: "protein_fresh", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 2, defaultAfterOpeningDays: 1 },
-  { name: "Black beans (canned)", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 5 },
-  { name: "Tortillas", category: "bakery", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 14, defaultAfterOpeningDays: 7 },
-  { name: "Chicken stock", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 7 },
-  { name: "Lime", category: "produce", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 21, defaultAfterOpeningDays: 7 }
+  { name: "Eggs", category: "dairy", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 28, defaultAfterOpeningDays: 7, notes: "Sold by the dozen or half dozen." },
+  { name: "Bread", category: "bakery", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5, notes: "Count = slices. A typical loaf is 18-22 slices." },
+  { name: "Rice", category: "pantry_dry", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 365, notes: "Buy DRY (uncooked). 100g dry ≈ 250g cooked. Sold in 500g, 1kg, or 2kg bags." },
+  { name: "Cilantro", category: "produce", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5, notes: "Sold by the bunch (~30-50g). 10g ≈ a small handful chopped." },
+  { name: "Carrots", category: "produce", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 30, defaultAfterOpeningDays: 14, notes: "1 medium carrot ≈ 60-80g." },
+  { name: "Spicy garlic chili sauce", category: "condiments", storageType: "fridge", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 180, notes: "Sambal oelek, gochujang, or local chili-garlic sauce all work. 200ml bottle is plenty." },
+  { name: "Frozen breaded chicken", category: "protein_frozen", storageType: "freezer", baseUnit: "count", defaultShelfLifeDays: 180, defaultAfterOpeningDays: 30, notes: "Count = pieces (cutlets/tenders). Read package for cook time/temp." },
+  { name: "Hot sauce", category: "condiments", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 730, notes: "Tabasco, sriracha, or local equivalent. 150ml bottle lasts a long time." },
+  { name: "Bell peppers", category: "produce", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 7, defaultAfterOpeningDays: 5, notes: "Count = whole peppers (~150g each). Any color." },
+  { name: "Onion", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 30, defaultAfterOpeningDays: 7, notes: "Count = whole onions (~150-200g each). Yellow or red." },
+  { name: "Garlic", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 60, defaultAfterOpeningDays: 21, notes: "Count = CLOVES, not bulbs. A typical bulb has 8-12 cloves." },
+  { name: "Soy sauce", category: "condiments", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 365, notes: "Light/regular soy. 150ml or 500ml bottle." },
+  { name: "Olive oil", category: "pantry_dry", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 180, notes: "Sold in 250ml/500ml/1L bottles. Any neutral cooking oil substitutes fine." },
+  { name: "Butter", category: "dairy", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 60, defaultAfterOpeningDays: 21, notes: "Sold in 200g or 250g blocks (or ~454g/1 lb in US)." },
+  { name: "Spicy mayo", category: "condiments", storageType: "fridge", baseUnit: "ml", defaultShelfLifeDays: 90, defaultAfterOpeningDays: 60, notes: "Often a squeeze bottle, 250-500ml. Or DIY: mayo + sriracha 2:1." },
+  { name: "Garlic powder", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, notes: "Small jar (~50-60g) lasts months." },
+  { name: "Paprika", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, notes: "Sweet/regular paprika. Small jar (~50-60g) lasts months." },
+  { name: "Onion powder", category: "spices", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, notes: "Small jar (~50-60g) lasts months." },
+  { name: "Corn (canned)", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 5, notes: "DRAINED weight. A 400g (15oz) can yields ~240g drained — buy whole cans, the recipes assume drained." },
+  { name: "Bananas", category: "produce", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 7, notes: "Count = whole bananas." },
+  { name: "Coffee", category: "pantry_dry", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 180, defaultAfterOpeningDays: 60, notes: "Whole bean or ground. 500g lasts ~2 weeks at 2 cups/day." },
+  { name: "Chicken thighs", category: "protein_fresh", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 3, defaultAfterOpeningDays: 1, notes: "RAW weight. Boneless skinless preferred (1 thigh ≈ 110-130g)." },
+  { name: "Shrimp", category: "protein_fresh", storageType: "fridge", baseUnit: "g", defaultShelfLifeDays: 2, defaultAfterOpeningDays: 1, notes: "RAW weight, peeled & deveined. Often sold frozen by the bag — thaw before cooking." },
+  { name: "Black beans (canned)", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "g", defaultShelfLifeDays: 730, defaultAfterOpeningDays: 5, notes: "DRAINED weight. A 400g (15oz) can yields ~240g drained — buy whole cans, the recipes assume drained." },
+  { name: "Tortillas", category: "bakery", storageType: "pantry", baseUnit: "count", defaultShelfLifeDays: 14, defaultAfterOpeningDays: 7, notes: "Count = pieces. Sold in packs of 8-12. Corn or flour both work." },
+  { name: "Chicken stock", category: "pantry_canned_jarred", storageType: "pantry", baseUnit: "ml", defaultShelfLifeDays: 365, defaultAfterOpeningDays: 7, notes: "Sold in 500ml or 1L cartons. Low-sodium preferred for cooking flexibility." },
+  { name: "Lime", category: "produce", storageType: "fridge", baseUnit: "count", defaultShelfLifeDays: 21, defaultAfterOpeningDays: 7, notes: "Count = whole limes. ½ lime ≈ 1 tbsp juice." }
 ];
 
 interface EssentialSpec {
@@ -405,7 +408,13 @@ async function ensurePantryItem(spec: PantrySpec, now: string): Promise<string> 
   const existing = (await db.pantryItems.toArray()).find(
     (item) => item.name.trim().toLowerCase() === spec.name.toLowerCase()
   );
-  if (existing) return existing.id;
+  if (existing) {
+    // Backfill notes on previously-seeded items, but never overwrite user-edited notes.
+    if (spec.notes && !existing.notes) {
+      await db.pantryItems.update(existing.id, { notes: spec.notes, updatedAt: now });
+    }
+    return existing.id;
+  }
   const item: PantryItem = {
     id: newId(),
     name: spec.name,
@@ -414,6 +423,7 @@ async function ensurePantryItem(spec: PantrySpec, now: string): Promise<string> 
     baseUnit: spec.baseUnit,
     defaultShelfLifeDays: spec.defaultShelfLifeDays,
     defaultAfterOpeningDays: spec.defaultAfterOpeningDays,
+    notes: spec.notes,
     createdAt: now,
     updatedAt: now
   };
