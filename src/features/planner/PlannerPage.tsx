@@ -22,6 +22,7 @@ import WeekSlotCard from "./WeekSlotCard";
 import { useActiveLocationId } from "../locations/activeLocation";
 import {
   buildInlinePanelStyle,
+  fiveDayRange,
   formatWeekdayLabel,
   monthRange,
   weekRange
@@ -56,7 +57,10 @@ import { useToast } from "../../components/useToast";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
-  const [view, setView] = useState<"week" | "month">("week");
+  type PlannerView = "5day" | "week" | "month";
+  const [view, setView] = useState<PlannerView>("5day");
+  const rangeFor = (v: PlannerView, anchor: string) =>
+    v === "month" ? monthRange(anchor) : v === "week" ? weekRange(anchor) : fiveDayRange(anchor);
   const [anchorDate, setAnchorDate] = useState(dateKey(new Date()));
   const [slots, setSlots] = useState<MealSlot[]>([]);
   const [meals, setMeals] = useState<PlannedMeal[]>([]);
@@ -145,7 +149,7 @@ export default function PlannerPage() {
   }, []);
 
   const refreshMeals = useCallback(async () => {
-    const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
+    const range = rangeFor(view, anchorDate);
     const data = await listPlannedMeals(range.start, range.end);
     setMeals([...data]);
     return data;
@@ -166,7 +170,7 @@ export default function PlannerPage() {
         return undefined;
       }
       const created = result.created;
-      const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
+      const range = rangeFor(view, anchorDate);
       if (created && created.date >= range.start && created.date <= range.end) {
         setMeals((prev: PlannedMeal[]) => [...prev, created as PlannedMeal]);
       }
@@ -322,8 +326,8 @@ export default function PlannerPage() {
   }, [activeSlot, panelAnchorEl]);
 
   const headerLabel = useMemo(() => {
-    if (view === "week") {
-      const range = weekRange(anchorDate);
+    if (view !== "month") {
+      const range = rangeFor(view, anchorDate);
       const start = parseISODate(range.start);
       const end = parseISODate(range.end);
       const startLabel = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -337,7 +341,9 @@ export default function PlannerPage() {
   const navigate = useCallback(
     (direction: -1 | 1) => {
       const base = parseISODate(anchorDate);
-      if (view === "week") {
+      if (view === "5day") {
+        setAnchorDate(dateKey(addDays(base, 5 * direction)));
+      } else if (view === "week") {
         setAnchorDate(dateKey(addDays(base, 7 * direction)));
       } else {
         const next = new Date(base.getFullYear(), base.getMonth() + direction, base.getDate());
@@ -650,7 +656,7 @@ export default function PlannerPage() {
     [anchorDate, householdSize, notify, refreshMeals, requestChoice]
   );
 
-  const range = view === "week" ? weekRange(anchorDate) : monthRange(anchorDate);
+  const range = rangeFor(view, anchorDate);
   const printRange = useMemo(() => weekRange(anchorDate), [anchorDate]);
   const days = useMemo(() => {
     const list: string[] = [];
@@ -795,6 +801,9 @@ export default function PlannerPage() {
             Today
           </button>
           <strong>{headerLabel}</strong>
+          <button className={view === "5day" ? "" : "secondary"} onClick={() => setView("5day")}>
+            5 days
+          </button>
           <button className={view === "week" ? "" : "secondary"} onClick={() => setView("week")}>
             Week
           </button>
@@ -811,7 +820,7 @@ export default function PlannerPage() {
           <button className="secondary no-print" onClick={() => window.print()}>
             Print Planner
           </button>
-          {view === "week" && (
+          {view !== "month" && (
             <button className={selectMode ? "" : "secondary"} onClick={() => {
               const next = !selectMode;
               setSelectMode(next);
@@ -904,7 +913,7 @@ export default function PlannerPage() {
             </table>
           </div>
         )}
-        {view === "week" && selectMode && (
+        {view !== "month" && selectMode && (
           <div className="row" style={{ marginTop: 12 }}>
             <span className="muted">{selectedMealIds.length} selected</span>
             <button className="danger" onClick={() => void deleteSelectedMeals()} disabled={!selectedMealIds.length}>
@@ -935,9 +944,9 @@ export default function PlannerPage() {
       <ExpiringSoon locationId={plannerLocationId || undefined} />
 
       <section className="panel planner-screen-view">
-        <h2>{view === "week" ? "Week" : "Month"} view</h2>
+        <h2>{view === "month" ? "Month" : view === "week" ? "Week" : "5 day"} view</h2>
         <div className="grid planner-week-shell">
-          {view === "week" ? (
+          {view !== "month" ? (
             <DndContext onDragEnd={handleDragEnd} sensors={sensors} collisionDetection={closestCenter}>
               {!isMobileLayout ? (
                 <div className="planner-week-grid">

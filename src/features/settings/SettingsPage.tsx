@@ -6,13 +6,32 @@ import PricesSection from "../prices/PricesSection";
 
 const SyncSection = lazy(() => import("../sync/SyncSection"));
 import { exportAll, importAll } from "../../db/db";
+import { seedExampleData } from "../../db/seedExamples";
 import { getHouseholdSize, setHouseholdSize } from "./preferences";
 import { useToast } from "../../components/useToast";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
+  const [seedingBusy, setSeedingBusy] = useState(false);
   const { notify, toast } = useToast();
+
+  async function handleSeedExamples() {
+    setSeedingBusy(true);
+    try {
+      const summary = await seedExampleData();
+      const parts = [
+        `${summary.pantryItemsCreated} pantry items added`,
+        `${summary.recipesCreated} recipes added`,
+        `${summary.essentialsCreated} essentials added`
+      ];
+      notify(parts.join(", ") + ".", "success");
+    } catch (err: any) {
+      notify(err?.message || "Seeding failed.", "error");
+    } finally {
+      setSeedingBusy(false);
+    }
+  }
 
   async function handleExport() {
     const bundle = await exportAll();
@@ -65,6 +84,19 @@ export default function SettingsPage() {
           />
         </label>
         <p className="muted">Used for default planned servings and leftover calculations.</p>
+      </details>
+
+      <details className="panel" open>
+        <summary>Starter data</summary>
+        <p className="muted">
+          Adds Mike + Jen's typical pantry items, essentials (with sensible bulk thresholds), and a starter
+          rotation of recipes. Safe to click repeatedly — items already present are kept as-is.
+        </p>
+        <div className="row">
+          <button onClick={() => void handleSeedExamples()} disabled={seedingBusy}>
+            {seedingBusy ? "Adding…" : "Add example recipes & essentials"}
+          </button>
+        </div>
       </details>
 
       <details className="panel" open>

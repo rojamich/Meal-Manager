@@ -72,7 +72,14 @@ export default function ExpiringSoon({ locationId }: { locationId?: string }) {
       <ul className="expiring-soon-list">
         {visible.map(({ lot, item, daysUntil, expired }) => (
           <li key={lot.id} className={expired ? "expiring-soon-row expired" : "expiring-soon-row"}>
-            <span className="expiring-soon-name">{item?.name || "Item"}</span>
+            <span className="expiring-soon-name">
+              {item?.name || "Item"}
+              {lot.notes ? (
+                <span className="muted" style={{ marginLeft: 6, fontWeight: 400 }}>
+                  ({lot.notes})
+                </span>
+              ) : null}
+            </span>
             <span className="muted expiring-soon-qty">
               {lot.quantity} {item?.baseUnit || ""}
             </span>

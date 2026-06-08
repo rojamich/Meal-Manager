@@ -26,7 +26,7 @@ export default function TripSetupModal({
   const [locationId, setLocationId] = useState(initialLocationId || "");
   const [templateId, setTemplateId] = useState("");
   const [startDate, setStartDate] = useState(initialStartDate);
-  const [stayDays, setStayDays] = useState(7);
+  const [stayDays, setStayDays] = useState(5);
   const [emptyPantryFirst, setEmptyPantryFirst] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

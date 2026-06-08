@@ -27,6 +27,12 @@ export function weekRange(anchorDate: string) {
   return { start: dateKey(start), end: dateKey(end) };
 }
 
+export function fiveDayRange(anchorDate: string) {
+  const start = parseISODate(anchorDate);
+  const end = addDays(start, 4);
+  return { start: dateKey(start), end: dateKey(end) };
+}
+
 export function monthRange(anchorDate: string) {
   const d = parseISODate(anchorDate);
   const start = new Date(d.getFullYear(), d.getMonth(), 1);

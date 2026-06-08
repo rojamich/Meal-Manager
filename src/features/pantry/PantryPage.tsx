@@ -311,7 +311,7 @@ export default function PantryPage() {
                   </option>
                 ))}
               </select>
-              <input name="notes" placeholder="Notes" />
+              <input name="notes" placeholder="Brand / variety / notes (e.g. Thai sriracha mayo)" />
               <button type="submit">Add Lot</button>
             </div>
             {lotError && <p className="muted">{lotError}</p>}
@@ -323,6 +323,7 @@ export default function PantryPage() {
               <tr>
                 {selectedItemId === "__ALL__" && <th>Item</th>}
                 <th>Qty</th>
+                <th>Brand / variety</th>
                 <th>Purchased</th>
                 <th>Expires</th>
                 <th>Location</th>
@@ -338,6 +339,9 @@ export default function PantryPage() {
                     </td>
                   )}
                   <td data-label="Qty">{lot.quantity}</td>
+                  <td data-label="Brand / variety" className="muted" style={{ fontSize: 13 }}>
+                    {lot.notes || "—"}
+                  </td>
                   <td data-label="Purchased">{lot.purchasedAt}</td>
                   <td data-label="Expires">{lot.expiresAt || "-"}</td>
                   <td data-label="Location">{locations.find((l) => l.id === lot.locationId)?.name || "-"}</td>
@@ -352,7 +356,7 @@ export default function PantryPage() {
               ))}
               {selectedItemId && lots.length === 0 && (
                 <tr>
-                  <td colSpan={selectedItemId === "__ALL__" ? 6 : 5} className="muted">No active lots.</td>
+                  <td colSpan={selectedItemId === "__ALL__" ? 7 : 6} className="muted">No active lots.</td>
                 </tr>
               )}
             </tbody>
