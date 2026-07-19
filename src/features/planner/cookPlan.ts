@@ -168,9 +168,10 @@ export interface CommitCookInput {
   plan: CookPlan;
   recipe?: Recipe;
   locationId?: string;
+  servings?: number;
 }
 
-export async function commitCook({ meal, plan, recipe, locationId }: CommitCookInput) {
+export async function commitCook({ meal, plan, recipe, locationId, servings }: CommitCookInput) {
   const consumptions = plan.ingredients
     .filter((ing) => !ing.altGroupSkipped)
     .flatMap((ing) =>
@@ -182,7 +183,7 @@ export async function commitCook({ meal, plan, recipe, locationId }: CommitCookI
     await applyLotConsumption(consumptions);
   }
   const cookedAt = new Date().toISOString();
-  const servingsTotal = Math.max(meal.servingsPlanned ?? 1, 1);
+  const servingsTotal = Math.max(servings ?? meal.servingsPlanned ?? 1, 1);
   await createCookedPortion({
     recipeId: meal.recipeId,
     freeformTitle: meal.recipeId ? undefined : meal.freeformTitle || recipe?.title || "Cooked meal",

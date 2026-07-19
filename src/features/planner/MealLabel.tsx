@@ -15,5 +15,14 @@ export default function MealLabel({
     const recipe = recipes.find((r) => r.id === meal.recipeId);
     return <span>{recipe?.title || "Recipe"}</span>;
   }
+  if (meal.type === "leftover") {
+    const recipe = recipes.find((r) => r.id === meal.recipeId);
+    const title = recipe?.title || meal.freeformTitle || "Leftovers";
+    return (
+      <span>
+        {title} <span className="leftover-badge">leftovers</span>
+      </span>
+    );
+  }
   return <span>{meal.freeformTitle || "Freeform"}</span>;
 }

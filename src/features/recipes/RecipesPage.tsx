@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Recipe, RecipeIngredient } from "../../models";
-import { countRecipeReferences, deleteRecipe, listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
+import { countRecipeReferences, deleteRecipe, duplicateRecipe, listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
@@ -289,6 +289,16 @@ export default function RecipesPage() {
                   <td data-label="Actions" className="table-actions recipes-col-actions">
                     <button className="secondary" onClick={() => navigate(`/recipes/${recipe.id}`)}>
                       Edit
+                    </button>
+                    <button
+                      className="secondary"
+                      title="Make a copy you can tweak"
+                      onClick={async () => {
+                        const copy = await duplicateRecipe(recipe.id);
+                        if (copy) navigate(`/recipes/${copy.id}`);
+                      }}
+                    >
+                      Duplicate
                     </button>
                     <button className="danger" onClick={() => removeRecipe(recipe.id)}>
                       Delete

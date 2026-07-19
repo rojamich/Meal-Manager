@@ -45,15 +45,12 @@ export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart:
 
   const householdSize = getHouseholdSize();
   const weekStartDate = parseISODate(dateKey(weekStart));
-  let contextMeals = (await db.plannedMeals.toArray()).filter(
-    (meal) => meal.date < dateKey(weekStart) || meal.date > dateKey(weekEnd)
-  );
 
   for (const day of template.days) {
     const targetDate = dateKey(addDays(weekStartDate, day.weekday));
     for (const meal of day.meals) {
       if (meal.type === "recipe" && meal.recipeId) {
-        const result = await createMealWithRules({
+        await createMealWithRules({
           input: buildRecipeMealInput({
             date: targetDate,
             mealSlotId: meal.mealSlotId,
@@ -63,12 +60,13 @@ export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart:
             notes: meal.notes
           })
         });
-        if (result.created) contextMeals = [...contextMeals, result.created];
         continue;
       }
 
-      const title = meal.freeformTitle || "Freeform";
-      const result = await createMealWithRules({
+      // Freeform, plus legacy leftover-typed template meals — a leftover link
+      // can't survive across weeks, so those land as plain freeform entries.
+      const title = meal.freeformTitle || (meal.type === "leftover" ? "Leftovers" : "Freeform");
+      await createMealWithRules({
         input: buildFreeformMealInput({
           date: targetDate,
           mealSlotId: meal.mealSlotId,
@@ -76,7 +74,6 @@ export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart:
           notes: meal.notes
         })
       });
-      if (result.created) contextMeals = [...contextMeals, result.created];
     }
   }
 }

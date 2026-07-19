@@ -2,6 +2,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 import { LocationProfile, MealSlot, Person, PlannedMeal, Recipe, WeekTemplate } from "../../models";
 import {
+  listLeftoverMealsForSources,
   listMealSlots,
   listPlannedMeals,
   updatePlannedMeal
@@ -44,13 +45,19 @@ import {
   deleteWeekTemplate,
   listWeekTemplates
 } from "../../db/repositories/weekTemplateRepo";
-import { getHouseholdSize } from "../settings/preferences";
+import { getAutoEatLeftovers, getHouseholdSize } from "../settings/preferences";
 import {
+  autoEatPastLeftovers,
   buildFreeformMealInput,
+  buildLeftoverMealInput,
   buildRecipeMealInput,
   cloneMealWithRules,
   createMealWithRules,
-  deleteMealWithRules
+  deleteMealWithRules,
+  eatLeftoverMeal,
+  LeftoverCandidate,
+  listLeftoverSourceCandidates,
+  uneatLeftoverMeal
 } from "./plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
@@ -74,6 +81,8 @@ export default function PlannerPage() {
   const [inlineNotes, setInlineNotes] = useState("");
   const [inlineAssignedTo, setInlineAssignedTo] = useState("");
   const [recipeSearch, setRecipeSearch] = useState("");
+  const [leftoverCandidates, setLeftoverCandidates] = useState<LeftoverCandidate[]>([]);
+  const [inlineLeftoverSourceId, setInlineLeftoverSourceId] = useState("");
   const [people, setPeople] = useState<Person[]>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelAnchorEl, setPanelAnchorEl] = useState<HTMLElement | null>(null);
@@ -162,6 +171,22 @@ export default function PlannerPage() {
     return () => window.removeEventListener("planned-meals-updated", handler);
   }, [refreshMeals]);
 
+  // Auto-eat sweep: once per visit, leftover meals whose day has passed get
+  // marked eaten and their servings deducted from the fridge portion.
+  useEffect(() => {
+    if (!getAutoEatLeftovers()) return;
+    void autoEatPastLeftovers(dateKey(new Date())).then((eaten) => {
+      if (!eaten) return;
+      notify(
+        `${eaten} past leftover meal${eaten === 1 ? "" : "s"} marked eaten — fridge updated.`,
+        "info"
+      );
+      void refreshMeals();
+    });
+    // Run once on mount; the sweep is idempotent so re-runs are harmless but unnecessary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const createMealAndRefresh = useCallback(
     async (payload: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) => {
       const result = await createMealWithRules({ input: payload });
@@ -181,9 +206,13 @@ export default function PlannerPage() {
   );
 
   async function removeMeal(id: string) {
+    const linked = await listLeftoverMealsForSources([id]);
     const choice = await requestChoice({
       title: "Delete Meal?",
       message: "This will remove the selected meal.",
+      detail: linked.length
+        ? `${linked.length} planned leftover meal${linked.length === 1 ? " is" : "s are"} linked to this meal. They will stay on the planner but lose their link.`
+        : undefined,
       choices: [
         { label: "Delete", value: "confirm-delete", tone: "danger" },
         { label: "Cancel", value: "cancel", tone: "neutral" }
@@ -224,6 +253,7 @@ export default function PlannerPage() {
     setInlineNotes("");
     setInlineAssignedTo("");
     setRecipeSearch("");
+    setInlineLeftoverSourceId("");
   }, []);
 
   const openInlineAdd = useCallback(
@@ -233,6 +263,8 @@ export default function PlannerPage() {
       setPanelAnchorEl(nextAnchor);
       setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
+      setLeftoverCandidates([]);
+      void listLeftoverSourceCandidates(slot.date).then(setLeftoverCandidates);
     },
     [resetInline]
   );
@@ -252,6 +284,19 @@ export default function PlannerPage() {
         assignedTo: inlineAssignedTo || undefined
       });
     }
+    if (inlineType === "leftover") {
+      const candidate = leftoverCandidates.find((c) => c.meal.id === inlineLeftoverSourceId);
+      if (!candidate) return null;
+      const requested = Math.max(Number(inlineServings) || 1, 1);
+      return buildLeftoverMealInput({
+        date: activeSlot.date,
+        mealSlotId: activeSlot.mealSlotId,
+        sourceMeal: candidate.meal,
+        servingsPlanned: Math.min(requested, candidate.servingsRemaining),
+        notes: inlineNotes,
+        assignedTo: inlineAssignedTo || undefined
+      });
+    }
     if (!inlineFreeformTitle.trim()) return null;
     return buildFreeformMealInput({
       date: activeSlot.date,
@@ -264,11 +309,13 @@ export default function PlannerPage() {
     activeSlot,
     inlineAssignedTo,
     inlineFreeformTitle,
+    inlineLeftoverSourceId,
     inlineNotes,
     inlineRecipeId,
     inlineServings,
     inlineType,
     householdSize,
+    leftoverCandidates,
     recipes
   ]);
 
@@ -379,17 +426,33 @@ export default function PlannerPage() {
   const saveWeekTemplate = useCallback(async () => {
     const week = weekRange(anchorDate);
     const weekDays = Array.from({ length: 7 }, (_, i) => dateKey(addDays(parseISODate(week.start), i)));
+    // Fetch the full week from the DB — `meals` state only holds the visible range
+    // (5 days in 5-day view), which would silently drop the rest of the week.
+    const weekMeals = await listPlannedMeals(week.start, week.end);
     const days = weekDays.map((day, weekday) => {
-      const dayMeals = meals
+      const dayMeals = weekMeals
         .filter((meal) => meal.date === day)
-        .map((meal) => ({
-          mealSlotId: meal.mealSlotId,
-          type: meal.type,
-          recipeId: meal.recipeId,
-          freeformTitle: meal.freeformTitle,
-          notes: meal.notes,
-          servingsPlanned: meal.servingsPlanned
-        }));
+        .map((meal) => {
+          if (meal.type === "leftover") {
+            const recipe = recipes.find((r) => r.id === meal.recipeId);
+            const title = recipe?.title || meal.freeformTitle;
+            return {
+              mealSlotId: meal.mealSlotId,
+              type: "freeform" as const,
+              freeformTitle: title ? `Leftovers: ${title}` : "Leftovers",
+              notes: meal.notes,
+              servingsPlanned: meal.servingsPlanned
+            };
+          }
+          return {
+            mealSlotId: meal.mealSlotId,
+            type: meal.type,
+            recipeId: meal.recipeId,
+            freeformTitle: meal.freeformTitle,
+            notes: meal.notes,
+            servingsPlanned: meal.servingsPlanned
+          };
+        });
       return { weekday, meals: dayMeals };
     });
     const name = templateName.trim();
@@ -401,7 +464,7 @@ export default function PlannerPage() {
     });
     setTemplateName("");
     await refreshTemplates();
-  }, [anchorDate, meals, refreshTemplates, templateLocationId, templateName]);
+  }, [anchorDate, recipes, refreshTemplates, templateLocationId, templateName]);
 
   const applyTemplate = useCallback(
     async (template: WeekTemplate) => {
@@ -498,6 +561,20 @@ export default function PlannerPage() {
 
   const openCookModal = useCallback(
     async (meal: PlannedMeal) => {
+      if (meal.type === "leftover") {
+        const { consumed } = await eatLeftoverMeal(meal);
+        const cookedAt = new Date().toISOString();
+        setMeals((prev: PlannedMeal[]) =>
+          prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt } : row))
+        );
+        notify(
+          consumed > 0
+            ? `Ate ${consumed} serving${consumed === 1 ? "" : "s"} from the fridge.`
+            : "Marked eaten. No matching fridge portion found (was the source meal cooked?).",
+          consumed > 0 ? "success" : "info"
+        );
+        return;
+      }
       if (meal.type !== "recipe" || !meal.recipeId) return;
       const recipe = recipes.find((r) => r.id === meal.recipeId);
       if (!recipe) {
@@ -535,7 +612,8 @@ export default function PlannerPage() {
         meal: cookMeal,
         plan,
         recipe: cookRecipe || undefined,
-        locationId: plannerLocationId || undefined
+        locationId: plannerLocationId || undefined,
+        servings: cookServings
       });
       const cookedAt = new Date().toISOString();
       setMeals((prev: PlannedMeal[]) =>
@@ -546,11 +624,24 @@ export default function PlannerPage() {
       setCookPlan(null);
       notify("Marked cooked, pantry updated.", "success");
     },
-    [cookMeal, cookRecipe, notify, plannerLocationId]
+    [cookMeal, cookRecipe, cookServings, notify, plannerLocationId]
   );
 
   const handleUncook = useCallback(
     async (meal: PlannedMeal) => {
+      if (meal.type === "leftover") {
+        const { restored } = await uneatLeftoverMeal(meal);
+        setMeals((prev: PlannedMeal[]) =>
+          prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
+        );
+        notify(
+          restored > 0
+            ? `Marked not eaten — put ${restored} serving${restored === 1 ? "" : "s"} back in the fridge.`
+            : "Marked not eaten.",
+          "info"
+        );
+        return;
+      }
       await uncookMeal(meal);
       setMeals((prev: PlannedMeal[]) =>
         prev.map((row: PlannedMeal) => (row.id === meal.id ? { ...row, cookedAt: undefined } : row))
@@ -770,6 +861,9 @@ export default function PlannerPage() {
               setInlineAssignedTo={setInlineAssignedTo}
               recipeSearch={recipeSearch}
               setRecipeSearch={setRecipeSearch}
+              leftoverCandidates={leftoverCandidates}
+              inlineLeftoverSourceId={inlineLeftoverSourceId}
+              setInlineLeftoverSourceId={setInlineLeftoverSourceId}
               panelRef={panelRef}
               panelStyle={panelStyle}
               onCancel={() => closePanel("inline-cancel")}

@@ -14,6 +14,20 @@ export async function getPlannedMeal(id: string) {
   return db.plannedMeals.get(id);
 }
 
+export async function listPastUneatenLeftovers(beforeDate: string) {
+  return db.plannedMeals
+    .filter((meal) => meal.type === "leftover" && !meal.cookedAt && meal.date < beforeDate)
+    .toArray();
+}
+
+export async function listLeftoverMealsForSources(sourceMealIds: string[]) {
+  if (!sourceMealIds.length) return [];
+  const ids = new Set(sourceMealIds);
+  return db.plannedMeals
+    .filter((meal) => !!meal.leftoverSourceMealId && ids.has(meal.leftoverSourceMealId))
+    .toArray();
+}
+
 export async function createPlannedMeal(input: Omit<PlannedMeal, "id" | "createdAt" | "updatedAt">) {
   const now = new Date().toISOString();
   const meal: PlannedMeal = {

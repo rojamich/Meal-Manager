@@ -3,6 +3,7 @@ import type { UnitDisplayMode } from "../../utils/unitConversion";
 
 const HOUSEHOLD_SIZE_KEY = "settings.householdSize";
 const UNIT_DISPLAY_MODE_KEY = "settings.unitDisplayMode";
+const AUTO_EAT_LEFTOVERS_KEY = "settings.autoEatLeftovers";
 
 export function getHouseholdSize() {
   const value = Number(getLocal<number>(HOUSEHOLD_SIZE_KEY, 2));
@@ -21,5 +22,13 @@ export function getUnitDisplayMode(): UnitDisplayMode {
 
 export function setUnitDisplayMode(mode: UnitDisplayMode) {
   setLocal(UNIT_DISPLAY_MODE_KEY, mode);
+}
+
+export function getAutoEatLeftovers() {
+  return getLocal<boolean>(AUTO_EAT_LEFTOVERS_KEY, true) !== false;
+}
+
+export function setAutoEatLeftovers(value: boolean) {
+  setLocal(AUTO_EAT_LEFTOVERS_KEY, value);
 }
 

@@ -1,7 +1,8 @@
 import { RefObject, type CSSProperties, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { MealSlot, Person, PlannedMeal, Recipe } from "../../models";
-import { defaultRecipeServings } from "./plannerDomain";
+import { defaultRecipeServings, LeftoverCandidate } from "./plannerDomain";
+import { formatDateLabel } from "../../utils/date";
 
 export default function InlineAddPanel({
   recipes,
@@ -22,6 +23,9 @@ export default function InlineAddPanel({
   setInlineAssignedTo,
   recipeSearch,
   setRecipeSearch,
+  leftoverCandidates,
+  inlineLeftoverSourceId,
+  setInlineLeftoverSourceId,
   panelRef,
   panelStyle,
   onSave,
@@ -45,6 +49,9 @@ export default function InlineAddPanel({
   setInlineAssignedTo: (value: string) => void;
   recipeSearch: string;
   setRecipeSearch: (value: string) => void;
+  leftoverCandidates: LeftoverCandidate[];
+  inlineLeftoverSourceId: string;
+  setInlineLeftoverSourceId: (value: string) => void;
   panelRef: RefObject<HTMLDivElement>;
   panelStyle?: CSSProperties | null;
   onSave: () => void;
@@ -80,6 +87,7 @@ export default function InlineAddPanel({
         <select value={inlineType} onChange={(e) => setInlineType(e.target.value as PlannedMeal["type"])}>
           <option value="recipe">Recipe</option>
           <option value="freeform">Freeform</option>
+          <option value="leftover">Leftovers</option>
         </select>
         <button className="secondary" onClick={onCancel}>
           Cancel
@@ -144,6 +152,58 @@ export default function InlineAddPanel({
           value={inlineFreeformTitle}
           onChange={(e) => setInlineFreeformTitle(e.target.value)}
         />
+      )}
+
+      {inlineType === "leftover" && (
+        <>
+          {leftoverCandidates.length === 0 ? (
+            <p className="muted">
+              No recent meals with servings to spare. Plan a recipe meal first (leftovers link to it).
+            </p>
+          ) : (
+            <>
+              <label className="field-stack">
+                <span>Leftovers from</span>
+                <select
+                  value={inlineLeftoverSourceId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setInlineLeftoverSourceId(nextId);
+                    const candidate = leftoverCandidates.find((c) => c.meal.id === nextId);
+                    if (candidate) {
+                      setInlineServings(
+                        String(Math.min(candidate.servingsRemaining, Math.max(householdSize, 1)))
+                      );
+                    }
+                  }}
+                >
+                  <option value="">Select meal</option>
+                  {leftoverCandidates.map(({ meal, servingsRemaining }) => {
+                    const recipe = recipes.find((r) => r.id === meal.recipeId);
+                    const title = recipe?.title || meal.freeformTitle || "Meal";
+                    return (
+                      <option key={meal.id} value={meal.id}>
+                        {title} — {formatDateLabel(meal.date)} ({servingsRemaining} left)
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <label className="field-stack">
+                <span>Servings to eat</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={inlineServings}
+                  onChange={(e) => setInlineServings(e.target.value)}
+                />
+              </label>
+              <p className="muted field-note">
+                Linked leftovers don't add ingredients to the grocery list or deduct from the pantry.
+              </p>
+            </>
+          )}
+        </>
       )}
 
       {people.length > 0 && (

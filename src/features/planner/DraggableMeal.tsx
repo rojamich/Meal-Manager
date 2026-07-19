@@ -103,19 +103,49 @@ export default function DraggableMeal({
       <span className="meal-primary-label">
         <MealLabel meal={meal} recipes={recipes} />
       </span>
-      {meal.type === "recipe" && (
-        <>
+      {(meal.type === "recipe" || meal.type === "leftover") && (
+        <button
+          className="secondary"
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void onSetServings(meal);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          Servings
+        </button>
+      )}
+      {meal.type === "leftover" &&
+        (meal.cookedAt ? (
           <button
-            className="secondary"
             type="button"
+            className="cooked-badge"
+            title="Mark not eaten (puts the servings back in the fridge)"
             onClick={(e) => {
               e.stopPropagation();
-              void onSetServings(meal);
+              void onUncook(meal);
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            Servings
+            Eaten ✓
           </button>
+        ) : (
+          <button
+            type="button"
+            className="secondary"
+            title="Mark eaten (takes the servings from the fridge)"
+            onClick={(e) => {
+              e.stopPropagation();
+              void onCook(meal);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            Eat
+          </button>
+        ))}
+      {meal.type === "recipe" && (
+        <>
           {meal.cookedAt ? (
             <button
               type="button"
@@ -176,14 +206,14 @@ export default function DraggableMeal({
           <button className="danger" onClick={() => void onRemove(meal.id)}>
             Delete
           </button>
-          {meal.type === "recipe" && (
+          {(meal.type === "recipe" || meal.type === "leftover") && (
             <button className="secondary" onClick={() => void onSetServings(meal)}>
               Servings
             </button>
           )}
         </div>
       )}
-      {meal.type === "recipe" && isServingsEditing && (
+      {(meal.type === "recipe" || meal.type === "leftover") && isServingsEditing && (
         <div className="row" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <label className="field-stack compact-field">
             <span>Servings planned</span>

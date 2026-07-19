@@ -35,6 +35,35 @@ export async function updateCookedPortion(id: string, changes: Partial<CookedPor
   emitCookedPortionsUpdated();
 }
 
+export async function findCookedPortionBySourceMealId(
+  sourceMealId: string,
+  { includeArchived = false }: { includeArchived?: boolean } = {}
+) {
+  const matches = await db.cookedPortions
+    .where("sourcePlannedMealId")
+    .equals(sourceMealId)
+    .toArray();
+  const active = matches.find((portion) => !portion.archivedAt);
+  if (active) return active;
+  return includeArchived ? matches[0] : undefined;
+}
+
+export async function restoreCookedPortionServings(id: string, servings: number) {
+  if (!servings || servings <= 0) return;
+  const now = new Date().toISOString();
+  await db.transaction("rw", db.cookedPortions, async () => {
+    const portion = await db.cookedPortions.get(id);
+    if (!portion) return;
+    const nextRemaining = Math.min(portion.servingsRemaining + servings, portion.servingsTotal);
+    await db.cookedPortions.update(id, {
+      servingsRemaining: nextRemaining,
+      archivedAt: undefined,
+      updatedAt: now
+    });
+  });
+  emitCookedPortionsUpdated();
+}
+
 export async function consumeCookedPortion(id: string, servings: number) {
   if (!servings || servings <= 0) return;
   const now = new Date().toISOString();

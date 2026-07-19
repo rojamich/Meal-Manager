@@ -101,7 +101,12 @@ export default function EssentialsSection({ embedded = false }: { embedded?: boo
           ))}
         </tbody>
       </table>
-      <p>Note: Essentials can be included automatically in grocery generation.</p>
+      <p className="muted">
+        <strong>Always</strong> = top up to the default qty on every list — whatever is already in the
+        pantry gets subtracted, so you only buy what's needed (good for bananas, sparkling water, etc.).
+        <br />
+        <strong>Pantry empty</strong> = only added when generating with "Treat pantry as empty" (fresh trip).
+      </p>
     </>
   );
 

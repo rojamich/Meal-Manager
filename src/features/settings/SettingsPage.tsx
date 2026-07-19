@@ -7,7 +7,14 @@ import PricesSection from "../prices/PricesSection";
 const SyncSection = lazy(() => import("../sync/SyncSection"));
 import { exportAll, importAll } from "../../db/db";
 import { seedExampleData } from "../../db/seedExamples";
-import { getHouseholdSize, getUnitDisplayMode, setHouseholdSize, setUnitDisplayMode } from "./preferences";
+import {
+  getAutoEatLeftovers,
+  getHouseholdSize,
+  getUnitDisplayMode,
+  setAutoEatLeftovers,
+  setHouseholdSize,
+  setUnitDisplayMode
+} from "./preferences";
 import type { UnitDisplayMode } from "../../utils/unitConversion";
 import { useToast } from "../../components/useToast";
 
@@ -15,6 +22,7 @@ export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [householdSize, setHouseholdSizeState] = useState<number>(getHouseholdSize());
   const [unitDisplayMode, setUnitDisplayModeState] = useState<UnitDisplayMode>(getUnitDisplayMode());
+  const [autoEatLeftovers, setAutoEatLeftoversState] = useState<boolean>(getAutoEatLeftovers());
   const [seedingBusy, setSeedingBusy] = useState(false);
   const { notify, toast } = useToast();
 
@@ -102,6 +110,22 @@ export default function SettingsPage() {
         </label>
         <p className="muted" style={{ fontSize: 12 }}>
           Displays oz/lb next to grams and fl oz/cups next to ml. Helpful when shopping in countries that use imperial.
+        </p>
+        <hr style={{ margin: "12px 0" }} />
+        <label>
+          <input
+            type="checkbox"
+            checked={autoEatLeftovers}
+            onChange={(e) => {
+              setAutoEatLeftoversState(e.target.checked);
+              setAutoEatLeftovers(e.target.checked);
+            }}
+          />
+          {" "}Auto-eat past leftover meals
+        </label>
+        <p className="muted" style={{ fontSize: 12 }}>
+          When a planned leftover meal's day has passed, mark it eaten and deduct its servings from the
+          cooked portion in the fridge automatically. You can always undo from the meal chip.
         </p>
       </details>
 

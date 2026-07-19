@@ -48,6 +48,32 @@ export async function updateRecipe(id: string, changes: Partial<Recipe>) {
   await db.recipes.update(id, { ...normalizedChanges, updatedAt: now });
 }
 
+export async function duplicateRecipe(id: string) {
+  const source = await getRecipe(id);
+  if (!source) return undefined;
+  const sourceIngredients = await listIngredients(id);
+  const now = new Date().toISOString();
+  const copy: Recipe = {
+    ...source,
+    id: newId(),
+    title: `${source.title} (copy)`,
+    createdAt: now,
+    updatedAt: now
+  };
+  const copiedIngredients: RecipeIngredient[] = sourceIngredients.map((ing) => ({
+    ...ing,
+    id: newId(),
+    recipeId: copy.id,
+    createdAt: now,
+    updatedAt: now
+  }));
+  await db.transaction("rw", db.recipes, db.recipeIngredients, async () => {
+    await db.recipes.add(copy);
+    if (copiedIngredients.length) await db.recipeIngredients.bulkAdd(copiedIngredients);
+  });
+  return copy;
+}
+
 export async function countRecipeReferences(id: string) {
   const plannedMealCount = await db.plannedMeals.where("recipeId").equals(id).count();
   const ingredientCount = await db.recipeIngredients.where("recipeId").equals(id).count();

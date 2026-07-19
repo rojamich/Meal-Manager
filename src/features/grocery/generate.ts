@@ -196,7 +196,10 @@ export async function buildGroceryLines(settings: GrocerySettings) {
   };
 
   for (const meal of meals) {
+    // Leftover/freeform meals never demand ingredients; cooked meals already
+    // deducted theirs from the pantry when they were marked cooked.
     if (meal.type !== "recipe" || !meal.recipeId) continue;
+    if (meal.cookedAt) continue;
     const recipe = recipeMap.get(meal.recipeId);
     if (!recipe) continue;
     const ingredients = await listIngredients(recipe.id);
@@ -229,17 +232,19 @@ export async function buildGroceryLines(settings: GrocerySettings) {
       usedForMap.set(ingredient.pantryItemId, usedFor);
     }
 
-    const isInPantryForDate = (pantryItemId: string, date: string) => {
+    const usableQtyOnDate = (pantryItemId: string, date: string) => {
       const reqDate = toISODateLocal(date);
-      const lots = toSimulatedLots(activeLots, pantryItemId);
-      return lots.some((lot) => isLotUsableOnDate(lot, reqDate));
+      return toSimulatedLots(activeLots, pantryItemId)
+        .filter((lot) => isLotUsableOnDate(lot, reqDate))
+        .reduce((sum, lot) => sum + lot.remaining, 0);
     };
 
     for (const [groupLabel, options] of altGroupMap.entries()) {
       let availableOption: RecipeIngredient | undefined;
       if (!settings.treatPantryAsEmpty) {
         for (const option of options) {
-          if (isInPantryForDate(option.pantryItemId, meal.date)) {
+          const requiredQty = option.quantity * factor;
+          if (usableQtyOnDate(option.pantryItemId, meal.date) >= requiredQty) {
             availableOption = option;
             break;
           }

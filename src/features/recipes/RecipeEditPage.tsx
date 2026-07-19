@@ -8,13 +8,14 @@ import {
   createRecipe,
   deleteIngredient,
   deleteRecipe,
+  duplicateRecipe,
   getRecipe,
   listIngredients,
   updateIngredient,
   updateRecipe
 } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
-import { listMealSlots, listPlannedMeals } from "../../db/repositories/mealPlanRepo";
+import { listMealSlots } from "../../db/repositories/mealPlanRepo";
 import { dateKey } from "../../utils/date";
 import { getHouseholdSize } from "../settings/preferences";
 import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDomain";
@@ -183,7 +184,6 @@ export default function RecipeEditPage() {
   ) {
     if (!recipe) return;
     const householdSize = getHouseholdSize();
-    await listPlannedMeals("0000-01-01", "9999-12-31");
     await createMealWithRules({
       input: buildRecipeMealInput({
         date,
@@ -195,6 +195,14 @@ export default function RecipeEditPage() {
     });
     notify("Added to planner", "success");
     void recipeId;
+  }
+
+  async function handleDuplicate() {
+    if (!recipe?.id) return;
+    const copy = await duplicateRecipe(recipe.id);
+    if (!copy) return;
+    notify(`Created "${copy.title}"`, "success");
+    navigate(`/recipes/${copy.id}`);
   }
 
   async function handleDelete() {
@@ -252,6 +260,7 @@ export default function RecipeEditPage() {
         onAddToPlanner={handleAddRecipeToPlanner}
         onBack={handleBack}
         onDelete={handleDelete}
+        onDuplicate={handleDuplicate}
       />
       {modal}
       {toast}
@@ -270,7 +279,8 @@ function RecipeEditorForm({
   onDeleteIngredient,
   onAddToPlanner,
   onBack,
-  onDelete
+  onDelete,
+  onDuplicate
 }: {
   recipe: Recipe;
   pantryItems: PantryItem[];
@@ -286,6 +296,7 @@ function RecipeEditorForm({
   onAddToPlanner: (recipeId: string, date: string, mealSlotId: string, servingsPlanned?: number) => Promise<void>;
   onBack: () => void;
   onDelete: () => void;
+  onDuplicate: () => void | Promise<void>;
 }) {
   const [form, setForm] = useState({
     title: recipe.title,
@@ -392,10 +403,16 @@ function RecipeEditorForm({
     setIngredientError(null);
     setSavedAt(null);
     setPlannerDate(dateKey(new Date()));
-    setPlannerSlotId(mealSlots[0]?.id || "");
     setPlannerServings(String(recipeBaseServings(recipe)));
     setPlannerMessage("");
-  }, [recipe.id, mealSlots]);
+    // Intentionally keyed on recipe.id only: unrelated updates (pantry/meal-slot
+    // events, remote sync) must not wipe unsaved form edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe.id]);
+
+  useEffect(() => {
+    setPlannerSlotId((prev) => (prev && mealSlots.some((slot) => slot.id === prev) ? prev : mealSlots[0]?.id || ""));
+  }, [mealSlots]);
 
   function buildPayload() {
     const calories = form.calories ? Number(form.calories) : undefined;
@@ -476,6 +493,16 @@ function RecipeEditorForm({
             <Link className="tag" to={`/recipes/${recipe.id}/print`}>
               Print View
             </Link>
+          )}
+          {recipe.id && (
+            <button
+              type="button"
+              className="secondary"
+              title="Make a copy you can tweak"
+              onClick={() => void onDuplicate()}
+            >
+              Duplicate
+            </button>
           )}
           {recipe.id && (
             <button type="button" className="danger" onClick={() => void onDelete()}>

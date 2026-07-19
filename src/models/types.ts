@@ -87,7 +87,7 @@ export interface CookedPortion {
   updatedAt: string;
 }
 
-export type PlannedMealType = "recipe" | "freeform";
+export type PlannedMealType = "recipe" | "freeform" | "leftover";
 
 export interface PlannedMeal {
   id: string;
