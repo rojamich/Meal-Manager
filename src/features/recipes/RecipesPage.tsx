@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Recipe, RecipeIngredient } from "../../models";
+import { PantryItem, PurchaseEntry, Recipe, RecipeIngredient } from "../../models";
 import { countRecipeReferences, deleteRecipe, duplicateRecipe, listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
+import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
+import { useActiveLocationId } from "../locations/activeLocation";
+import { buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
 import { dateKey } from "../../utils/date";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
@@ -39,6 +42,9 @@ export default function RecipesPage() {
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
+  const [activeLocationId] = useActiveLocationId();
   const [showFilters, setShowFilters] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -49,7 +55,8 @@ export default function RecipesPage() {
     setRecipes([...(await listRecipes())]);
     setAllIngredients([...(await listAllIngredients())]);
     setLocations([...(await listLocations())]);
-    await listPantryItems(); // warm cache; not stored here
+    setPantryItems([...(await listPantryItems())]);
+    setPurchases([...(await listPurchaseEntries())]);
   }, []);
 
   useEffect(() => {
@@ -59,11 +66,13 @@ export default function RecipesPage() {
     window.addEventListener("recipe-ingredients-updated", onSync);
     window.addEventListener("pantry-items-updated", onSync);
     window.addEventListener("locations-updated", onSync);
+    window.addEventListener("purchases-updated", onSync);
     return () => {
       window.removeEventListener("recipes-updated", onSync);
       window.removeEventListener("recipe-ingredients-updated", onSync);
       window.removeEventListener("pantry-items-updated", onSync);
       window.removeEventListener("locations-updated", onSync);
+      window.removeEventListener("purchases-updated", onSync);
     };
   }, [refresh]);
 
@@ -130,6 +139,31 @@ export default function RecipesPage() {
     return result;
   }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
+  const costInfoByRecipe = useMemo(() => {
+    const ingredientsByRecipe = new Map<string, RecipeIngredient[]>();
+    allIngredients.forEach((ing) => {
+      const list = ingredientsByRecipe.get(ing.recipeId) ?? [];
+      list.push(ing);
+      ingredientsByRecipe.set(ing.recipeId, list);
+    });
+    const result = new Map<string, { cost?: number; computed: boolean; complete: boolean }>();
+    recipes.forEach((recipe) => {
+      const breakdown = buildRecipeCostBreakdown({
+        recipe,
+        ingredients: ingredientsByRecipe.get(recipe.id) ?? [],
+        pantryItems,
+        purchases,
+        locationId: activeLocationId || undefined
+      });
+      result.set(recipe.id, {
+        cost: effectiveCostPerServing(breakdown, recipe),
+        computed: breakdown.pricedCount > 0,
+        complete: breakdown.complete
+      });
+    });
+    return result;
+  }, [activeLocationId, allIngredients, pantryItems, purchases, recipes]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return recipes
@@ -142,8 +176,8 @@ export default function RecipesPage() {
           mealTypeFilters.length === 0 || r.mealTypes?.some((type) => mealTypeFilters.includes(type));
         const caloriesOk =
           !maxCalories || (recipeCalories(r) !== undefined && (recipeCalories(r) as number) <= Number(maxCalories));
-        const costOk =
-          !maxCost || (r.estimatedCostPerServing !== undefined && r.estimatedCostPerServing <= Number(maxCost));
+        const cost = costInfoByRecipe.get(r.id)?.cost;
+        const costOk = !maxCost || (cost !== undefined && cost <= Number(maxCost));
         const canMake = makeableByRecipe.get(r.id) ?? true;
         return matchesText && matchesMealType && caloriesOk && costOk && (!canMakeOnly || canMake);
       })
@@ -154,11 +188,11 @@ export default function RecipesPage() {
           const bVal = recipeCalories(b) ?? Number.MAX_VALUE;
           return aVal - bVal;
         }
-        const aVal = a.estimatedCostPerServing ?? Number.MAX_VALUE;
-        const bVal = b.estimatedCostPerServing ?? Number.MAX_VALUE;
+        const aVal = costInfoByRecipe.get(a.id)?.cost ?? Number.MAX_VALUE;
+        const bVal = costInfoByRecipe.get(b.id)?.cost ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy, makeableByRecipe, canMakeOnly]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe]);
 
   async function removeRecipe(id: string) {
     const { plannedMealCount } = await countRecipeReferences(id);
@@ -285,7 +319,19 @@ export default function RecipesPage() {
                   </td>
                   <td data-label="Servings" className="recipes-col-servings">{recipeBaseServings(recipe)}</td>
                   <td data-label="Metadata" className="recipes-col-metadata">{recipeMetaSummary(recipe)}</td>
-                  <td data-label="Cost" className="recipes-col-cost">{recipe.estimatedCostPerServing ?? "-"}</td>
+                  <td data-label="Cost" className="recipes-col-cost">
+                    {(() => {
+                      const info = costInfoByRecipe.get(recipe.id);
+                      if (info?.cost === undefined) return "-";
+                      const label = `${info.cost.toFixed(2)}${info.computed && !info.complete ? "+" : ""}`;
+                      const title = info.computed
+                        ? info.complete
+                          ? "Per serving, computed from your price history"
+                          : "Per serving; some ingredients have no price data yet"
+                        : "Manual estimate (no price history for these ingredients)";
+                      return <span title={title}>{label}</span>;
+                    })()}
+                  </td>
                   <td data-label="Actions" className="table-actions recipes-col-actions">
                     <button className="secondary" onClick={() => navigate(`/recipes/${recipe.id}`)}>
                       Edit

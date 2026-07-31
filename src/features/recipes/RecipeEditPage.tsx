@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { PantryItem, Recipe, RecipeIngredient } from "../../models";
+import { PantryItem, PurchaseEntry, Recipe, RecipeIngredient } from "../../models";
 import {
   addIngredient,
   countRecipeReferences,
@@ -16,6 +16,9 @@ import {
 } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listMealSlots } from "../../db/repositories/mealPlanRepo";
+import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
+import { useActiveLocationId } from "../locations/activeLocation";
+import { buildRecipeCostBreakdown } from "../../utils/mealCost";
 import { dateKey } from "../../utils/date";
 import { getHouseholdSize } from "../settings/preferences";
 import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDomain";
@@ -58,12 +61,14 @@ export default function RecipeEditPage() {
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [mealSlots, setMealSlots] = useState<{ id: string; name: string }[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const { requestChoice, modal } = useConfirmChoiceModal();
   const { notify, toast } = useToast();
 
   const loadAux = useCallback(async () => {
     setPantryItems([...(await listPantryItems())]);
     setMealSlots([...(await listMealSlots())]);
+    setPurchases([...(await listPurchaseEntries())]);
   }, []);
 
   useEffect(() => {
@@ -71,9 +76,11 @@ export default function RecipeEditPage() {
     const onSync = () => loadAux();
     window.addEventListener("pantry-items-updated", onSync);
     window.addEventListener("meal-slots-updated", onSync);
+    window.addEventListener("purchases-updated", onSync);
     return () => {
       window.removeEventListener("pantry-items-updated", onSync);
       window.removeEventListener("meal-slots-updated", onSync);
+      window.removeEventListener("purchases-updated", onSync);
     };
   }, [loadAux]);
 
@@ -253,6 +260,7 @@ export default function RecipeEditPage() {
         pantryItems={pantryItems}
         ingredients={ingredients}
         mealSlots={mealSlots}
+        purchases={purchases}
         onSave={saveAndStay}
         onAddIngredient={handleAddIngredient}
         onUpdateIngredient={handleUpdateIngredient}
@@ -273,6 +281,7 @@ function RecipeEditorForm({
   pantryItems,
   ingredients,
   mealSlots,
+  purchases,
   onSave,
   onAddIngredient,
   onUpdateIngredient,
@@ -286,6 +295,7 @@ function RecipeEditorForm({
   pantryItems: PantryItem[];
   ingredients: RecipeIngredient[];
   mealSlots: { id: string; name: string }[];
+  purchases: PurchaseEntry[];
   onSave: (recipe: any) => Promise<Recipe | null | undefined>;
   onAddIngredient: (
     recipeId: string,
@@ -326,6 +336,21 @@ function RecipeEditorForm({
   const [plannerSlotId, setPlannerSlotId] = useState("");
   const [plannerServings, setPlannerServings] = useState("");
   const [plannerMessage, setPlannerMessage] = useState("");
+
+  const [activeLocationId] = useActiveLocationId();
+  const costBreakdown = useMemo(() => {
+    const payload = {
+      title: form.title,
+      baseServings: Math.max(Number(form.baseServings) || 1, 1)
+    };
+    return buildRecipeCostBreakdown({
+      recipe: { ...recipe, ...payload },
+      ingredients,
+      pantryItems,
+      purchases,
+      locationId: activeLocationId || undefined
+    });
+  }, [activeLocationId, form.baseServings, form.title, ingredients, pantryItems, purchases, recipe]);
 
   const filteredPantryItems = useMemo(
     () =>
@@ -751,6 +776,85 @@ function RecipeEditorForm({
             </>
           )}
         </div>
+        {recipe.id && ingredients.length > 0 && (
+          <div className="panel">
+            <h3>Cost per serving</h3>
+            {costBreakdown.pricedCount === 0 ? (
+              <p className="muted">
+                No price data yet for these ingredients. Record purchases in Settings → Price History
+                (or via "Add checked to pantry" on the grocery list) and costs will show up here.
+              </p>
+            ) : (
+              <>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Ingredient</th>
+                        <th>Qty / serving</th>
+                        <th>Unit price</th>
+                        <th>Cost / serving</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {costBreakdown.lines.map((line) => (
+                        <tr key={line.key}>
+                          <td data-label="Ingredient">{line.label}</td>
+                          <td data-label="Qty / serving">
+                            {Math.round(line.qtyPerServing * 100) / 100} {line.unit}
+                          </td>
+                          <td data-label="Unit price">
+                            {line.unitPrice !== undefined ? line.unitPrice.toFixed(2) : "—"}
+                          </td>
+                          <td data-label="Cost / serving">
+                            {line.costPerServing !== undefined ? (
+                              line.costPerServing.toFixed(2)
+                            ) : (
+                              <span className="muted">no price data</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td colSpan={3}>
+                          <strong>
+                            Total per serving
+                            {!costBreakdown.complete &&
+                              ` (${costBreakdown.pricedCount} of ${costBreakdown.lineCount} ingredients priced)`}
+                          </strong>
+                        </td>
+                        <td>
+                          <strong>
+                            {costBreakdown.costPerServing.toFixed(2)}
+                            {!costBreakdown.complete && "+"}
+                          </strong>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="row resource-toolbar">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        estimatedCostPerServing: costBreakdown.costPerServing.toFixed(2)
+                      })
+                    }
+                  >
+                    Use as cost estimate
+                  </button>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Prices come from your purchase history{activeLocationId ? " for the active location" : ""};
+                    alt groups use the cheapest priced option. Save the recipe to keep the estimate.
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {recipe.id && (
           <div className="panel">
             <h3>Add to Planner</h3>

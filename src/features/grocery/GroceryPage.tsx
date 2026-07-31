@@ -13,7 +13,7 @@ import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
-import { average, unitPrice } from "../../utils/price";
+import { bestUnitPrice } from "../../utils/price";
 import { pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
@@ -216,19 +216,7 @@ export default function GroceryPage() {
     let known = 0;
     for (const line of lines) {
       if (!line.pantryItemId) continue;
-      const itemPurchases = purchases.filter((p) => p.pantryItemId === line.pantryItemId);
-      const byLocation = settings.locationId
-        ? itemPurchases.filter((p) => p.locationId === settings.locationId)
-        : [];
-      const last = byLocation.length ? byLocation.sort((a, b) => b.date.localeCompare(a.date))[0] : undefined;
-      let price = 0;
-      if (last) {
-        price = unitPrice(last);
-      } else if (byLocation.length) {
-        price = average(byLocation.map(unitPrice));
-      } else if (itemPurchases.length) {
-        price = average(itemPurchases.map(unitPrice));
-      }
+      const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined);
       if (price) {
         total += price * line.toBuyQty;
         known += 1;
