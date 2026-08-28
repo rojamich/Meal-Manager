@@ -25,6 +25,7 @@ import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDom
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import CookMode from "./CookMode";
+import { reportLoadError } from "../../utils/loadError";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -106,7 +107,7 @@ export default function RecipeEditPage() {
     if (!recipe?.id) return;
     const onSync = () => {
       void getRecipe(recipe.id).then((next) => next && setRecipe(next));
-      void listIngredients(recipe.id).then(setIngredients);
+      void listIngredients(recipe.id).then(setIngredients).catch(reportLoadError("ingredients"));
     };
     window.addEventListener("recipes-updated", onSync);
     window.addEventListener("recipe-ingredients-updated", onSync);

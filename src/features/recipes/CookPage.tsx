@@ -4,6 +4,7 @@ import { PantryItem, Recipe, RecipeIngredient } from "../../models";
 import { getRecipe, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { roundQty } from "../../utils/math";
+import { reportLoadError } from "../../utils/loadError";
 
 function getEffectiveBaseServings(recipe: Recipe) {
   return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
@@ -25,8 +26,8 @@ export default function CookPage() {
   useEffect(() => {
     if (!id) return;
     getRecipe(id).then((value) => value && setRecipe(value));
-    listIngredients(id).then(setIngredients);
-    listPantryItems().then(setPantryItems);
+    listIngredients(id).then(setIngredients).catch(reportLoadError("ingredients"));
+    listPantryItems().then(setPantryItems).catch(reportLoadError("pantry items"));
   }, [id]);
 
   const plannedServings = Math.max(Number(searchParams.get("servings") || 0) || 0, 0);

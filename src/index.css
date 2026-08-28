@@ -1308,3 +1308,24 @@ details[open] > summary {
     background: white;
   }
 }
+
+.data-error-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-left: 4px solid #b45309;
+  color: #78350f;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.data-error-banner > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}

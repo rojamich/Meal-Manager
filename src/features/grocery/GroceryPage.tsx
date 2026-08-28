@@ -20,6 +20,7 @@ import { useToast } from "../../components/useToast";
 import { getActiveLocationId } from "../locations/activeLocation";
 import { getUnitDisplayMode } from "../settings/preferences";
 import { imperialAlternate } from "../../utils/unitConversion";
+import { reportLoadError } from "../../utils/loadError";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -137,7 +138,8 @@ export default function GroceryPage() {
 
   useEffect(() => {
     if (!selectedListId) return;
-    const reloadLines = () => listGroceryLines(selectedListId).then(setLines);
+    const reloadLines = () =>
+      listGroceryLines(selectedListId).then(setLines).catch(reportLoadError("grocery lines"));
     reloadLines();
     window.addEventListener("grocery-lines-updated", reloadLines);
     return () => window.removeEventListener("grocery-lines-updated", reloadLines);

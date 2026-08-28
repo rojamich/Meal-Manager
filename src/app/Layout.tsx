@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import ActiveLocationPicker from "../features/locations/ActiveLocationPicker";
 import SyncActivityWatcher from "../components/SyncActivityWatcher";
+import DataErrorBanner from "../components/DataErrorBanner";
 
 export default function Layout() {
   const location = useLocation();
@@ -19,6 +20,7 @@ export default function Layout() {
         <ActiveLocationPicker />
       </nav>
       <main className={`container${isPlannerRoute ? " container--wide" : ""}`}>
+        <DataErrorBanner />
         <Outlet />
       </main>
       <SyncActivityWatcher />

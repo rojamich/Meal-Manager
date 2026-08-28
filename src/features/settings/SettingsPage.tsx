@@ -5,7 +5,8 @@ import PeopleSection from "../people/PeopleSection";
 import PricesSection from "../prices/PricesSection";
 
 const SyncSection = lazy(() => import("../sync/SyncSection"));
-import { exportAll, importAll } from "../../db/db";
+import { describeBundle, exportAll, importAll } from "../../db/db";
+import { getActiveHouseholdId } from "../../sync/householdRepo";
 import { seedExampleData } from "../../db/seedExamples";
 import {
   getAutoEatLeftovers,
@@ -17,6 +18,7 @@ import {
 } from "./preferences";
 import type { UnitDisplayMode } from "../../utils/unitConversion";
 import { useToast } from "../../components/useToast";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
@@ -25,6 +27,7 @@ export default function SettingsPage() {
   const [autoEatLeftovers, setAutoEatLeftoversState] = useState<boolean>(getAutoEatLeftovers());
   const [seedingBusy, setSeedingBusy] = useState(false);
   const { notify, toast } = useToast();
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   async function handleSeedExamples() {
     setSeedingBusy(true);
@@ -55,16 +58,50 @@ export default function SettingsPage() {
   }
 
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
+    // Reset immediately so picking the same file twice still fires a change event.
+    input.value = "";
     if (!file) return;
+
+    setImportError(null);
+    let data: unknown;
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      await importAll(data, true);
-      setImportError(null);
-      notify("Import complete. Reload the app.", "success");
+      data = JSON.parse(await file.text());
+    } catch {
+      setImportError("That file isn't valid JSON. Pick a Meal Manager backup file.");
+      return;
+    }
+
+    // Parse before asking, so the prompt can say what's actually in the file.
+    let summary: string;
+    try {
+      summary = describeBundle(data);
     } catch (err: any) {
-      setImportError(err.message || "Import failed");
+      setImportError(err?.message || "That file isn't a Meal Manager backup.");
+      return;
+    }
+
+    const connected = Boolean(getActiveHouseholdId());
+    const choice = await requestChoice({
+      title: "Replace everything with this backup?",
+      message: `${summary} This erases all data currently on this device and cannot be undone.`,
+      detail: connected
+        ? "This device is connected to a household, so the replacement syncs to everyone else in it too. Export a backup first if you're not certain."
+        : "Export a backup first if anything on this device matters.",
+      choices: [
+        { label: "Replace all data", value: "confirm-import", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-import") return;
+
+    try {
+      await importAll(data, true);
+      notify("Import complete — reloading…", "success");
+      window.setTimeout(() => window.location.reload(), 1200);
+    } catch (err: any) {
+      setImportError(err?.message || "Import failed");
     }
   }
 
@@ -166,6 +203,7 @@ export default function SettingsPage() {
         <summary>Price History</summary>
         <PricesSection embedded />
       </details>
+      {modal}
       {toast}
     </div>
   );

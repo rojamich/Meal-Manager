@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { PantryItem, Recipe, RecipeIngredient } from "../../models";
 import { getRecipe, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { reportLoadError } from "../../utils/loadError";
 
 export default function RecipePrint() {
   const { id } = useParams();
@@ -13,8 +14,8 @@ export default function RecipePrint() {
   useEffect(() => {
     if (!id) return;
     getRecipe(id).then((value) => value && setRecipe(value));
-    listIngredients(id).then(setIngredients);
-    listPantryItems().then(setPantryItems);
+    listIngredients(id).then(setIngredients).catch(reportLoadError("ingredients"));
+    listPantryItems().then(setPantryItems).catch(reportLoadError("pantry items"));
   }, [id]);
 
   if (!recipe) return <p>Loading...</p>;

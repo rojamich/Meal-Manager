@@ -180,6 +180,19 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
     }
   }, [notify]);
 
+  const handleRetry = useCallback(async () => {
+    const hid = getActiveHouseholdId();
+    if (!hid) return;
+    setBusy(true);
+    try {
+      await syncEngine.start(hid, "reconnect");
+    } catch (err: any) {
+      notify(err?.message || "Could not reconnect.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }, [notify]);
+
   const handleCopyCode = useCallback(async () => {
     if (!inviteCode) return;
     try {
@@ -221,7 +234,16 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
           </span>
         )}
       </div>
-      {syncError && <p style={{ color: "#b91c1c", fontSize: 13 }}>{syncError}</p>}
+      {syncError && (
+        <div className="row" style={{ alignItems: "center", gap: 10 }}>
+          <p style={{ color: "#b91c1c", fontSize: 13, margin: 0 }}>{syncError}</p>
+          {householdId && (
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleRetry()}>
+              {busy ? "Reconnecting…" : "Retry sync"}
+            </button>
+          )}
+        </div>
+      )}
 
       {!householdId && (
         <>

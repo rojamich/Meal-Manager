@@ -61,6 +61,7 @@ import {
 } from "./plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
+import { reportLoadError } from "../../utils/loadError";
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
@@ -133,15 +134,15 @@ export default function PlannerPage() {
   }
 
   useEffect(() => {
-    listMealSlots().then(setSlots);
-    listRecipes().then(setRecipes);
-    listLocations().then(setLocations);
-    listWeekTemplates().then(setTemplates);
-    const loadPeople = () => listPeople().then(setPeople);
-    const loadRecipes = () => listRecipes().then(setRecipes);
-    const loadSlots = () => listMealSlots().then(setSlots);
-    const loadLocations = () => listLocations().then(setLocations);
-    const loadTemplates = () => listWeekTemplates().then(setTemplates);
+    listMealSlots().then(setSlots).catch(reportLoadError("meal slots"));
+    listRecipes().then(setRecipes).catch(reportLoadError("recipes"));
+    listLocations().then(setLocations).catch(reportLoadError("locations"));
+    listWeekTemplates().then(setTemplates).catch(reportLoadError("week templates"));
+    const loadPeople = () => listPeople().then(setPeople).catch(reportLoadError("people"));
+    const loadRecipes = () => listRecipes().then(setRecipes).catch(reportLoadError("recipes"));
+    const loadSlots = () => listMealSlots().then(setSlots).catch(reportLoadError("meal slots"));
+    const loadLocations = () => listLocations().then(setLocations).catch(reportLoadError("locations"));
+    const loadTemplates = () => listWeekTemplates().then(setTemplates).catch(reportLoadError("week templates"));
     loadPeople();
     window.addEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
     window.addEventListener("recipes-updated", loadRecipes);
@@ -264,7 +265,9 @@ export default function PlannerPage() {
       setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
       setLeftoverCandidates([]);
-      void listLeftoverSourceCandidates(slot.date).then(setLeftoverCandidates);
+      void listLeftoverSourceCandidates(slot.date)
+        .then(setLeftoverCandidates)
+        .catch(reportLoadError("leftovers"));
     },
     [resetInline]
   );
