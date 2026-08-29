@@ -58,19 +58,33 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
   const body = (
     <>
       {!embedded && <h3>Locations</h3>}
-      <form className="row" onSubmit={addLocation}>
-        <input name="name" placeholder="Name" required />
-        <input name="currencyCode" placeholder="Currency" required />
-        <input name="exchangeRateToUSD" type="number" step="any" placeholder="Rate to USD" />
+      <form className="row resource-toolbar" onSubmit={addLocation}>
+        <label className="field-stack">
+          <span>Name</span>
+          <input name="name" placeholder="Home" required />
+        </label>
+        <label className="field-stack">
+          <span>Currency</span>
+          <input name="currencyCode" placeholder="USD" required />
+        </label>
+        <label className="field-stack">
+          <span>USD per 1 unit</span>
+          <input name="exchangeRateToUSD" type="number" step="any" placeholder="1" />
+        </label>
         <button type="submit">Add</button>
       </form>
+      <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+        The rate is how many US dollars one unit of that currency is worth — 1 for USD, about
+        0.0067 for yen, about 1.08 for euro. Costs are only compared between purchases that can
+        be converted, so a location with no rate keeps its prices to itself.
+      </p>
       {error && <p className="muted">{error}</p>}
       <table className="table">
         <thead>
           <tr>
             <th>Name</th>
             <th>Currency</th>
-            <th>Rate to USD</th>
+            <th>USD per 1 unit</th>
             <th></th>
           </tr>
         </thead>
@@ -83,7 +97,7 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
               <td data-label="Currency">
                 <input value={loc.currencyCode} onChange={(e) => updateField(loc.id, "currencyCode", e.target.value)} />
               </td>
-              <td data-label="Rate to USD">
+              <td data-label="USD per 1 unit">
                 <input
                   type="number"
                   step="any"

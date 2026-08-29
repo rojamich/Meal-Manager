@@ -82,6 +82,14 @@ async function boot() {
 }
 
 void boot();
-registerSW({
-  immediate: true
+
+// A new build used to swap in and reload without warning, discarding whatever was typed
+// into a form at the time. Ask instead.
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    window.dispatchEvent(
+      new CustomEvent("app-update-ready", { detail: { apply: () => void updateSW(true) } })
+    );
+  }
 });

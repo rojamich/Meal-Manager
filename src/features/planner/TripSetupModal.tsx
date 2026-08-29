@@ -158,7 +158,7 @@ export default function TripSetupModal({
           Grocery list will cover {startDate} → {endDate}.
         </p>
 
-        {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger-text)" }}>{error}</p>}
 
         <div className="confirm-modal-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={submitting}>

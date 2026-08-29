@@ -53,8 +53,16 @@ export default function SettingsPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `meal-manager-backup-${bundle.exportedAt.slice(0, 10)}.json`;
+    // The anchor has to be in the document for Firefox to act on the click, and revoking
+    // in the same tick races the download starting — which silently produced empty files.
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 10_000);
+    notify("Backup downloaded.", "success");
   }
 
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
@@ -188,7 +196,7 @@ export default function SettingsPage() {
             <input type="file" accept="application/json" onChange={handleImport} />
           </label>
         </div>
-        {importError && <p style={{ color: "#dc2626" }}>{importError}</p>}
+        {importError && <p style={{ color: "var(--danger-text)" }}>{importError}</p>}
       </details>
 
       <details className="panel" open>

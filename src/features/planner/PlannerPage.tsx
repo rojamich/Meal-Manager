@@ -34,6 +34,7 @@ import {
   closestCenter,
   DndContext,
   DragEndEvent,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors
@@ -63,12 +64,16 @@ import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { reportLoadError } from "../../utils/loadError";
 
+type PlannerView = "5day" | "week" | "month";
+
+/** Pure, so it lives outside the component and stays a stable dependency. */
+function rangeFor(v: PlannerView, anchor: string) {
+  return v === "month" ? monthRange(anchor) : v === "week" ? weekRange(anchor) : fiveDayRange(anchor);
+}
+
 export default function PlannerPage() {
   const DEBUG_DND = false;
-  type PlannerView = "5day" | "week" | "month";
   const [view, setView] = useState<PlannerView>("5day");
-  const rangeFor = (v: PlannerView, anchor: string) =>
-    v === "month" ? monthRange(anchor) : v === "week" ? weekRange(anchor) : fiveDayRange(anchor);
   const [anchorDate, setAnchorDate] = useState(dateKey(new Date()));
   const [slots, setSlots] = useState<MealSlot[]>([]);
   const [meals, setMeals] = useState<PlannedMeal[]>([]);
@@ -116,11 +121,14 @@ export default function PlannerPage() {
   const [cookRecipe, setCookRecipe] = useState<Recipe | null>(null);
   const [cookPlan, setCookPlan] = useState<CookPlan | null>(null);
   const [cookServings, setCookServings] = useState<number>(0);
-  const isMobileLayout = useMediaQuery("(max-width: 768px)");
+  const isMobileLayout = useMediaQuery("(max-width: 767.98px)");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 }
-    })
+    }),
+    // Without this the drag handles are focusable and announce themselves as buttons but
+    // do nothing on Space/Enter, leaving the planner's main interaction mouse-only.
+    useSensor(KeyboardSensor)
   );
   const { requestChoice, modal } = useConfirmChoiceModal();
   const { notify, toast } = useToast();
@@ -362,14 +370,24 @@ export default function PlannerPage() {
 
   useEffect(() => {
     if (!activeSlot || !panelAnchorEl) return;
+
+    // This runs on capture, so it fires for every scrollable ancestor. Reading layout and
+    // setting state on each event forced a synchronous reflow plus a re-render of this
+    // whole component per scroll frame — coalesce to one update per animation frame.
+    let frame: number | null = null;
     const updatePanelPosition = () => {
-      setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
+      if (frame != null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
+      });
     };
 
-    updatePanelPosition();
+    setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
     window.addEventListener("resize", updatePanelPosition);
     window.addEventListener("scroll", updatePanelPosition, true);
     return () => {
+      if (frame != null) window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", updatePanelPosition);
       window.removeEventListener("scroll", updatePanelPosition, true);
     };

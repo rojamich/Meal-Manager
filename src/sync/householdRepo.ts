@@ -8,6 +8,7 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc
 } from "firebase/firestore";
 import { ensureSignedIn } from "./auth";
@@ -18,6 +19,9 @@ export const HOUSEHOLD_CHANGED_EVENT = "household-changed";
 const STORAGE_KEY = "active-household-id";
 const CODE_KEY = "active-household-code";
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
+const CODE_LENGTH = 6;
+/** A code is a bearer credential; it shouldn't outlive the conversation it was shared in. */
+const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface Household {
   id: string;
@@ -64,12 +68,30 @@ function setActive(householdId: string, code: string) {
   }
 }
 
-function generateCode(length = 6): string {
+/**
+ * Invite codes are the credential that grants access to a household's data, so they come
+ * from the CSPRNG rather than Math.random(). Rejection sampling keeps the alphabet evenly
+ * distributed — 256 is not a multiple of 32's neighbours in general, and modulo bias would
+ * make some characters likelier than others.
+ */
+function generateCode(length = CODE_LENGTH): string {
+  const limit = 256 - (256 % CODE_ALPHABET.length);
   let out = "";
-  for (let i = 0; i < length; i += 1) {
-    out += CODE_ALPHABET.charAt(Math.floor(Math.random() * CODE_ALPHABET.length));
+  while (out.length < length) {
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (out.length >= length) break;
+      if (byte >= limit) continue;
+      out += CODE_ALPHABET.charAt(byte % CODE_ALPHABET.length);
+    }
   }
   return out;
+}
+
+/** A real Timestamp, not a string, so the Firestore rules can reject expired codes too. */
+function inviteExpiryFromNow(): Timestamp {
+  return Timestamp.fromMillis(Date.now() + INVITE_TTL_MS);
 }
 
 async function uniqueInviteCode(): Promise<string> {
@@ -103,7 +125,8 @@ export async function createHousehold(name?: string): Promise<{ householdId: str
   try {
     await setDoc(doc(db, "inviteCodes", code), {
       householdId: householdRef.id,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      expiresAt: inviteExpiryFromNow()
     });
   } catch (err) {
     // Best-effort cleanup so we don't leave an orphan household if invite-code create fails.
@@ -126,15 +149,20 @@ export async function joinHousehold(code: string): Promise<{ householdId: string
   if (!uid) throw new Error("Could not sign in.");
 
   const normalized = code.trim().toUpperCase();
-  if (!/^[A-Z0-9]{4,12}$/.test(normalized)) {
-    throw new Error("Invite code looks invalid.");
+  if (normalized.length !== CODE_LENGTH || !/^[A-Z0-9]+$/.test(normalized)) {
+    throw new Error(`Invite codes are ${CODE_LENGTH} characters. Check the spelling.`);
   }
   const inviteSnap = await getDoc(doc(db, "inviteCodes", normalized));
   if (!inviteSnap.exists()) {
     throw new Error("That invite code wasn't found. Check the spelling.");
   }
-  const { householdId } = inviteSnap.data() as { householdId: string };
+  const invite = inviteSnap.data() as { householdId?: string; expiresAt?: Timestamp };
+  const { householdId } = invite;
   if (!householdId) throw new Error("Invite code is corrupted.");
+  // Codes minted before expiry existed carry no stamp; those stay valid until rotated.
+  if (invite.expiresAt && invite.expiresAt.toMillis() < Date.now()) {
+    throw new Error("That invite code has expired. Ask the other device for a new one.");
+  }
 
   await updateDoc(doc(db, "households", householdId), {
     memberIds: arrayUnion(uid)
@@ -187,7 +215,8 @@ export async function rotateInviteCode(): Promise<string> {
   const newCode = await uniqueInviteCode();
   await setDoc(doc(db, "inviteCodes", newCode), {
     householdId,
-    createdAt: serverTimestamp()
+    createdAt: serverTimestamp(),
+    expiresAt: inviteExpiryFromNow()
   });
   if (oldCode) {
     try {
@@ -198,6 +227,22 @@ export async function rotateInviteCode(): Promise<string> {
   }
   setActive(householdId, newCode);
   return newCode;
+}
+
+/**
+ * Remove another member. Only the owner can do this (the rules enforce it too) — it is the
+ * way back from a leaked invite code, which previously meant deleting the whole household.
+ */
+export async function removeMember(uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  if (!db) throw new Error("Sync not configured.");
+  const householdId = getActiveHouseholdId();
+  if (!householdId) throw new Error("No active household.");
+  const self = await ensureSignedIn();
+  if (uid === self) {
+    throw new Error("Use “Disconnect this device” to remove yourself.");
+  }
+  await updateDoc(doc(db, "households", householdId), { memberIds: arrayRemove(uid) });
 }
 
 export function subscribeToHousehold(

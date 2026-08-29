@@ -11,7 +11,7 @@ function personBadgeFor(meal: PlannedMeal, people: Person[]) {
   return {
     name: person.name,
     initial: person.name.charAt(0).toUpperCase() || "?",
-    color: person.color || "#64748b"
+    color: person.color || "var(--muted)"
   };
 }
 
@@ -80,7 +80,7 @@ export default function WeekSlotCard({
       className="card"
       style={{
         marginTop: 10,
-        background: isOver ? "#dbeafe" : undefined,
+        background: isOver ? "var(--nav-active-bg)" : undefined,
         boxShadow: isOver ? "inset 0 0 0 2px #2563eb" : undefined,
         minHeight: 88
       }}

@@ -8,6 +8,8 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - Start dev server: `npm run dev`
 - Build: `npm run build`
 - Preview: `npm run preview`
+- Lint: `npm run lint`
+- Tests: `npm test` (`npm run test:watch` while working)
 
 ## GitHub Pages deploy
 
@@ -68,13 +70,30 @@ This repo includes `firestore.rules` at the root. Apply it once:
 2. Replace the entire contents with the file [`firestore.rules`](./firestore.rules).
 3. Click **Publish**.
 
-**Option B — via the Firebase CLI (if you already have it installed):**
+**Option B — via the Firebase CLI:**
 ```sh
 npm install -g firebase-tools
 firebase login
-firebase init firestore   # pick your project; accept defaults; let it use firestore.rules
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules --project <your-project-id>
 ```
+(`firebase.json` in this repo already points at `firestore.rules`, so no `firebase init` needed.)
+
+**Option C — automatically on every push to `main`:**
+Add a `FIREBASE_SERVICE_ACCOUNT` repository secret containing the JSON key of a service
+account with the *Firebase Rules Admin* role. The deploy workflow then keeps the deployed
+rules in step with this repo. Without the secret that job is skipped and the site still
+deploys — but the rules in the repo and the rules in production can then drift apart.
+
+### Recommended: lock the project down
+
+These are console settings, not code, and are worth doing once:
+
+- **App Check** (Build → App Check) with reCAPTCHA v3. Anonymous sign-in is free and
+  unlimited, so without App Check anyone can create accounts against your project. The
+  exposure is quota and cost rather than your data.
+- **Restrict the API key** (Google Cloud console → APIs & Services → Credentials) to your
+  GitHub Pages origin as an HTTP referrer.
+- **Set a budget alert** on the project.
 
 ### Enable sync on the deployed site (GitHub Pages)
 
@@ -98,3 +117,16 @@ These are public client values; the security model is the Firestore rules, not h
 2. On the second device, install the same app, open **Settings → Sync → Join household**, enter the code.
 3. From then on, changes on either device flow to the other (offline writes queue and replay).
 4. Joining replaces the second device's local data with the household's. Export a JSON backup first if anything on it matters.
+
+Notes on how sync behaves:
+
+- **Invite codes expire after 24 hours** and can be rotated at any time from Settings → Sync.
+  Rotating immediately invalidates the previous code.
+- **The device that created the household owns it.** Only that device can remove other
+  members, from the member list in Settings → Sync. Every device can remove itself with
+  *Disconnect this device*.
+- **Deletions propagate even across an offline gap.** A device that was closed while another
+  member deleted something reconciles on reconnect, rather than re-uploading what was deleted.
+  Anything created offline is kept and pushed up.
+- **Conflicts are last-write-wins per document.** Two people editing different fields of the
+  same recipe at the same time will keep only one of the two edits.

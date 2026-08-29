@@ -10,6 +10,9 @@ import { useActiveLocationId } from "../locations/activeLocation";
 import { buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
 import { dateKey } from "../../utils/date";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
+import { safeImageUrl } from "../../utils/url";
+import { buildCurrencyRates } from "../../utils/price";
+import { LocationProfile } from "../../models";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -41,7 +44,7 @@ export default function RecipesPage() {
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [activeLocationId] = useActiveLocationId();
@@ -139,6 +142,11 @@ export default function RecipesPage() {
     return result;
   }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
+  const currencyRates = useMemo(
+    () => buildCurrencyRates(locations, activeLocationId || undefined),
+    [locations, activeLocationId]
+  );
+
   const costInfoByRecipe = useMemo(() => {
     const ingredientsByRecipe = new Map<string, RecipeIngredient[]>();
     allIngredients.forEach((ing) => {
@@ -153,7 +161,8 @@ export default function RecipesPage() {
         ingredients: ingredientsByRecipe.get(recipe.id) ?? [],
         pantryItems,
         purchases,
-        locationId: activeLocationId || undefined
+        locationId: activeLocationId || undefined,
+        rates: currencyRates
       });
       result.set(recipe.id, {
         cost: effectiveCostPerServing(breakdown, recipe),
@@ -162,7 +171,7 @@ export default function RecipesPage() {
       });
     });
     return result;
-  }, [activeLocationId, allIngredients, pantryItems, purchases, recipes]);
+  }, [activeLocationId, allIngredients, currencyRates, pantryItems, purchases, recipes]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -298,8 +307,12 @@ export default function RecipesPage() {
               {filtered.map((recipe) => (
                 <tr key={recipe.id}>
                   <td data-label="Image" className="recipes-col-image">
-                    {recipe.imageUrl && (
-                      <img src={recipe.imageUrl} alt={recipe.title} style={{ width: 48, height: 48, objectFit: "cover" }} />
+                    {safeImageUrl(recipe.imageUrl) && (
+                      <img
+                        src={safeImageUrl(recipe.imageUrl)}
+                        alt={recipe.title}
+                        style={{ width: 48, height: 48, objectFit: "cover" }}
+                      />
                     )}
                   </td>
                   <td data-label="Title" className="recipes-col-title">

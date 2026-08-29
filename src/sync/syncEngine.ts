@@ -5,7 +5,8 @@ import {
   getDocs,
   onSnapshot,
   setDoc,
-  Unsubscribe
+  Unsubscribe,
+  writeBatch
 } from "firebase/firestore";
 import { Table } from "dexie";
 import { db as appDb } from "../db/db";
@@ -45,6 +46,18 @@ export interface SyncRemoteAppliedDetail {
 }
 
 const ECHO_GUARD_MS = 4000;
+/** Long enough to absorb a burst of snapshot changes, short enough to feel live. */
+const DOMAIN_REFRESH_DEBOUNCE_MS = 120;
+/** Firestore caps a batch at 500 operations. */
+const BATCH_LIMIT = 500;
+
+// Sync lifecycle tracing is useful while developing and noise in production — and one of
+// these lines used to print the household id, which is credential-grade.
+const SYNC_DEBUG = import.meta.env.DEV;
+
+function debugLog(message: string) {
+  if (SYNC_DEBUG) console.log(`[sync] ${message}`);
+}
 
 interface SyncListener {
   (status: SyncStatus, error?: string): void;
@@ -77,7 +90,7 @@ const TABLE_SPECS: TableSpec[] = [
  * holds days, which hold meals, whose optional fields are usually undefined. A shallow
  * strip left those in place and the whole write threw.
  */
-function stripUndefined(value: any): any {
+export function stripUndefined(value: any): any {
   if (Array.isArray(value)) {
     return value.filter((entry) => entry !== undefined).map((entry) => stripUndefined(entry));
   }
@@ -116,6 +129,8 @@ class SyncEngine {
   private pendingPushes = new Map<string, any | null>(); // `${table}:${id}` → data or null for delete
   private recentLocalPushes = new Map<string, number>(); // `${table}:${id}` → ts of last outgoing push
   private flushHandle: number | null = null;
+  private pendingRefreshTables = new Set<string>();
+  private refreshHandle: number | null = null;
   private lastIncomingAt: number | null = null;
 
   getStatus(): { status: SyncStatus; householdId: string | null; error: string | null } {
@@ -155,20 +170,20 @@ class SyncEngine {
     }
     this.householdId = householdId;
     this.setStatus("starting");
-    console.log(`[sync] start mode=${mode} household=${householdId}`);
+    debugLog(`start mode=${mode}`);
 
     try {
       if (mode === "join") {
-        console.log("[sync] wiping local data (join)");
+        debugLog("wiping local data (join)");
         await this.wipeLocal();
       }
 
       // Pull everything once before attaching live listeners so the initial state is consistent.
       // Only a reconnect reconciles deletions: on "create" the cloud is empty and local is the
       // source of truth, and on "join" local was just wiped.
-      console.log("[sync] initial pull starting");
+      debugLog("initial pull starting");
       await this.initialPull(householdId, mode === "reconnect");
-      console.log("[sync] initial pull complete");
+      debugLog("initial pull complete");
 
       // Attach listeners + hooks BEFORE pushing local, so any changes that happen during the
       // push are captured. This also lets us flip to "synced" sooner — the user sees live updates
@@ -176,12 +191,12 @@ class SyncEngine {
       this.attachListeners(householdId);
       this.attachHooks(householdId);
       this.setStatus("synced");
-      console.log("[sync] listeners attached, status=synced");
+      debugLog("listeners attached, status=synced");
 
       if (mode === "create" || mode === "reconnect") {
         // Background push — don't block the UI. Errors get surfaced via status.
         this.pushAllLocal(householdId)
-          .then(() => console.log("[sync] background push complete"))
+          .then(() => debugLog("background push complete"))
           .catch((err) => {
             console.warn("[sync] background push failed", err);
             this.setStatus("error", err?.message || "Background push failed.");
@@ -214,6 +229,11 @@ class SyncEngine {
       window.clearTimeout(this.flushHandle);
       this.flushHandle = null;
     }
+    if (this.refreshHandle != null) {
+      window.clearTimeout(this.refreshHandle);
+      this.refreshHandle = null;
+    }
+    this.pendingRefreshTables.clear();
     this.pendingPushes.clear();
     this.inflight.clear();
     this.recentLocalPushes.clear();
@@ -242,6 +262,26 @@ class SyncEngine {
         }
       }, 0);
     }
+  }
+
+  /**
+   * Coalesce table-refresh notifications. Pages respond to these by re-reading the entire
+   * table, so firing one per incoming document turned a 200-document sync into 200 full
+   * table reads.
+   */
+  private queueDomainRefresh(tableName: string): void {
+    this.pendingRefreshTables.add(tableName);
+    if (this.refreshHandle != null) return;
+    this.refreshHandle = window.setTimeout(() => {
+      this.refreshHandle = null;
+      const tables = Array.from(this.pendingRefreshTables);
+      this.pendingRefreshTables.clear();
+      for (const table of tables) {
+        for (const eventName of TABLE_DOMAIN_EVENTS[table] || []) {
+          window.dispatchEvent(new CustomEvent(eventName));
+        }
+      }
+    }, DOMAIN_REFRESH_DEBOUNCE_MS);
   }
 
   /** What we last recorded the cloud as holding for this household. */
@@ -337,9 +377,7 @@ class SyncEngine {
         }
       }
       if (deletedElsewhere.length) {
-        console.log(
-          `[sync] ${spec.name}: removed ${deletedElsewhere.length} row(s) deleted on another device`
-        );
+        debugLog(`${spec.name}: removed ${deletedElsewhere.length} row(s) deleted on another device`);
       }
     }
 
@@ -356,19 +394,32 @@ class SyncEngine {
     }
   }
 
+  /**
+   * Push every local row. Batched — this used to be one awaited round-trip per document,
+   * so a first sync of a few hundred rows meant a few hundred serial requests over mobile
+   * data.
+   */
   private async pushAllLocal(householdId: string): Promise<void> {
     const fdb = getFirebaseDb();
     if (!fdb) return;
     for (const spec of TABLE_SPECS) {
-      const all = await spec.table().toArray();
-      for (const row of all as any[]) {
-        const id = String(row.id);
-        await setDoc(
-          doc(fdb, "households", householdId, spec.name, id),
-          stripUndefined({ ...row, id }),
-          { merge: true }
-        );
-        await this.markSynced(spec.name, id, true);
+      const all = (await spec.table().toArray()) as any[];
+      for (let offset = 0; offset < all.length; offset += BATCH_LIMIT) {
+        const chunk = all.slice(offset, offset + BATCH_LIMIT);
+        const batch = writeBatch(fdb);
+        for (const row of chunk) {
+          const id = String(row.id);
+          batch.set(
+            doc(fdb, "households", householdId, spec.name, id),
+            stripUndefined({ ...row, id }),
+            { merge: true }
+          );
+        }
+        await batch.commit();
+        // Only record the ids once the batch actually landed.
+        for (const row of chunk) {
+          await this.markSynced(spec.name, String(row.id), true);
+        }
       }
     }
   }
@@ -423,13 +474,12 @@ class SyncEngine {
                 previous
               };
               if (typeof window !== "undefined") {
+                // The per-document event is what drives live toasts, so it fires immediately.
                 window.dispatchEvent(new CustomEvent(SYNC_REMOTE_APPLIED_EVENT, { detail }));
-                // Also dispatch the per-table domain events so plain components refresh
-                // without needing to know anything about sync.
-                const domainEvents = TABLE_DOMAIN_EVENTS[spec.name] || [];
-                for (const eventName of domainEvents) {
-                  window.dispatchEvent(new CustomEvent(eventName));
-                }
+                // The domain events make pages re-read the whole table, so a burst of
+                // incoming documents is coalesced into one refresh per table instead of one
+                // full table read per document.
+                this.queueDomainRefresh(spec.name);
               }
               // Re-notify subscribers so they can pick up the lastIncomingAt change.
               this.listeners.forEach((l) => l(this.status, this.error || undefined));

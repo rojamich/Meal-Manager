@@ -217,7 +217,7 @@ export default function PantryPage() {
           </select>
           <button onClick={() => setEditing({ ...BLANK_ITEM })}>Add Item</button>
         </div>
-        {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger-text)" }}>{error}</p>}
         <div className="table-wrap">
           <table className="table">
             <thead>

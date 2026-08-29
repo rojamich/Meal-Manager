@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import ActiveLocationPicker from "../features/locations/ActiveLocationPicker";
 import SyncActivityWatcher from "../components/SyncActivityWatcher";
 import DataErrorBanner from "../components/DataErrorBanner";
+import UpdatePrompt from "../components/UpdatePrompt";
 
 export default function Layout() {
   const location = useLocation();
@@ -24,6 +25,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <SyncActivityWatcher />
+      <UpdatePrompt />
     </div>
   );
 }

@@ -62,7 +62,7 @@ export default function DraggableMeal({
         borderLeft: `4px solid ${color}`,
         paddingLeft: 6,
         background: tintFromAccent(color),
-        color: "#0f172a"
+        color: "var(--text)"
       }}
       onClick={(e) => {
         e.stopPropagation();

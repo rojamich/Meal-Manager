@@ -318,7 +318,20 @@ function validateBundle(bundle: unknown): ExportBundle {
   if (!b.data || typeof b.data !== "object") {
     throw new Error("Backup file is missing the 'data' section.");
   }
-  const arr = (value: unknown) => (Array.isArray(value) ? value : []);
+  // Rows come from a file on disk and go straight into IndexedDB and, when sync is on,
+  // straight to Firestore. Anything without a usable string id would throw mid-transaction,
+  // so drop those rather than failing the whole restore.
+  const arr = (value: unknown) => {
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (row) =>
+        row !== null &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        typeof (row as { id?: unknown }).id === "string" &&
+        (row as { id: string }).id.length > 0
+    );
+  };
   const data = {
     pantryItems: arr(b.data.pantryItems),
     inventoryLots: arr(b.data.inventoryLots),

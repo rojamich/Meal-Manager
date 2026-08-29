@@ -13,7 +13,7 @@ import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
-import { bestUnitPrice } from "../../utils/price";
+import { bestUnitPrice, buildCurrencyRates } from "../../utils/price";
 import { pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
@@ -21,12 +21,13 @@ import { getActiveLocationId } from "../locations/activeLocation";
 import { getUnitDisplayMode } from "../settings/preferences";
 import { imperialAlternate } from "../../utils/unitConversion";
 import { reportLoadError } from "../../utils/loadError";
+import { LocationProfile } from "../../models";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
   const [lines, setLines] = useState<GroceryLine[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>("");
   const [addedLotsCount, setAddedLotsCount] = useState(0);
@@ -213,19 +214,24 @@ export default function GroceryPage() {
     [isCountUnit]
   );
 
+  const currencyRates = useMemo(
+    () => buildCurrencyRates(locations, settings.locationId || undefined),
+    [locations, settings.locationId]
+  );
+
   const estimate = useMemo(() => {
     let total = 0;
     let known = 0;
     for (const line of lines) {
       if (!line.pantryItemId) continue;
-      const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined);
+      const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined, currencyRates);
       if (price) {
         total += price * line.toBuyQty;
         known += 1;
       }
     }
     return { total, known, totalLines: lines.length };
-  }, [lines, purchases, settings.locationId]);
+  }, [currencyRates, lines, purchases, settings.locationId]);
 
   async function handleCopy() {
     const text = lines

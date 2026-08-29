@@ -5,6 +5,24 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      GitHub Pages can't set headers, so the policy lives here. Recipe image URLs are free
+      text, hence the broad img-src; everything executable is same-origin only.
+      connect-src covers Firestore's REST + long-polling transports and Firebase Auth.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'wasm-unsafe-eval';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' https: data: blob:;
+               font-src 'self' data:;
+               connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.cloudfunctions.net;
+               frame-src https://*.firebaseapp.com;
+               object-src 'none';
+               base-uri 'self';
+               form-action 'none'"
+    />
     <title>Meal Manager</title>
   </head>
   <body>
