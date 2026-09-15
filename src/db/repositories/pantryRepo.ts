@@ -1,9 +1,13 @@
 import { db } from "../db";
 import { PantryItem } from "../../models";
 import { newId } from "../../utils/id";
+import { compareNames } from "../../utils/sort";
 
 export async function listPantryItems() {
-  return db.pantryItems.orderBy("name").toArray();
+  // Sorted in memory rather than with orderBy("name"): the index is case-sensitive, so it
+  // would list every capitalised item before every lowercase one.
+  const items = await db.pantryItems.toArray();
+  return items.sort((a, b) => compareNames(a.name, b.name));
 }
 
 export async function getPantryItem(id: string) {

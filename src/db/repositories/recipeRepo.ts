@@ -1,6 +1,27 @@
 import { db } from "../db";
 import { Recipe, RecipeIngredient } from "../../models";
 import { newId } from "../../utils/id";
+import { compareNames } from "../../utils/sort";
+
+/**
+ * Order ingredients by the pantry item name they display, case-insensitively.
+ *
+ * The name lives on the pantry item rather than the ingredient row, so this has to join
+ * before it can sort — which is why the table's own ordering could never do it.
+ */
+async function sortByItemName(ingredients: RecipeIngredient[]): Promise<RecipeIngredient[]> {
+  if (ingredients.length < 2) return ingredients;
+  const items = await db.pantryItems.bulkGet([...new Set(ingredients.map((i) => i.pantryItemId))]);
+  const nameById = new Map<string, string>();
+  for (const item of items) {
+    if (item) nameById.set(item.id, item.name);
+  }
+  return [...ingredients].sort((a, b) => {
+    const byName = compareNames(nameById.get(a.pantryItemId), nameById.get(b.pantryItemId));
+    // Stable tiebreak so two items sharing a name keep a consistent order between reads.
+    return byName !== 0 ? byName : a.id.localeCompare(b.id);
+  });
+}
 
 function normalizeRecipe<T extends Partial<Recipe>>(recipe: T): T & Pick<Recipe, "baseServings" | "defaultServings"> {
   const servings = Math.max(Number(recipe.baseServings ?? recipe.defaultServings ?? 2), 1);
@@ -22,11 +43,12 @@ export async function getRecipe(id: string) {
 }
 
 export async function listIngredients(recipeId: string) {
-  return db.recipeIngredients.where("recipeId").equals(recipeId).toArray();
+  const ingredients = await db.recipeIngredients.where("recipeId").equals(recipeId).toArray();
+  return sortByItemName(ingredients);
 }
 
 export async function listAllIngredients() {
-  return db.recipeIngredients.toArray();
+  return sortByItemName(await db.recipeIngredients.toArray());
 }
 
 export async function createRecipe(input: Omit<Recipe, "id" | "createdAt" | "updatedAt">) {
