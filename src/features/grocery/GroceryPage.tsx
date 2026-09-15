@@ -22,6 +22,7 @@ import { getUnitDisplayMode } from "../settings/preferences";
 import { imperialAlternate } from "../../utils/unitConversion";
 import { reportLoadError } from "../../utils/loadError";
 import { LocationProfile } from "../../models";
+import { compareNames } from "../../utils/sort";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
@@ -186,17 +187,33 @@ export default function GroceryPage() {
     await refresh();
   }
 
+  const pantryItemById = useMemo(
+    () => new Map(pantryItems.map((item) => [item.id, item])),
+    [pantryItems]
+  );
+
+  const lineLabel = useCallback(
+    (line: GroceryLine) =>
+      line.freeformLabel || (line.pantryItemId ? pantryItemById.get(line.pantryItemId)?.name : "") || "",
+    [pantryItemById]
+  );
+
   const grouped = useMemo(() => {
     const map = new Map<string, GroceryLine[]>();
     for (const line of lines) {
-      const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
+      const item = line.pantryItemId ? pantryItemById.get(line.pantryItemId) : undefined;
       const category = line.category || item?.category || "other";
       const list = map.get(category) ?? [];
       list.push(line);
       map.set(category, list);
     }
+    // Sort each aisle's lines here rather than during render — sorting in the JSX mutated
+    // these arrays in place on every pass.
+    for (const list of map.values()) {
+      list.sort((a, b) => compareNames(lineLabel(a), lineLabel(b)));
+    }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [lines, pantryItems]);
+  }, [lines, pantryItemById, lineLabel]);
 
   const toggleExpanded = useCallback((lineId: string) => {
     setExpandedLineIds((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
@@ -460,17 +477,6 @@ export default function GroceryPage() {
               </thead>
               <tbody>
                 {items
-                  .sort((a, b) => {
-                    const nameA =
-                      a.freeformLabel ||
-                      pantryItems.find((p) => p.id === a.pantryItemId)?.name ||
-                      "";
-                    const nameB =
-                      b.freeformLabel ||
-                      pantryItems.find((p) => p.id === b.pantryItemId)?.name ||
-                      "";
-                    return nameA.localeCompare(nameB);
-                  })
                   .map((line) => {
                     const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
                     const usedFor = parseGroceryUsageEntries(line.usedForJson);

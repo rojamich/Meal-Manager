@@ -12,6 +12,7 @@ import { dateKey } from "../../utils/date";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { safeImageUrl } from "../../utils/url";
 import { buildCurrencyRates } from "../../utils/price";
+import { compareNames } from "../../utils/sort";
 import { LocationProfile } from "../../models";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -191,7 +192,7 @@ export default function RecipesPage() {
         return matchesText && matchesMealType && caloriesOk && costOk && (!canMakeOnly || canMake);
       })
       .sort((a, b) => {
-        if (sortBy === "title") return a.title.localeCompare(b.title);
+        if (sortBy === "title") return compareNames(a.title, b.title);
         if (sortBy === "calories") {
           const aVal = recipeCalories(a) ?? Number.MAX_VALUE;
           const bVal = recipeCalories(b) ?? Number.MAX_VALUE;

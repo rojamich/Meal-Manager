@@ -33,7 +33,9 @@ function normalizeRecipe<T extends Partial<Recipe>>(recipe: T): T & Pick<Recipe,
 }
 
 export async function listRecipes() {
-  const recipes = await db.recipes.orderBy("title").toArray();
+  // Not orderBy("title") — that index sorts by code unit, so every capitalised title
+  // would come before every lowercase one.
+  const recipes = (await db.recipes.toArray()).sort((a, b) => compareNames(a.title, b.title));
   return recipes.map((recipe) => normalizeRecipe(recipe));
 }
 

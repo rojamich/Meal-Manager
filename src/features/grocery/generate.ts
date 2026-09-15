@@ -11,6 +11,7 @@ import { listEssentialItems } from "../../db/repositories/essentialsRepo";
 import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { createGroceryList, createGroceryLines } from "../../db/repositories/groceryRepo";
 import { roundQty } from "../../utils/math";
+import { compareNames } from "../../utils/sort";
 
 export interface GroceryUsageEntry {
   label: string;
@@ -53,7 +54,7 @@ function mergeUsageEntries(entries: GroceryUsageEntry[]) {
   return Array.from(merged.values()).sort((a, b) => {
     const dateCompare = (a.date || "").localeCompare(b.date || "");
     if (dateCompare !== 0) return dateCompare;
-    return a.label.localeCompare(b.label);
+    return compareNames(a.label, b.label);
   });
 }
 
