@@ -1,6 +1,18 @@
 import { db } from "../db";
 import { PlannedMeal } from "../../models";
 import { newId } from "../../utils/id";
+import { emitDomainEvent } from "../domainEvents";
+
+export const PLANNED_MEALS_UPDATED_EVENT = "planned-meals-updated";
+
+/**
+ * Nothing local used to announce planned-meal writes — only the sync engine did — so a
+ * page other than the planner (which updates its own state directly) showed stale data
+ * until it was revisited. Cooking a meal, for one, never reached the recipe list.
+ */
+function emitPlannedMealsUpdated() {
+  emitDomainEvent(PLANNED_MEALS_UPDATED_EVENT);
+}
 
 export async function listMealSlots() {
   return db.mealSlots.orderBy("sortOrder").toArray();
@@ -37,18 +49,22 @@ export async function createPlannedMeal(input: Omit<PlannedMeal, "id" | "created
     updatedAt: now
   };
   await db.plannedMeals.add(meal);
+  emitPlannedMealsUpdated();
   return meal;
 }
 
 export async function updatePlannedMeal(id: string, changes: Partial<PlannedMeal>) {
   const now = new Date().toISOString();
   await db.plannedMeals.update(id, { ...changes, updatedAt: now });
+  emitPlannedMealsUpdated();
 }
 
 export async function deletePlannedMeal(id: string) {
   await db.plannedMeals.delete(id);
+  emitPlannedMealsUpdated();
 }
 
 export async function deletePlannedMealsInRange(startDate: string, endDate: string) {
   await db.plannedMeals.where("date").between(startDate, endDate, true, true).delete();
+  emitPlannedMealsUpdated();
 }

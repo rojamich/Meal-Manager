@@ -8,6 +8,8 @@ import {
   createMealWithRules
 } from "../../features/planner/plannerDomain";
 import { getHouseholdSize } from "../../features/settings/preferences";
+import { emitDomainEvent } from "../domainEvents";
+import { PLANNED_MEALS_UPDATED_EVENT } from "./mealPlanRepo";
 
 export async function listWeekTemplates() {
   const rows = await db.weekTemplates.orderBy("createdAt").reverse().toArray();
@@ -41,7 +43,12 @@ export async function applyWeekTemplateToWeek(template: WeekTemplate, weekStart:
       return key >= dateKey(weekStart) && key <= dateKey(weekEnd);
     })
     .map((meal) => meal.id);
-  if (idsToDelete.length) await db.plannedMeals.bulkDelete(idsToDelete);
+  if (idsToDelete.length) {
+    await db.plannedMeals.bulkDelete(idsToDelete);
+    // This clears the week without going through mealPlanRepo, so announce it here.
+    // The creates below emit too, but a template with no meals would otherwise be silent.
+    emitDomainEvent(PLANNED_MEALS_UPDATED_EVENT);
+  }
 
   const householdSize = getHouseholdSize();
   const weekStartDate = parseISODate(dateKey(weekStart));
