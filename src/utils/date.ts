@@ -34,3 +34,29 @@ export function formatDateLong(value: string) {
   const d = parseISODate(value);
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
+
+/** Whole calendar days between two instants, so a late-evening cook still reads "Today". */
+export function calendarDaysAgo(iso: string): number | undefined {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return undefined;
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((startOfDay(new Date()) - startOfDay(then)) / 86_400_000);
+}
+
+/**
+ * How long ago a recipe was last made, phrased the way you'd say it when deciding what to
+ * cook — the point is "not this again", so precision matters less than the rough distance.
+ */
+export function formatLastCooked(iso?: string): string {
+  if (!iso) return "Never";
+  const days = calendarDaysAgo(iso);
+  if (days === undefined) return "Never";
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "Last week";
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  const years = Math.floor(days / 365);
+  return years === 1 ? "A year ago" : `${years} years ago`;
+}

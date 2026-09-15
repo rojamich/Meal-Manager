@@ -8,11 +8,12 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { useActiveLocationId } from "../locations/activeLocation";
 import { buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
-import { dateKey } from "../../utils/date";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { safeImageUrl } from "../../utils/url";
 import { buildCurrencyRates } from "../../utils/price";
 import { compareNames } from "../../utils/sort";
+import { getLastCookedByRecipe } from "../../db/repositories/cookHistoryRepo";
+import { calendarDaysAgo, dateKey, formatLastCooked } from "../../utils/date";
 import { LocationProfile } from "../../models";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
@@ -41,7 +42,9 @@ export default function RecipesPage() {
   const [maxCalories, setMaxCalories] = useState("");
   const [maxCost, setMaxCost] = useState("");
   const [maxTime, setMaxTime] = useState("");
-  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time">("title");
+  const [notCookedInDays, setNotCookedInDays] = useState("");
+  const [lastCookedByRecipe, setLastCookedByRecipe] = useState<Map<string, string>>(new Map());
+  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time" | "lastCooked">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
@@ -62,6 +65,7 @@ export default function RecipesPage() {
     setLocations([...(await listLocations())]);
     setPantryItems([...(await listPantryItems())]);
     setPurchases([...(await listPurchaseEntries())]);
+    setLastCookedByRecipe(await getLastCookedByRecipe());
   }, []);
 
   useEffect(() => {
@@ -72,12 +76,16 @@ export default function RecipesPage() {
     window.addEventListener("pantry-items-updated", onSync);
     window.addEventListener("locations-updated", onSync);
     window.addEventListener("purchases-updated", onSync);
+    window.addEventListener("planned-meals-updated", onSync);
+    window.addEventListener("cooked-portions-updated", onSync);
     return () => {
       window.removeEventListener("recipes-updated", onSync);
       window.removeEventListener("recipe-ingredients-updated", onSync);
       window.removeEventListener("pantry-items-updated", onSync);
       window.removeEventListener("locations-updated", onSync);
       window.removeEventListener("purchases-updated", onSync);
+      window.removeEventListener("planned-meals-updated", onSync);
+      window.removeEventListener("cooked-portions-updated", onSync);
     };
   }, [refresh]);
 
@@ -218,11 +226,28 @@ export default function RecipesPage() {
         const costOk = !maxCost || (cost !== undefined && cost <= Number(maxCost));
         const timeOk =
           !maxTime || (r.timeMinutes !== undefined && r.timeMinutes <= Number(maxTime));
+        // "Not cooked in N days" deliberately keeps never-cooked recipes — they are the
+        // ones you are most likely to be looking for.
+        const lastCooked = lastCookedByRecipe.get(r.id);
+        const staleOk =
+          !notCookedInDays ||
+          !lastCooked ||
+          (calendarDaysAgo(lastCooked) ?? Infinity) >= Number(notCookedInDays);
         const canMake = makeableByRecipe.get(r.id) ?? true;
-        return matchesText && matchesMealType && caloriesOk && costOk && timeOk && (!canMakeOnly || canMake);
+        return (
+          matchesText && matchesMealType && caloriesOk && costOk && timeOk && staleOk &&
+          (!canMakeOnly || canMake)
+        );
       })
       .sort((a, b) => {
         if (sortBy === "title") return compareNames(a.title, b.title);
+        if (sortBy === "lastCooked") {
+          // Never cooked sorts first: "" precedes any ISO timestamp.
+          const aVal = lastCookedByRecipe.get(a.id) ?? "";
+          const bVal = lastCookedByRecipe.get(b.id) ?? "";
+          if (aVal === bVal) return compareNames(a.title, b.title);
+          return aVal.localeCompare(bVal);
+        }
         if (sortBy === "time") {
           return (a.timeMinutes ?? Number.MAX_VALUE) - (b.timeMinutes ?? Number.MAX_VALUE);
         }
@@ -235,7 +260,7 @@ export default function RecipesPage() {
         const bVal = costInfoByRecipe.get(b.id)?.cost ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe, ingredientNamesByRecipe]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, notCookedInDays, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe, ingredientNamesByRecipe, lastCookedByRecipe]);
 
   async function removeRecipe(id: string) {
     const { plannedMealCount } = await countRecipeReferences(id);
@@ -305,12 +330,21 @@ export default function RecipesPage() {
             value={maxTime}
             onChange={(e) => setMaxTime(e.target.value)}
           />
+          <input
+            type="number"
+            min="1"
+            placeholder="Not cooked in (days)"
+            value={notCookedInDays}
+            onChange={(e) => setNotCookedInDays(e.target.value)}
+            title="Show recipes you haven't made in at least this many days, plus ones you've never made"
+          />
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost" | "time")}
           >
             <option value="title">Sort: title</option>
             <option value="time">Sort: time</option>
+            <option value="lastCooked">Sort: least recently cooked</option>
             <option value="calories">Sort: calories</option>
             <option value="cost">Sort: cost</option>
           </select>
@@ -348,6 +382,7 @@ export default function RecipesPage() {
                 <th className="recipes-col-meal-types">Meal types</th>
                 <th className="recipes-col-servings">Servings</th>
                 <th className="recipes-col-metadata">Metadata</th>
+                <th className="recipes-col-last-cooked">Last cooked</th>
                 <th className="recipes-col-cost">Cost</th>
                 <th className="recipes-col-actions"></th>
               </tr>
@@ -384,6 +419,22 @@ export default function RecipesPage() {
                   </td>
                   <td data-label="Servings" className="recipes-col-servings">{recipeBaseServings(recipe)}</td>
                   <td data-label="Metadata" className="recipes-col-metadata">{recipeMetaSummary(recipe)}</td>
+                  <td data-label="Last cooked" className="recipes-col-last-cooked">
+                    {(() => {
+                      const lastCooked = lastCookedByRecipe.get(recipe.id);
+                      const days = lastCooked ? calendarDaysAgo(lastCooked) : undefined;
+                      return (
+                        <span
+                          className={`last-cooked${lastCooked ? "" : " last-cooked-never"}${
+                            days !== undefined && days <= 7 ? " last-cooked-recent" : ""
+                          }`}
+                          title={lastCooked ? new Date(lastCooked).toLocaleString() : "Never cooked"}
+                        >
+                          {formatLastCooked(lastCooked)}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td data-label="Cost" className="recipes-col-cost">
                     {(() => {
                       const info = costInfoByRecipe.get(recipe.id);
@@ -419,7 +470,7 @@ export default function RecipesPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted">No recipes match your filters.</td>
+                  <td colSpan={8} className="muted">No recipes match your filters.</td>
                 </tr>
               )}
             </tbody>

@@ -997,7 +997,7 @@ button.danger:focus {
 }
 
 .recipes-list-table {
-  min-width: 760px;
+  min-width: 870px;
 }
 
 .recipes-list-table th,
@@ -1030,8 +1030,13 @@ button.danger:focus {
 }
 
 .recipes-col-metadata {
-  width: 24%;
-  min-width: 170px;
+  width: 19%;
+  min-width: 150px;
+}
+
+.recipes-col-last-cooked {
+  width: 110px;
+  min-width: 110px;
 }
 
 .recipes-col-cost {
@@ -1611,4 +1616,21 @@ button:not(.secondary):not(.ghost):not(.danger):focus-visible {
   font-size: 12px;
   color: var(--muted);
   font-style: italic;
+}
+
+.last-cooked {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Never made is the interesting case when you're hunting for something new. */
+.last-cooked-never {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Made in the last week — the "not this again" signal. */
+.last-cooked-recent {
+  color: var(--warn-strong);
+  font-weight: 600;
 }
