@@ -14,7 +14,7 @@ import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
 import { bestUnitPrice, buildCurrencyRates } from "../../utils/price";
-import { pantryCategoryLabel } from "../../utils/pantryCategories";
+import { normalizePantryCategoryKey, pantryCategoryLabel, pantryCategorySortIndex } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { getActiveLocationId } from "../locations/activeLocation";
@@ -202,7 +202,9 @@ export default function GroceryPage() {
     const map = new Map<string, GroceryLine[]>();
     for (const line of lines) {
       const item = line.pantryItemId ? pantryItemById.get(line.pantryItemId) : undefined;
-      const category = line.category || item?.category || "other";
+      // Normalise first, or a line still carrying a legacy key ("pantry") forms its own
+      // section alongside the current one ("pantry_dry") under an identical heading.
+      const category = normalizePantryCategoryKey(line.category || item?.category || "other");
       const list = map.get(category) ?? [];
       list.push(line);
       map.set(category, list);
@@ -212,7 +214,9 @@ export default function GroceryPage() {
     for (const list of map.values()) {
       list.sort((a, b) => compareNames(lineLabel(a), lineLabel(b)));
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(map.entries()).sort(
+      ([a], [b]) => pantryCategorySortIndex(a) - pantryCategorySortIndex(b)
+    );
   }, [lines, pantryItemById, lineLabel]);
 
   const toggleExpanded = useCallback((lineId: string) => {

@@ -5,6 +5,7 @@ import { getRecipe, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { roundQty } from "../../utils/math";
 import { reportLoadError } from "../../utils/loadError";
+import { useWakeLock } from "./useWakeLock";
 
 function getEffectiveBaseServings(recipe: Recipe) {
   return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
@@ -23,6 +24,8 @@ export default function CookPage() {
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [stepsViewMode, setStepsViewMode] = useState<"step" | "full">("step");
+  const [keepAwake, setKeepAwake] = useState(true);
+  const wakeLock = useWakeLock(keepAwake);
 
   useEffect(() => {
     if (!id) {
@@ -121,6 +124,16 @@ export default function CookPage() {
               </p>
             )}
           </div>
+          {wakeLock.supported && (
+            <label className="keep-awake" title="Stops the screen dimming while you cook">
+              <input
+                type="checkbox"
+                checked={keepAwake}
+                onChange={(e) => setKeepAwake(e.target.checked)}
+              />
+              <span>{keepAwake && wakeLock.active ? "Screen staying on" : "Keep screen on"}</span>
+            </label>
+          )}
         </div>
 
         {recipe.notes && (

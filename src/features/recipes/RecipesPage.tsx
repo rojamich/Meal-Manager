@@ -40,7 +40,8 @@ export default function RecipesPage() {
   const [mealTypeFilters, setMealTypeFilters] = useState<string[]>([]);
   const [maxCalories, setMaxCalories] = useState("");
   const [maxCost, setMaxCost] = useState("");
-  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
+  const [maxTime, setMaxTime] = useState("");
+  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
@@ -174,6 +175,32 @@ export default function RecipesPage() {
     return result;
   }, [activeLocationId, allIngredients, currencyRates, pantryItems, purchases, recipes]);
 
+  // Searching only title and tags meant you could not ask "what uses chicken", even
+  // though every ingredient and pantry item is already loaded on this page.
+  const ingredientNamesByRecipe = useMemo(() => {
+    const nameById = new Map(pantryItems.map((item) => [item.id, item.name.toLowerCase()]));
+    const byRecipe = new Map<string, string[]>();
+    for (const ing of allIngredients) {
+      const name = nameById.get(ing.pantryItemId);
+      if (!name) continue;
+      const list = byRecipe.get(ing.recipeId);
+      if (list) list.push(name);
+      else byRecipe.set(ing.recipeId, [name]);
+    }
+    return byRecipe;
+  }, [allIngredients, pantryItems]);
+
+  const ingredientMatch = useCallback(
+    (recipe: Recipe) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return "";
+      if (recipe.title.toLowerCase().includes(q)) return "";
+      if (recipe.tags.some((tag) => tag.toLowerCase().includes(q))) return "";
+      return (ingredientNamesByRecipe.get(recipe.id) ?? []).find((name) => name.includes(q)) ?? "";
+    },
+    [ingredientNamesByRecipe, search]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return recipes
@@ -181,18 +208,24 @@ export default function RecipesPage() {
         const matchesText =
           !q ||
           r.title.toLowerCase().includes(q) ||
-          r.tags.some((tag) => tag.toLowerCase().includes(q));
+          r.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+          (ingredientNamesByRecipe.get(r.id) ?? []).some((name) => name.includes(q));
         const matchesMealType =
           mealTypeFilters.length === 0 || r.mealTypes?.some((type) => mealTypeFilters.includes(type));
         const caloriesOk =
           !maxCalories || (recipeCalories(r) !== undefined && (recipeCalories(r) as number) <= Number(maxCalories));
         const cost = costInfoByRecipe.get(r.id)?.cost;
         const costOk = !maxCost || (cost !== undefined && cost <= Number(maxCost));
+        const timeOk =
+          !maxTime || (r.timeMinutes !== undefined && r.timeMinutes <= Number(maxTime));
         const canMake = makeableByRecipe.get(r.id) ?? true;
-        return matchesText && matchesMealType && caloriesOk && costOk && (!canMakeOnly || canMake);
+        return matchesText && matchesMealType && caloriesOk && costOk && timeOk && (!canMakeOnly || canMake);
       })
       .sort((a, b) => {
         if (sortBy === "title") return compareNames(a.title, b.title);
+        if (sortBy === "time") {
+          return (a.timeMinutes ?? Number.MAX_VALUE) - (b.timeMinutes ?? Number.MAX_VALUE);
+        }
         if (sortBy === "calories") {
           const aVal = recipeCalories(a) ?? Number.MAX_VALUE;
           const bVal = recipeCalories(b) ?? Number.MAX_VALUE;
@@ -202,7 +235,7 @@ export default function RecipesPage() {
         const bVal = costInfoByRecipe.get(b.id)?.cost ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe, ingredientNamesByRecipe]);
 
   async function removeRecipe(id: string) {
     const { plannedMealCount } = await countRecipeReferences(id);
@@ -228,7 +261,11 @@ export default function RecipesPage() {
     <div className="grid">
       <section className="panel">
         <div className="row resource-toolbar">
-          <input placeholder="Search recipes" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input
+            placeholder="Search title, tag, or ingredient"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <button className="secondary mobile-only" onClick={() => setShowFilters((prev) => !prev)}>
             Filter {showFilters ? "^" : "v"}
           </button>
@@ -261,8 +298,19 @@ export default function RecipesPage() {
             value={maxCost}
             onChange={(e) => setMaxCost(e.target.value)}
           />
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost")}>
+          <input
+            type="number"
+            min="1"
+            placeholder="Max minutes"
+            value={maxTime}
+            onChange={(e) => setMaxTime(e.target.value)}
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost" | "time")}
+          >
             <option value="title">Sort: title</option>
+            <option value="time">Sort: time</option>
             <option value="calories">Sort: calories</option>
             <option value="cost">Sort: cost</option>
           </select>
@@ -323,6 +371,9 @@ export default function RecipesPage() {
                     >
                       {recipe.title}
                     </button>
+                    {ingredientMatch(recipe) && (
+                      <span className="match-reason">contains {ingredientMatch(recipe)}</span>
+                    )}
                   </td>
                   <td data-label="Meal types" className="recipes-col-meal-types">
                     <div className="recipes-meal-types">

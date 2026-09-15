@@ -1583,3 +1583,32 @@ button:not(.secondary):not(.ghost):not(.danger):focus-visible {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
   font-size: 14px;
 }
+
+.keep-awake {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--soft);
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.keep-awake:has(input:checked) {
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border-color: var(--ok-bg);
+}
+
+.match-reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
