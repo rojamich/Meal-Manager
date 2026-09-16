@@ -1634,3 +1634,21 @@ button:not(.secondary):not(.ghost):not(.danger):focus-visible {
   color: var(--warn-strong);
   font-weight: 600;
 }
+
+.import-report {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.import-report li {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary-bg);
+  border-radius: 8px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
+}

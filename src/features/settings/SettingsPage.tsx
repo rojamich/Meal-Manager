@@ -6,6 +6,7 @@ import PricesSection from "../prices/PricesSection";
 
 const SyncSection = lazy(() => import("../sync/SyncSection"));
 import { describeBundle, exportAll, importAll } from "../../db/db";
+import { importRecipes, parseRecipeImport } from "../../db/recipeImport";
 import { getActiveHouseholdId } from "../../sync/householdRepo";
 import { seedExampleData } from "../../db/seedExamples";
 import {
@@ -26,6 +27,8 @@ export default function SettingsPage() {
   const [unitDisplayMode, setUnitDisplayModeState] = useState<UnitDisplayMode>(getUnitDisplayMode());
   const [autoEatLeftovers, setAutoEatLeftoversState] = useState<boolean>(getAutoEatLeftovers());
   const [seedingBusy, setSeedingBusy] = useState(false);
+  const [recipeImportError, setRecipeImportError] = useState<string | null>(null);
+  const [recipeImportReport, setRecipeImportReport] = useState<string[] | null>(null);
   const { notify, toast } = useToast();
   const { requestChoice, modal } = useConfirmChoiceModal();
 
@@ -113,6 +116,59 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleRecipePackImport(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+
+    setRecipeImportError(null);
+    setRecipeImportReport(null);
+
+    let recipes;
+    try {
+      recipes = parseRecipeImport(JSON.parse(await file.text()));
+    } catch (err: any) {
+      setRecipeImportError(err?.message || "That file isn't a recipe pack.");
+      return;
+    }
+
+    const choice = await requestChoice({
+      title: `Add ${recipes.length} recipe${recipes.length === 1 ? "" : "s"}?`,
+      message: recipes.map((r) => r.title).join(", ") + ".",
+      detail:
+        "Nothing is replaced. Ingredients reuse pantry items you already have — matching ignores case, accents and plurals, so “Onions” finds your existing “onion”. Recipes you already have are skipped.",
+      choices: [
+        { label: "Add recipes", value: "confirm", tone: "primary" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm") return;
+
+    try {
+      const summary = await importRecipes(recipes);
+      const lines: string[] = [];
+      if (summary.recipesAdded.length) lines.push(`Added: ${summary.recipesAdded.join(", ")}`);
+      if (summary.recipesSkipped.length)
+        lines.push(`Already had, skipped: ${summary.recipesSkipped.join(", ")}`);
+      if (summary.itemsCreated.length)
+        lines.push(`New pantry items: ${summary.itemsCreated.join(", ")}`);
+      if (summary.itemsReused.length) {
+        const reused = summary.itemsReused.map((r) => `${r.wanted} → ${r.matched}`);
+        lines.push(`Reused what you already had: ${[...new Set(reused)].join(", ")}`);
+      }
+      setRecipeImportReport(lines);
+      notify(
+        summary.recipesAdded.length
+          ? `Added ${summary.recipesAdded.length} recipe${summary.recipesAdded.length === 1 ? "" : "s"}.`
+          : "Nothing new to add — you already have these.",
+        summary.recipesAdded.length ? "success" : "info"
+      );
+    } catch (err: any) {
+      setRecipeImportError(err?.message || "Could not add those recipes.");
+    }
+  }
+
   return (
     <div className="grid">
       <details className="panel" open>
@@ -185,6 +241,30 @@ export default function SettingsPage() {
             {seedingBusy ? "Adding…" : "Add example recipes & essentials"}
           </button>
         </div>
+      </details>
+
+      <details className="panel" open>
+        <summary>Add recipes</summary>
+        <p className="muted">
+          Load a recipe pack without touching anything you already have. Ingredients are matched
+          against your pantry by meaning rather than exact spelling, so a pack asking for
+          &ldquo;Onions&rdquo; uses the &ldquo;onion&rdquo; you already have instead of adding a
+          second one beside it.
+        </p>
+        <div className="row">
+          <label>
+            Choose a recipe pack
+            <input type="file" accept="application/json" onChange={handleRecipePackImport} />
+          </label>
+        </div>
+        {recipeImportError && <p style={{ color: "var(--danger-text)" }}>{recipeImportError}</p>}
+        {recipeImportReport && (
+          <ul className="import-report">
+            {recipeImportReport.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
       </details>
 
       <details className="panel" open>

@@ -7,5 +7,7 @@
  * not the alphabetical order a person expects, and neither is a plain `<` comparison.
  */
 export function compareNames(a: string | undefined, b: string | undefined): number {
-  return (a || "").localeCompare(b || "", undefined, { sensitivity: "base" });
+  // Trimmed first: a stray leading space sorts ahead of every letter, which makes an
+  // otherwise correct list look unsorted.
+  return (a || "").trim().localeCompare((b || "").trim(), undefined, { sensitivity: "base" });
 }

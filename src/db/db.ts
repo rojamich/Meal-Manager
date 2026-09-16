@@ -18,6 +18,7 @@ import {
 } from "../models";
 import { STARTER_WEEK_TEMPLATES } from "./seedTemplates";
 import { newId } from "../utils/id";
+import { normalizeItemName } from "../utils/itemNames";
 
 /**
  * Device-local sync bookkeeping: one row per document we know the cloud held for the
@@ -237,6 +238,29 @@ class MealDb extends Dexie {
     this.version(10).stores({
       syncedDocs: "key, householdId"
     });
+
+    // Names were typed ad hoc over months, so the same list mixed "onion" with "Onions".
+    // Capitalise the first letter and tidy whitespace; the rest of each name is left
+    // alone so "Ají molido" and brand names survive intact.
+    // The tables are restated rather than left to inherit: a version declared with only
+    // .upgrade() and no .stores() never registers, so the migration silently never ran.
+    // The tables are restated rather than left to inherit: a version declared with only
+    // .upgrade() and no .stores() never registers, so the migration silently never ran.
+    this.version(11)
+      .stores({
+        pantryItems: "id, name, category, storageType",
+        recipes: "id, title"
+      })
+      .upgrade(async (tx) => {
+        await tx.table("pantryItems").toCollection().modify((item: any) => {
+          const tidy = normalizeItemName(item.name || "");
+          if (tidy && tidy !== item.name) item.name = tidy;
+        });
+        await tx.table("recipes").toCollection().modify((recipe: any) => {
+          const tidy = normalizeItemName(recipe.title || "");
+          if (tidy && tidy !== recipe.title) recipe.title = tidy;
+        });
+      });
   }
 }
 

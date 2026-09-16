@@ -40,6 +40,18 @@ describe("compareNames", () => {
     expect(compareNames("", "")).toBe(0);
   });
 
+  // A stray leading space used to sort an item ahead of everything else, which reads as
+  // "the sorting is broken" even though every other name is in order.
+  it("ignores surrounding whitespace", () => {
+    expect(compareNames("  crushed tomatoes ", "crushed tomatoes")).toBe(0);
+    expect(sorted(["  zebra", "apple"])).toEqual(["apple", "  zebra"]);
+    expect(sorted(["  crushed tomatoes ", "Bell peppers", "aji molido"])).toEqual([
+      "aji molido",
+      "Bell peppers",
+      "  crushed tomatoes "
+    ]);
+  });
+
   it("sorts leading whitespace and punctuation predictably", () => {
     const out = sorted(["pepper", "Ancho chile", "ancho chile"]);
     expect(out[0].toLowerCase()).toBe("ancho chile");
