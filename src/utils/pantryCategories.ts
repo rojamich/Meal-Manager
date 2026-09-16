@@ -30,3 +30,21 @@ export function pantryCategoryLabel(value?: string) {
   return CATEGORY_LABELS.get(normalized) || "Other";
 }
 
+
+/**
+ * Position of a category in the order you actually walk a shop: fresh perimeter first,
+ * then the centre aisles, then frozen on the way to the till, with anything unrecognised
+ * last. PANTRY_CATEGORY_OPTIONS is declared in that order, so this just reads its index.
+ *
+ * Sorting grocery sections by their raw key instead gave alphabetical-by-database-name
+ * ("bakery, condiments, dairy, frozen, other, pantry_canned_jarred, …"), which zigzags the
+ * shop and buries "Other" in the middle.
+ */
+const CATEGORY_ORDER = new Map<string, number>(
+  PANTRY_CATEGORY_OPTIONS.map((option, index) => [option.key, index])
+);
+
+export function pantryCategorySortIndex(value?: string) {
+  const normalized = normalizePantryCategoryKey(value);
+  return CATEGORY_ORDER.get(normalized) ?? CATEGORY_ORDER.size;
+}

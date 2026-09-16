@@ -1,5 +1,5 @@
 import { PantryItem, PurchaseEntry, Recipe, RecipeIngredient } from "../models";
-import { bestUnitPrice } from "./price";
+import { CurrencyRates, bestUnitPrice } from "./price";
 
 export interface RecipeCostLine {
   key: string;
@@ -32,13 +32,16 @@ export function buildRecipeCostBreakdown({
   ingredients,
   pantryItems,
   purchases,
-  locationId
+  locationId,
+  rates
 }: {
   recipe: Recipe;
   ingredients: RecipeIngredient[];
   pantryItems: PantryItem[];
   purchases: PurchaseEntry[];
   locationId?: string;
+  /** Without this, purchases in other currencies are skipped rather than mixed in. */
+  rates?: CurrencyRates;
 }): RecipeCostBreakdown {
   const baseServings = Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
   const itemById = new Map(pantryItems.map((item) => [item.id, item]));
@@ -57,7 +60,7 @@ export function buildRecipeCostBreakdown({
   const lines: RecipeCostLine[] = [];
   const pushLine = (ing: RecipeIngredient, labelPrefix?: string) => {
     const item = itemById.get(ing.pantryItemId);
-    const price = bestUnitPrice(purchases, ing.pantryItemId, locationId);
+    const price = bestUnitPrice(purchases, ing.pantryItemId, locationId, rates);
     const qtyPerServing = ing.quantity / baseServings;
     const name = item?.name || "Unknown ingredient";
     lines.push({
@@ -73,7 +76,7 @@ export function buildRecipeCostBreakdown({
   for (const ing of normal) pushLine(ing);
   for (const [groupLabel, options] of altGroups) {
     const priced = options
-      .map((opt) => ({ opt, price: bestUnitPrice(purchases, opt.pantryItemId, locationId) }))
+      .map((opt) => ({ opt, price: bestUnitPrice(purchases, opt.pantryItemId, locationId, rates) }))
       .filter((entry) => entry.price !== undefined)
       .sort((a, b) => a.price! * a.opt.quantity - b.price! * b.opt.quantity);
     pushLine(priced[0]?.opt ?? options[0], groupLabel);

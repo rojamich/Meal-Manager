@@ -5,7 +5,8 @@ import {
   getDocs,
   onSnapshot,
   setDoc,
-  Unsubscribe
+  Unsubscribe,
+  writeBatch
 } from "firebase/firestore";
 import { Table } from "dexie";
 import { db as appDb } from "../db/db";
@@ -45,6 +46,18 @@ export interface SyncRemoteAppliedDetail {
 }
 
 const ECHO_GUARD_MS = 4000;
+/** Long enough to absorb a burst of snapshot changes, short enough to feel live. */
+const DOMAIN_REFRESH_DEBOUNCE_MS = 120;
+/** Firestore caps a batch at 500 operations. */
+const BATCH_LIMIT = 500;
+
+// Sync lifecycle tracing is useful while developing and noise in production — and one of
+// these lines used to print the household id, which is credential-grade.
+const SYNC_DEBUG = import.meta.env.DEV;
+
+function debugLog(message: string) {
+  if (SYNC_DEBUG) console.log(`[sync] ${message}`);
+}
 
 interface SyncListener {
   (status: SyncStatus, error?: string): void;
@@ -72,14 +85,37 @@ const TABLE_SPECS: TableSpec[] = [
   { name: "cookedPortions", table: () => appDb.cookedPortions }
 ];
 
-function stripUndefined(obj: any): any {
-  if (!obj || typeof obj !== "object") return obj;
-  const out: any = Array.isArray(obj) ? [] : {};
-  for (const [k, v] of Object.entries(obj)) {
+/**
+ * Firestore rejects `undefined` at any depth, and several models nest — a WeekTemplate
+ * holds days, which hold meals, whose optional fields are usually undefined. A shallow
+ * strip left those in place and the whole write threw.
+ */
+export function stripUndefined(value: any): any {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => entry !== undefined).map((entry) => stripUndefined(entry));
+  }
+  if (!value || typeof value !== "object") return value;
+  // Leave anything that isn't a plain object alone (Date, Firestore sentinels).
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out: any = {};
+  for (const [k, v] of Object.entries(value)) {
     if (v === undefined) continue;
-    out[k] = v;
+    out[k] = stripUndefined(v);
   }
   return out;
+}
+
+const SHADOW_SEP = "|";
+
+function shadowKey(householdId: string, tableName: string, docId: string): string {
+  return `${householdId}${SHADOW_SEP}${tableName}${SHADOW_SEP}${docId}`;
+}
+
+/** Split `table:docId` without truncating ids that contain a colon. */
+function splitPushKey(key: string): [string, string] {
+  const at = key.indexOf(":");
+  return [key.slice(0, at), key.slice(at + 1)];
 }
 
 class SyncEngine {
@@ -93,6 +129,8 @@ class SyncEngine {
   private pendingPushes = new Map<string, any | null>(); // `${table}:${id}` → data or null for delete
   private recentLocalPushes = new Map<string, number>(); // `${table}:${id}` → ts of last outgoing push
   private flushHandle: number | null = null;
+  private pendingRefreshTables = new Set<string>();
+  private refreshHandle: number | null = null;
   private lastIncomingAt: number | null = null;
 
   getStatus(): { status: SyncStatus; householdId: string | null; error: string | null } {
@@ -118,7 +156,11 @@ class SyncEngine {
   }
 
   async start(householdId: string, mode: SyncMode): Promise<void> {
-    if (this.status !== "off" && this.householdId === householdId) return;
+    // "error" is deliberately restartable — otherwise a single failed push wedges sync
+    // until the user disconnects and rejoins, because reloads land here too.
+    if (this.status !== "off" && this.status !== "error" && this.householdId === householdId) {
+      return;
+    }
     if (this.status !== "off") await this.stop();
 
     const fdb = getFirebaseDb();
@@ -128,18 +170,20 @@ class SyncEngine {
     }
     this.householdId = householdId;
     this.setStatus("starting");
-    console.log(`[sync] start mode=${mode} household=${householdId}`);
+    debugLog(`start mode=${mode}`);
 
     try {
       if (mode === "join") {
-        console.log("[sync] wiping local data (join)");
+        debugLog("wiping local data (join)");
         await this.wipeLocal();
       }
 
       // Pull everything once before attaching live listeners so the initial state is consistent.
-      console.log("[sync] initial pull starting");
-      await this.initialPull(householdId);
-      console.log("[sync] initial pull complete");
+      // Only a reconnect reconciles deletions: on "create" the cloud is empty and local is the
+      // source of truth, and on "join" local was just wiped.
+      debugLog("initial pull starting");
+      await this.initialPull(householdId, mode === "reconnect");
+      debugLog("initial pull complete");
 
       // Attach listeners + hooks BEFORE pushing local, so any changes that happen during the
       // push are captured. This also lets us flip to "synced" sooner — the user sees live updates
@@ -147,12 +191,12 @@ class SyncEngine {
       this.attachListeners(householdId);
       this.attachHooks(householdId);
       this.setStatus("synced");
-      console.log("[sync] listeners attached, status=synced");
+      debugLog("listeners attached, status=synced");
 
       if (mode === "create" || mode === "reconnect") {
         // Background push — don't block the UI. Errors get surfaced via status.
         this.pushAllLocal(householdId)
-          .then(() => console.log("[sync] background push complete"))
+          .then(() => debugLog("background push complete"))
           .catch((err) => {
             console.warn("[sync] background push failed", err);
             this.setStatus("error", err?.message || "Background push failed.");
@@ -185,6 +229,11 @@ class SyncEngine {
       window.clearTimeout(this.flushHandle);
       this.flushHandle = null;
     }
+    if (this.refreshHandle != null) {
+      window.clearTimeout(this.refreshHandle);
+      this.refreshHandle = null;
+    }
+    this.pendingRefreshTables.clear();
     this.pendingPushes.clear();
     this.inflight.clear();
     this.recentLocalPushes.clear();
@@ -215,37 +264,162 @@ class SyncEngine {
     }
   }
 
-  private async initialPull(householdId: string): Promise<void> {
+  /**
+   * Coalesce table-refresh notifications. Pages respond to these by re-reading the entire
+   * table, so firing one per incoming document turned a 200-document sync into 200 full
+   * table reads.
+   */
+  private queueDomainRefresh(tableName: string): void {
+    this.pendingRefreshTables.add(tableName);
+    if (this.refreshHandle != null) return;
+    this.refreshHandle = window.setTimeout(() => {
+      this.refreshHandle = null;
+      const tables = Array.from(this.pendingRefreshTables);
+      this.pendingRefreshTables.clear();
+      for (const table of tables) {
+        for (const eventName of TABLE_DOMAIN_EVENTS[table] || []) {
+          window.dispatchEvent(new CustomEvent(eventName));
+        }
+      }
+    }, DOMAIN_REFRESH_DEBOUNCE_MS);
+  }
+
+  /** What we last recorded the cloud as holding for this household. */
+  private async loadShadowSet(householdId: string): Promise<Set<string>> {
+    try {
+      const rows = await appDb.syncedDocs.where("householdId").equals(householdId).toArray();
+      return new Set(rows.map((row) => row.key));
+    } catch (err) {
+      // No bookkeeping means no reconciliation, which is the safe direction: we keep
+      // rows we're unsure about rather than deleting them.
+      console.warn("[sync] shadow set unreadable — skipping delete reconciliation", err);
+      return new Set();
+    }
+  }
+
+  private async saveShadowSet(householdId: string, keys: string[]): Promise<void> {
+    try {
+      await appDb.transaction("rw", appDb.syncedDocs, async () => {
+        await appDb.syncedDocs.clear();
+        if (keys.length) {
+          await appDb.syncedDocs.bulkPut(keys.map((key) => ({ key, householdId })));
+        }
+      });
+    } catch (err) {
+      console.warn("[sync] could not persist shadow set", err);
+    }
+  }
+
+  /** Best-effort: record that the cloud does (or no longer does) hold this document. */
+  private async markSynced(tableName: string, docId: string, exists: boolean): Promise<void> {
+    const householdId = this.householdId;
+    if (!householdId) return;
+    const key = shadowKey(householdId, tableName, docId);
+    try {
+      if (exists) await appDb.syncedDocs.put({ key, householdId });
+      else await appDb.syncedDocs.delete(key);
+    } catch {
+      /* bookkeeping only — a miss costs us one skipped reconciliation, never data */
+    }
+  }
+
+  /**
+   * Pull the household's documents into Dexie.
+   *
+   * When `reconcileDeletes` is set, local rows that are missing from the pull AND were
+   * present in the cloud last time we looked are treated as deleted elsewhere and removed.
+   * Rows missing from both the pull and the shadow set were created here while offline,
+   * so they survive and get pushed up afterwards.
+   */
+  private async initialPull(householdId: string, reconcileDeletes: boolean): Promise<void> {
     const fdb = getFirebaseDb();
     if (!fdb) return;
+
+    const knownRemote = reconcileDeletes
+      ? await this.loadShadowSet(householdId)
+      : new Set<string>();
+    const nextShadow: string[] = [];
+    const touchedTables = new Set<string>();
+
     for (const spec of TABLE_SPECS) {
       const snap = await getDocs(collection(fdb, "households", householdId, spec.name));
       const tbl = spec.table();
+      const remoteIds = new Set<string>();
+
       for (const docSnap of snap.docs) {
         const data = docSnap.data() as any;
         const id = docSnap.id;
+        remoteIds.add(id);
+        nextShadow.push(shadowKey(householdId, spec.name, id));
         this.inflight.add(`${spec.name}:${id}`);
         try {
           await tbl.put({ ...data, id });
+          touchedTables.add(spec.name);
         } finally {
           this.inflight.delete(`${spec.name}:${id}`);
+        }
+      }
+
+      if (!reconcileDeletes || knownRemote.size === 0) continue;
+
+      const localIds = (await tbl.toCollection().primaryKeys()) as string[];
+      const deletedElsewhere = localIds.filter(
+        (id) => !remoteIds.has(id) && knownRemote.has(shadowKey(householdId, spec.name, id))
+      );
+      for (const id of deletedElsewhere) {
+        const key = `${spec.name}:${id}`;
+        this.inflight.add(key);
+        try {
+          await tbl.delete(id);
+          touchedTables.add(spec.name);
+        } finally {
+          this.inflight.delete(key);
+        }
+      }
+      if (deletedElsewhere.length) {
+        debugLog(`${spec.name}: removed ${deletedElsewhere.length} row(s) deleted on another device`);
+      }
+    }
+
+    await this.saveShadowSet(householdId, nextShadow);
+
+    // The UI is already mounted by the time this runs, so tell it what changed —
+    // otherwise reconciled deletions stay on screen until the next interaction.
+    if (typeof window !== "undefined") {
+      for (const tableName of touchedTables) {
+        for (const eventName of TABLE_DOMAIN_EVENTS[tableName] || []) {
+          window.dispatchEvent(new CustomEvent(eventName));
         }
       }
     }
   }
 
+  /**
+   * Push every local row. Batched — this used to be one awaited round-trip per document,
+   * so a first sync of a few hundred rows meant a few hundred serial requests over mobile
+   * data.
+   */
   private async pushAllLocal(householdId: string): Promise<void> {
     const fdb = getFirebaseDb();
     if (!fdb) return;
     for (const spec of TABLE_SPECS) {
-      const all = await spec.table().toArray();
-      for (const row of all as any[]) {
-        const id = String(row.id);
-        await setDoc(
-          doc(fdb, "households", householdId, spec.name, id),
-          stripUndefined({ ...row, id }),
-          { merge: true }
-        );
+      const all = (await spec.table().toArray()) as any[];
+      for (let offset = 0; offset < all.length; offset += BATCH_LIMIT) {
+        const chunk = all.slice(offset, offset + BATCH_LIMIT);
+        const batch = writeBatch(fdb);
+        for (const row of chunk) {
+          const id = String(row.id);
+          batch.set(
+            doc(fdb, "households", householdId, spec.name, id),
+            stripUndefined({ ...row, id }),
+            { merge: true }
+          );
+        }
+        await batch.commit();
+        // Only record the ids once the batch actually landed.
+        for (const row of chunk) {
+          await this.markSynced(spec.name, String(row.id), true);
+        }
       }
     }
   }
@@ -283,6 +457,7 @@ class SyncEngine {
                 const data = change.doc.data() as any;
                 await spec.table().put({ ...data, id });
               }
+              await this.markSynced(spec.name, id, change.type !== "removed");
             } catch (err) {
               console.warn(`[sync] listener apply failed for ${key}`, err);
             } finally {
@@ -299,13 +474,12 @@ class SyncEngine {
                 previous
               };
               if (typeof window !== "undefined") {
+                // The per-document event is what drives live toasts, so it fires immediately.
                 window.dispatchEvent(new CustomEvent(SYNC_REMOTE_APPLIED_EVENT, { detail }));
-                // Also dispatch the per-table domain events so plain components refresh
-                // without needing to know anything about sync.
-                const domainEvents = TABLE_DOMAIN_EVENTS[spec.name] || [];
-                for (const eventName of domainEvents) {
-                  window.dispatchEvent(new CustomEvent(eventName));
-                }
+                // The domain events make pages re-read the whole table, so a burst of
+                // incoming documents is coalesced into one refresh per table instead of one
+                // full table read per document.
+                this.queueDomainRefresh(spec.name);
               }
               // Re-notify subscribers so they can pick up the lastIncomingAt change.
               this.listeners.forEach((l) => l(this.status, this.error || undefined));
@@ -379,7 +553,7 @@ class SyncEngine {
     let lastError: string | null = null;
     const now = Date.now();
     for (const [key, data] of entries) {
-      const [tableName, docId] = key.split(":");
+      const [tableName, docId] = splitPushKey(key);
       this.recentLocalPushes.set(key, now);
       try {
         const ref = doc(fdb, "households", householdId, tableName, docId);
@@ -388,9 +562,11 @@ class SyncEngine {
         } else {
           await setDoc(ref, stripUndefined(data), { merge: false });
         }
+        await this.markSynced(tableName, docId, data != null);
       } catch (err: any) {
         console.warn(`[sync] push failed for ${key}`, err);
-        lastError = err?.message || String(err);
+        // Name the document — a bare Firestore message gives no clue which save was lost.
+        lastError = `Couldn't sync ${tableName} (${err?.message || String(err)})`;
       }
     }
     // Prune the echo-guard map periodically.

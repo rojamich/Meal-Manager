@@ -8,8 +8,13 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { useActiveLocationId } from "../locations/activeLocation";
 import { buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
-import { dateKey } from "../../utils/date";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
+import { safeImageUrl } from "../../utils/url";
+import { buildCurrencyRates } from "../../utils/price";
+import { compareNames } from "../../utils/sort";
+import { getLastCookedByRecipe } from "../../db/repositories/cookHistoryRepo";
+import { calendarDaysAgo, dateKey, formatLastCooked } from "../../utils/date";
+import { LocationProfile } from "../../models";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -36,12 +41,15 @@ export default function RecipesPage() {
   const [mealTypeFilters, setMealTypeFilters] = useState<string[]>([]);
   const [maxCalories, setMaxCalories] = useState("");
   const [maxCost, setMaxCost] = useState("");
-  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost">("title");
+  const [maxTime, setMaxTime] = useState("");
+  const [notCookedInDays, setNotCookedInDays] = useState("");
+  const [lastCookedByRecipe, setLastCookedByRecipe] = useState<Map<string, string>>(new Map());
+  const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time" | "lastCooked">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [activeLocationId] = useActiveLocationId();
@@ -57,6 +65,7 @@ export default function RecipesPage() {
     setLocations([...(await listLocations())]);
     setPantryItems([...(await listPantryItems())]);
     setPurchases([...(await listPurchaseEntries())]);
+    setLastCookedByRecipe(await getLastCookedByRecipe());
   }, []);
 
   useEffect(() => {
@@ -67,12 +76,16 @@ export default function RecipesPage() {
     window.addEventListener("pantry-items-updated", onSync);
     window.addEventListener("locations-updated", onSync);
     window.addEventListener("purchases-updated", onSync);
+    window.addEventListener("planned-meals-updated", onSync);
+    window.addEventListener("cooked-portions-updated", onSync);
     return () => {
       window.removeEventListener("recipes-updated", onSync);
       window.removeEventListener("recipe-ingredients-updated", onSync);
       window.removeEventListener("pantry-items-updated", onSync);
       window.removeEventListener("locations-updated", onSync);
       window.removeEventListener("purchases-updated", onSync);
+      window.removeEventListener("planned-meals-updated", onSync);
+      window.removeEventListener("cooked-portions-updated", onSync);
     };
   }, [refresh]);
 
@@ -139,6 +152,11 @@ export default function RecipesPage() {
     return result;
   }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
+  const currencyRates = useMemo(
+    () => buildCurrencyRates(locations, activeLocationId || undefined),
+    [locations, activeLocationId]
+  );
+
   const costInfoByRecipe = useMemo(() => {
     const ingredientsByRecipe = new Map<string, RecipeIngredient[]>();
     allIngredients.forEach((ing) => {
@@ -153,7 +171,8 @@ export default function RecipesPage() {
         ingredients: ingredientsByRecipe.get(recipe.id) ?? [],
         pantryItems,
         purchases,
-        locationId: activeLocationId || undefined
+        locationId: activeLocationId || undefined,
+        rates: currencyRates
       });
       result.set(recipe.id, {
         cost: effectiveCostPerServing(breakdown, recipe),
@@ -162,7 +181,33 @@ export default function RecipesPage() {
       });
     });
     return result;
-  }, [activeLocationId, allIngredients, pantryItems, purchases, recipes]);
+  }, [activeLocationId, allIngredients, currencyRates, pantryItems, purchases, recipes]);
+
+  // Searching only title and tags meant you could not ask "what uses chicken", even
+  // though every ingredient and pantry item is already loaded on this page.
+  const ingredientNamesByRecipe = useMemo(() => {
+    const nameById = new Map(pantryItems.map((item) => [item.id, item.name.toLowerCase()]));
+    const byRecipe = new Map<string, string[]>();
+    for (const ing of allIngredients) {
+      const name = nameById.get(ing.pantryItemId);
+      if (!name) continue;
+      const list = byRecipe.get(ing.recipeId);
+      if (list) list.push(name);
+      else byRecipe.set(ing.recipeId, [name]);
+    }
+    return byRecipe;
+  }, [allIngredients, pantryItems]);
+
+  const ingredientMatch = useCallback(
+    (recipe: Recipe) => {
+      const q = search.trim().toLowerCase();
+      if (!q) return "";
+      if (recipe.title.toLowerCase().includes(q)) return "";
+      if (recipe.tags.some((tag) => tag.toLowerCase().includes(q))) return "";
+      return (ingredientNamesByRecipe.get(recipe.id) ?? []).find((name) => name.includes(q)) ?? "";
+    },
+    [ingredientNamesByRecipe, search]
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -171,18 +216,41 @@ export default function RecipesPage() {
         const matchesText =
           !q ||
           r.title.toLowerCase().includes(q) ||
-          r.tags.some((tag) => tag.toLowerCase().includes(q));
+          r.tags.some((tag) => tag.toLowerCase().includes(q)) ||
+          (ingredientNamesByRecipe.get(r.id) ?? []).some((name) => name.includes(q));
         const matchesMealType =
           mealTypeFilters.length === 0 || r.mealTypes?.some((type) => mealTypeFilters.includes(type));
         const caloriesOk =
           !maxCalories || (recipeCalories(r) !== undefined && (recipeCalories(r) as number) <= Number(maxCalories));
         const cost = costInfoByRecipe.get(r.id)?.cost;
         const costOk = !maxCost || (cost !== undefined && cost <= Number(maxCost));
+        const timeOk =
+          !maxTime || (r.timeMinutes !== undefined && r.timeMinutes <= Number(maxTime));
+        // "Not cooked in N days" deliberately keeps never-cooked recipes — they are the
+        // ones you are most likely to be looking for.
+        const lastCooked = lastCookedByRecipe.get(r.id);
+        const staleOk =
+          !notCookedInDays ||
+          !lastCooked ||
+          (calendarDaysAgo(lastCooked) ?? Infinity) >= Number(notCookedInDays);
         const canMake = makeableByRecipe.get(r.id) ?? true;
-        return matchesText && matchesMealType && caloriesOk && costOk && (!canMakeOnly || canMake);
+        return (
+          matchesText && matchesMealType && caloriesOk && costOk && timeOk && staleOk &&
+          (!canMakeOnly || canMake)
+        );
       })
       .sort((a, b) => {
-        if (sortBy === "title") return a.title.localeCompare(b.title);
+        if (sortBy === "title") return compareNames(a.title, b.title);
+        if (sortBy === "lastCooked") {
+          // Never cooked sorts first: "" precedes any ISO timestamp.
+          const aVal = lastCookedByRecipe.get(a.id) ?? "";
+          const bVal = lastCookedByRecipe.get(b.id) ?? "";
+          if (aVal === bVal) return compareNames(a.title, b.title);
+          return aVal.localeCompare(bVal);
+        }
+        if (sortBy === "time") {
+          return (a.timeMinutes ?? Number.MAX_VALUE) - (b.timeMinutes ?? Number.MAX_VALUE);
+        }
         if (sortBy === "calories") {
           const aVal = recipeCalories(a) ?? Number.MAX_VALUE;
           const bVal = recipeCalories(b) ?? Number.MAX_VALUE;
@@ -192,7 +260,7 @@ export default function RecipesPage() {
         const bVal = costInfoByRecipe.get(b.id)?.cost ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, notCookedInDays, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe, ingredientNamesByRecipe, lastCookedByRecipe]);
 
   async function removeRecipe(id: string) {
     const { plannedMealCount } = await countRecipeReferences(id);
@@ -218,7 +286,11 @@ export default function RecipesPage() {
     <div className="grid">
       <section className="panel">
         <div className="row resource-toolbar">
-          <input placeholder="Search recipes" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input
+            placeholder="Search title, tag, or ingredient"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <button className="secondary mobile-only" onClick={() => setShowFilters((prev) => !prev)}>
             Filter {showFilters ? "^" : "v"}
           </button>
@@ -251,8 +323,28 @@ export default function RecipesPage() {
             value={maxCost}
             onChange={(e) => setMaxCost(e.target.value)}
           />
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost")}>
+          <input
+            type="number"
+            min="1"
+            placeholder="Max minutes"
+            value={maxTime}
+            onChange={(e) => setMaxTime(e.target.value)}
+          />
+          <input
+            type="number"
+            min="1"
+            placeholder="Not cooked in (days)"
+            value={notCookedInDays}
+            onChange={(e) => setNotCookedInDays(e.target.value)}
+            title="Show recipes you haven't made in at least this many days, plus ones you've never made"
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "title" | "calories" | "cost" | "time")}
+          >
             <option value="title">Sort: title</option>
+            <option value="time">Sort: time</option>
+            <option value="lastCooked">Sort: least recently cooked</option>
             <option value="calories">Sort: calories</option>
             <option value="cost">Sort: cost</option>
           </select>
@@ -290,6 +382,7 @@ export default function RecipesPage() {
                 <th className="recipes-col-meal-types">Meal types</th>
                 <th className="recipes-col-servings">Servings</th>
                 <th className="recipes-col-metadata">Metadata</th>
+                <th className="recipes-col-last-cooked">Last cooked</th>
                 <th className="recipes-col-cost">Cost</th>
                 <th className="recipes-col-actions"></th>
               </tr>
@@ -298,8 +391,12 @@ export default function RecipesPage() {
               {filtered.map((recipe) => (
                 <tr key={recipe.id}>
                   <td data-label="Image" className="recipes-col-image">
-                    {recipe.imageUrl && (
-                      <img src={recipe.imageUrl} alt={recipe.title} style={{ width: 48, height: 48, objectFit: "cover" }} />
+                    {safeImageUrl(recipe.imageUrl) && (
+                      <img
+                        src={safeImageUrl(recipe.imageUrl)}
+                        alt={recipe.title}
+                        style={{ width: 48, height: 48, objectFit: "cover" }}
+                      />
                     )}
                   </td>
                   <td data-label="Title" className="recipes-col-title">
@@ -309,6 +406,9 @@ export default function RecipesPage() {
                     >
                       {recipe.title}
                     </button>
+                    {ingredientMatch(recipe) && (
+                      <span className="match-reason">contains {ingredientMatch(recipe)}</span>
+                    )}
                   </td>
                   <td data-label="Meal types" className="recipes-col-meal-types">
                     <div className="recipes-meal-types">
@@ -319,6 +419,22 @@ export default function RecipesPage() {
                   </td>
                   <td data-label="Servings" className="recipes-col-servings">{recipeBaseServings(recipe)}</td>
                   <td data-label="Metadata" className="recipes-col-metadata">{recipeMetaSummary(recipe)}</td>
+                  <td data-label="Last cooked" className="recipes-col-last-cooked">
+                    {(() => {
+                      const lastCooked = lastCookedByRecipe.get(recipe.id);
+                      const days = lastCooked ? calendarDaysAgo(lastCooked) : undefined;
+                      return (
+                        <span
+                          className={`last-cooked${lastCooked ? "" : " last-cooked-never"}${
+                            days !== undefined && days <= 7 ? " last-cooked-recent" : ""
+                          }`}
+                          title={lastCooked ? new Date(lastCooked).toLocaleString() : "Never cooked"}
+                        >
+                          {formatLastCooked(lastCooked)}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td data-label="Cost" className="recipes-col-cost">
                     {(() => {
                       const info = costInfoByRecipe.get(recipe.id);
@@ -354,7 +470,7 @@ export default function RecipesPage() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted">No recipes match your filters.</td>
+                  <td colSpan={8} className="muted">No recipes match your filters.</td>
                 </tr>
               )}
             </tbody>

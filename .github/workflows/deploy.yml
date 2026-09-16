@@ -50,3 +50,27 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # Keeps the deployed rules in step with firestore.rules in this repo. Skipped until
+  # FIREBASE_SERVICE_ACCOUNT is set, so the site still deploys without it.
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Deploy Firestore rules
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ./service-account.json
+          FIREBASE_PROJECT: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > ./service-account.json
+          npx --yes firebase-tools@13 deploy --only firestore:rules --project "$FIREBASE_PROJECT" --non-interactive
+          rm -f ./service-account.json
+      - name: Note when skipped
+        if: ${{ secrets.FIREBASE_SERVICE_ACCOUNT == '' }}
+        run: echo "FIREBASE_SERVICE_ACCOUNT not set - skipping rules deploy. See README."

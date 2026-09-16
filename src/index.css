@@ -1,18 +1,108 @@
+/*
+ * Colour is defined once, here, as tokens. Everything below styles through them so the
+ * dark theme is a matter of redefining this block rather than hunting literals.
+ *
+ * Semantic families:
+ *   surface / text  — page and panel grounds and their text
+ *   primary         — the single call-to-action colour
+ *   danger/warn/ok  — state, independent of the accent
+ *   z-*             — one ordering for every layer, so nothing hides behind anything else
+ */
 :root {
   color-scheme: light;
+
   --bg: #f8fafc;
   --panel: #ffffff;
+  --panel-raised: #ffffff;
+  --soft: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
   --text: #0f172a;
-  --muted: #64748b;
+  --muted: #5b6878;
+  --text-inverse: #ffffff;
+
   --primary-bg: #25634a;
   --primary-bg-hover: #1f563f;
   --primary-text: #ffffff;
   --secondary-bg: #e2e8f0;
   --secondary-text: #0f172a;
   --accent: #22c55e;
-  --danger: #ef4444;
-  --soft: #f1f5f9;
-  --border: #e2e8f0;
+  --focus-ring: #1d6fb8;
+
+  --danger: #b91c1c;
+  --danger-text: #b91c1c;
+  --danger-bg: #fee2e2;
+  --danger-border: #fca5a5;
+
+  --warn-text: #92400e;
+  --warn-strong: #b45309;
+  --warn-bg: #fef3c7;
+  --warn-border: #fcd34d;
+
+  --ok-text: #166534;
+  --ok-bg: #dcfce7;
+
+  --info-bg: #f3f4f6;
+  --info-border: #cbd5f5;
+  --info-text: #475569;
+
+  --nav-active-bg: #e0f2fe;
+  --expiring-accent: #f59e0b;
+  --fridge-accent: #16a34a;
+
+  /* One scale, so a toast can never render behind a modal backdrop again. */
+  --z-base: 1;
+  --z-nav: 10;
+  --z-panel: 40;
+  --z-modal: 120;
+  --z-toast: 200;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #10151b;
+    --panel: #182029;
+    --panel-raised: #1e2731;
+    --soft: #1e2731;
+    --border: #2b3743;
+    --border-strong: #3a4855;
+
+    --text: #e6edf3;
+    --muted: #9fb0c0;
+    --text-inverse: #0f172a;
+
+    --primary-bg: #2f7d5d;
+    --primary-bg-hover: #389070;
+    --primary-text: #ffffff;
+    --secondary-bg: #2b3743;
+    --secondary-text: #e6edf3;
+    --accent: #4ade80;
+    --focus-ring: #6cb6ff;
+
+    --danger: #f87171;
+    --danger-text: #fca5a5;
+    --danger-bg: #3b1d1d;
+    --danger-border: #7f3535;
+
+    --warn-text: #fbbf24;
+    --warn-strong: #fcd34d;
+    --warn-bg: #382b12;
+    --warn-border: #6b5218;
+
+    --ok-text: #86efac;
+    --ok-bg: #14331f;
+
+    --info-bg: #1e2731;
+    --info-border: #3a4855;
+    --info-text: #9fb0c0;
+
+    --nav-active-bg: #1c3345;
+    --expiring-accent: #d97706;
+    --fridge-accent: #22a05a;
+  }
 }
 
 * {
@@ -21,7 +111,7 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Arial, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -33,6 +123,7 @@ a {
 
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow-x: clip;
@@ -47,7 +138,7 @@ a {
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: var(--z-nav);
 }
 
 .top-nav .brand {
@@ -63,7 +154,7 @@ a {
 
 .top-nav a.active {
   color: var(--text);
-  background: #e0f2fe;
+  background: var(--nav-active-bg);
 }
 
 .active-location-picker {
@@ -71,7 +162,7 @@ a {
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--panel);
   font-size: 13px;
   max-width: 180px;
 }
@@ -84,23 +175,23 @@ a {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border);
+  color: var(--info-text);
 }
 
 .sync-pill-syncing {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warn-bg);
+  color: var(--warn-text);
 }
 
 .sync-pill-synced {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
 .sync-pill-error {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .container {
@@ -364,29 +455,29 @@ button.ghost {
 
 button.danger {
   background: transparent;
-  color: #b91c1c;
-  border-color: #b91c1c;
+  color: var(--danger-text);
+  border-color: var(--danger-text);
 }
 
 button.danger:hover,
 button.danger:focus {
-  background: #b91c1c;
-  color: #ffffff;
+  background: var(--danger-text);
+  color: var(--panel);
 }
 
 .info-box {
-  background: #f3f4f6;
-  border-left: 4px solid #cbd5f5;
-  color: #475569;
+  background: var(--info-bg);
+  border-left: 4px solid var(--info-border);
+  color: var(--info-text);
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 13px;
 }
 
 .leftover-remaining {
-  background: #ffffff;
-  color: #1f2937;
-  border: 1px solid #d1d5db;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
   font-weight: 600;
   border-radius: 999px;
   padding: 2px 8px;
@@ -397,7 +488,7 @@ button.danger:focus {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   border-radius: 10px;
   position: fixed;
-  z-index: 40;
+  z-index: var(--z-panel);
   width: min(380px, calc(100vw - 24px));
   max-width: calc(100vw - 24px);
   overflow-y: auto;
@@ -405,7 +496,7 @@ button.danger:focus {
 
 .planner-overlay-root {
   position: relative;
-  z-index: 40;
+  z-index: var(--z-panel);
 }
 
 .confirm-modal-backdrop {
@@ -416,7 +507,7 @@ button.danger:focus {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  z-index: 120;
+  z-index: var(--z-modal);
 }
 
 .confirm-modal {
@@ -457,11 +548,11 @@ button.danger:focus {
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
-  z-index: 100;
+  z-index: var(--z-toast);
   max-width: 90vw;
   padding: 10px 16px;
   border-radius: 8px;
-  color: #fff;
+  color: var(--panel);
   font-size: 14px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   cursor: pointer;
@@ -469,15 +560,15 @@ button.danger:focus {
 }
 
 .toast-info {
-  background: #1f2937;
+  background: var(--text);
 }
 
 .toast-success {
-  background: #166534;
+  background: var(--ok-text);
 }
 
 .toast-error {
-  background: #b91c1c;
+  background: var(--danger-text);
 }
 
 @keyframes toast-in {
@@ -510,13 +601,16 @@ button.danger:focus {
 }
 
 .cook-ingredient {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
 }
 
+/* Muting by opacity drags text toward the background and breaks contrast; mute the
+   colour instead and keep the text itself legible. */
 .cook-ingredient.muted {
-  opacity: 0.55;
+  color: var(--muted);
+  background: var(--soft);
 }
 
 .cook-ingredient-header {
@@ -527,7 +621,7 @@ button.danger:focus {
 }
 
 .cook-shortfall {
-  color: #b45309;
+  color: var(--warn-strong);
   font-size: 12px;
 }
 
@@ -549,15 +643,15 @@ button.danger:focus {
 }
 
 .cook-shortfall-summary {
-  color: #b45309;
+  color: var(--warn-strong);
   font-size: 13px;
   margin-top: 10px;
 }
 
 .cooked-badge {
   font-size: 11px;
-  color: #166534;
-  background: #dcfce7;
+  color: var(--ok-text);
+  background: var(--ok-bg);
   border-radius: 4px;
   padding: 2px 6px;
 }
@@ -570,7 +664,7 @@ button.danger:focus {
   height: 18px;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
+  color: var(--panel);
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -586,11 +680,14 @@ button.danger:focus {
   font-size: 14px;
   line-height: 1;
   margin-top: 4px;
-  opacity: 0.6;
+  background: var(--secondary-bg);
+  color: var(--secondary-text);
+  border: 1px solid var(--border);
 }
 
 .cell-add-compact:hover {
-  opacity: 1;
+  background: var(--primary-bg);
+  color: var(--primary-text);
 }
 
 .color-swatch-row {
@@ -603,8 +700,8 @@ button.danger:focus {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px #cbd5e1;
+  border: 2px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--border-strong);
   padding: 0;
   cursor: pointer;
   transition: transform 0.1s ease;
@@ -615,15 +712,15 @@ button.danger:focus {
 }
 
 .color-swatch-active {
-  box-shadow: 0 0 0 2px #0f172a;
+  box-shadow: 0 0 0 2px var(--text);
 }
 
 .expiring-soon {
-  border-left: 4px solid #f59e0b;
+  border-left: 4px solid var(--expiring-accent);
 }
 
 .fridge-panel {
-  border-left: 4px solid #16a34a;
+  border-left: 4px solid var(--fridge-accent);
 }
 
 .fridge-list {
@@ -641,9 +738,9 @@ button.danger:focus {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: #f8fafc;
+  background: var(--soft);
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   position: relative;
 }
 
@@ -673,8 +770,8 @@ button.danger:focus {
   position: absolute;
   top: -8px;
   left: 10px;
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--warn-bg);
+  color: var(--warn-strong);
   font-size: 10px;
   font-weight: 700;
   padding: 2px 6px;
@@ -684,8 +781,8 @@ button.danger:focus {
 }
 
 .fridge-flag.expired {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .expiring-soon-list {
@@ -705,21 +802,21 @@ button.danger:focus {
 }
 
 .expiring-soon-row.expired .expiring-soon-name {
-  color: #b91c1c;
+  color: var(--danger-text);
 }
 
 .expiring-soon-when {
-  color: #b45309;
+  color: var(--warn-strong);
   font-weight: 500;
 }
 
 .expiring-soon-when.expired {
-  color: #b91c1c;
+  color: var(--danger-text);
 }
 
 .ingredient-select {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-base);
 }
 
 .day-header {
@@ -842,7 +939,7 @@ button.danger:focus {
   flex-wrap: wrap;
   padding: 5px 7px;
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--soft);
   margin-bottom: 5px;
   width: 100%;
 }
@@ -857,9 +954,9 @@ button.danger:focus {
 }
 
 .meal-chip .leftover-badge {
-  background: #0f172a;
-  color: #ffffff;
-  border: 1px solid #0f172a;
+  background: var(--text);
+  color: var(--panel);
+  border: 1px solid var(--text);
   border-radius: 999px;
   padding: 3px 10px;
   font-size: 12px;
@@ -900,7 +997,7 @@ button.danger:focus {
 }
 
 .recipes-list-table {
-  min-width: 760px;
+  min-width: 870px;
 }
 
 .recipes-list-table th,
@@ -933,8 +1030,13 @@ button.danger:focus {
 }
 
 .recipes-col-metadata {
-  width: 24%;
-  min-width: 170px;
+  width: 19%;
+  min-width: 150px;
+}
+
+.recipes-col-last-cooked {
+  width: 110px;
+  min-width: 110px;
 }
 
 .recipes-col-cost {
@@ -1077,7 +1179,7 @@ details[open] > summary {
 }
 
 .grocery-usage-row td {
-  background: #f8fafc;
+  background: var(--soft);
 }
 
 .grocery-usage-details {
@@ -1112,13 +1214,11 @@ details[open] > summary {
   border-bottom: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767.98px) {
   .top-nav {
     flex-wrap: wrap;
   }
-}
 
-@media (max-width: 768px) {
   .grid-2 {
     grid-template-columns: 1fr;
   }
@@ -1194,6 +1294,16 @@ details[open] > summary {
     content: attr(data-label);
     font-weight: 600;
     color: var(--muted);
+  }
+
+  /* Spanning cells are full-width messages and totals, not field/value pairs — an empty
+     label pseudo-element next to them just adds a stray gap. */
+  .table td[colspan] {
+    display: block;
+  }
+
+  .table td[colspan]::before {
+    content: none;
   }
 
   .mobile-hide {
@@ -1284,7 +1394,7 @@ details[open] > summary {
   }
   .panel {
     box-shadow: none;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border-strong);
   }
   .planner-print {
     break-inside: avoid;
@@ -1307,4 +1417,238 @@ details[open] > summary {
   body {
     background: white;
   }
+}
+
+.data-error-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn-strong);
+  color: var(--warn-text);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.data-error-banner > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+
+/* ---------------------------------------------------------------------------
+   Focus, hit targets, and motion
+   --------------------------------------------------------------------------- */
+
+/* There were no focus styles at all, so keyboard users had only the browser default —
+   invisible against the green buttons and absent on the custom controls. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+button:focus-visible,
+.top-nav a:focus-visible,
+.action-sheet a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Controls sitting on the primary green need a light ring to stay visible. */
+button:not(.secondary):not(.ghost):not(.danger):focus-visible {
+  outline-color: var(--panel);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.color-swatch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+/* Small planner controls kept their visual size but were far under the 44px guideline.
+   Grow the hit area without changing how they look. */
+.day-action,
+.cell-add-compact,
+.grocery-expand-toggle,
+.meal-chip .drag-handle {
+  position: relative;
+}
+
+.day-action::after,
+.cell-add-compact::after,
+.grocery-expand-toggle::after,
+.meal-chip .drag-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  min-height: 44px;
+  width: 100%;
+  height: 100%;
+}
+
+.color-swatch {
+  /* 22px circle, 44px target. */
+  margin: 11px;
+}
+
+.color-swatch-row {
+  margin: -11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Household members
+   --------------------------------------------------------------------------- */
+
+.member-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.member-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toast-dismiss {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.toast-dismiss:hover,
+.toast-dismiss:focus-visible {
+  background: transparent;
+  opacity: 1;
+}
+
+.update-prompt {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+}
+
+.keep-awake {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--soft);
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.keep-awake:has(input:checked) {
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border-color: var(--ok-bg);
+}
+
+.match-reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.last-cooked {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Never made is the interesting case when you're hunting for something new. */
+.last-cooked-never {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Made in the last week — the "not this again" signal. */
+.last-cooked-recent {
+  color: var(--warn-strong);
+  font-weight: 600;
+}
+
+.import-report {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.import-report li {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary-bg);
+  border-radius: 8px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
 }

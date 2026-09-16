@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Toast from "./Toast";
-import { useState } from "react";
+import { db } from "../db/db";
 
 // Listens for sync-remote-applied events dispatched by the (lazy-loaded) sync engine.
 // Surfaces a small toast for the highest-value "live" change: grocery line check-offs.
@@ -15,6 +15,21 @@ interface RemoteAppliedDetail {
   type: "added" | "modified" | "removed";
   data: any | null;
   previous: any | null;
+}
+
+async function resolveLineLabel(line: any): Promise<string> {
+  const freeform = typeof line?.freeformLabel === "string" ? line.freeformLabel.trim() : "";
+  if (freeform) return freeform;
+  const pantryItemId = line?.pantryItemId;
+  if (typeof pantryItemId === "string" && pantryItemId) {
+    try {
+      const item = await db.pantryItems.get(pantryItemId);
+      if (item?.name) return item.name;
+    } catch {
+      /* fall through to the generic label */
+    }
+  }
+  return "Grocery item";
 }
 
 export default function SyncActivityWatcher() {
@@ -33,11 +48,14 @@ export default function SyncActivityWatcher() {
       const nextChecked = Boolean(detail.data?.checked);
       if (prevChecked === nextChecked) return;
 
-      const label = detail.data?.freeformLabel || "Grocery item";
-      const message = nextChecked
-        ? `${label} checked off`
-        : `${label} un-checked`;
-      setToast({ message, key: Date.now() });
+      // Lines linked to a pantry item carry no freeformLabel, which is most of them —
+      // so look the name up rather than saying "Grocery item" in the aisle.
+      void resolveLineLabel(detail.data).then((label) => {
+        setToast({
+          message: nextChecked ? `${label} checked off` : `${label} un-checked`,
+          key: Date.now()
+        });
+      });
     };
     window.addEventListener(SYNC_REMOTE_APPLIED_EVENT, handler);
     return () => window.removeEventListener(SYNC_REMOTE_APPLIED_EVENT, handler);

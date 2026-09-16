@@ -32,16 +32,50 @@ export default function ConfirmChoiceModal({
     [choices]
   );
 
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+
+    // Send focus back where it came from when the dialog closes.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape") {
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      // Keep Tab inside the dialog — without this it walks straight out into the page
+      // behind, which is still fully interactive.
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", handleKeyDown);
     const target = buttonRefs.current[primaryIndex] || buttonRefs.current[0];
     target?.focus();
+
+    // Stop the page behind from scrolling under the backdrop.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
     };
   }, [onCancel, open, primaryIndex]);
 
@@ -56,13 +90,15 @@ export default function ConfirmChoiceModal({
       role="presentation"
     >
       <div
+        ref={dialogRef}
         className="confirm-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
+        aria-describedby="confirm-modal-message"
       >
         <h2 id="confirm-modal-title">{title}</h2>
-        <p className="confirm-modal-message">{message}</p>
+        <p className="confirm-modal-message" id="confirm-modal-message">{message}</p>
         {detail && <p className="muted confirm-modal-detail">{detail}</p>}
         <div className="confirm-modal-actions">
           {choices.map((choice, index) => (

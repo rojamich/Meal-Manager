@@ -78,7 +78,11 @@ export function getFirebaseDb(): Firestore | null {
       // Many ad-blockers (uBlock, Brave Shields, AdGuard) block Firestore's default
       // WebChannel transport. Auto-detect falls back to long polling over plain HTTPS,
       // which they generally let through.
-      experimentalAutoDetectLongPolling: true
+      experimentalAutoDetectLongPolling: true,
+      // Optional model fields are frequently `undefined`, and Firestore rejects that at
+      // any depth. The sync engine strips them before writing; this is the safety net so
+      // one missed field can't throw away a whole document write.
+      ignoreUndefinedProperties: true
     });
   } catch (err) {
     if (typeof console !== "undefined") {

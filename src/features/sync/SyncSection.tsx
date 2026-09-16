@@ -6,6 +6,7 @@ import {
   HOUSEHOLD_CHANGED_EVENT,
   joinHousehold,
   leaveHousehold,
+  removeMember,
   rotateInviteCode,
   subscribeToHousehold
 } from "../../sync/householdRepo";
@@ -65,7 +66,8 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
   const [, forceTick] = useState(0);
   const [householdId, setHouseholdId] = useState<string>(() => getActiveHouseholdId());
   const [inviteCode, setInviteCode] = useState<string>(() => getActiveInviteCode());
-  const [memberCount, setMemberCount] = useState<number>(0);
+  const [members, setMembers] = useState<string[]>([]);
+  const [ownerId, setOwnerId] = useState<string>("");
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [householdName, setHouseholdName] = useState("");
@@ -98,11 +100,13 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
 
   useEffect(() => {
     if (!householdId) {
-      setMemberCount(0);
+      setMembers([]);
+      setOwnerId("");
       return;
     }
     const unsub = subscribeToHousehold(householdId, (household) => {
-      setMemberCount(household?.memberIds?.length || 0);
+      setMembers(household?.memberIds || []);
+      setOwnerId(household?.ownerId || "");
     });
     return unsub;
   }, [householdId]);
@@ -180,6 +184,44 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
     }
   }, [notify]);
 
+  const handleRetry = useCallback(async () => {
+    const hid = getActiveHouseholdId();
+    if (!hid) return;
+    setBusy(true);
+    try {
+      await syncEngine.start(hid, "reconnect");
+    } catch (err: any) {
+      notify(err?.message || "Could not reconnect.", "error");
+    } finally {
+      setBusy(false);
+    }
+  }, [notify]);
+
+  const handleRemoveMember = useCallback(
+    async (uid: string) => {
+      const choice = await requestChoice({
+        title: "Remove this device from the household?",
+        message: "It stops receiving updates immediately and can't read the household's data again.",
+        detail: "Its own copy of the data stays on that device. Rotate the invite code too if the code itself leaked.",
+        choices: [
+          { label: "Remove", value: "confirm-remove", tone: "danger" },
+          { label: "Cancel", value: "cancel", tone: "neutral" }
+        ]
+      });
+      if (choice !== "confirm-remove") return;
+      setBusy(true);
+      try {
+        await removeMember(uid);
+        notify("Member removed.", "success");
+      } catch (err: any) {
+        notify(err?.message || "Could not remove that member.", "error");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [notify, requestChoice]
+  );
+
   const handleCopyCode = useCallback(async () => {
     if (!inviteCode) return;
     try {
@@ -212,7 +254,7 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
         {auth.status === "error" && <span className="muted">Sign-in error: {auth.error}</span>}
         {householdId && (
           <span className="muted">
-            {memberCount} member{memberCount === 1 ? "" : "s"}
+            {members.length} member{members.length === 1 ? "" : "s"}
           </span>
         )}
         {householdId && lastIncomingAt && (
@@ -221,7 +263,16 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
           </span>
         )}
       </div>
-      {syncError && <p style={{ color: "#b91c1c", fontSize: 13 }}>{syncError}</p>}
+      {syncError && (
+        <div className="row" style={{ alignItems: "center", gap: 10 }}>
+          <p style={{ color: "var(--danger-text)", fontSize: 13, margin: 0 }}>{syncError}</p>
+          {householdId && (
+            <button type="button" className="secondary" disabled={busy} onClick={() => void handleRetry()}>
+              {busy ? "Reconnecting…" : "Retry sync"}
+            </button>
+          )}
+        </div>
+      )}
 
       {!householdId && (
         <>
@@ -273,6 +324,50 @@ export default function SyncSection({ embedded = false }: { embedded?: boolean }
               <button type="button" className="secondary" disabled={busy} onClick={() => void handleRotateCode()}>
                 Rotate code
               </button>
+            </div>
+          )}
+          {inviteCode && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              This code works for 24 hours. Rotate it any time to invalidate the old one.
+            </p>
+          )}
+          {members.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div className="field-stack">
+                <span>Devices in this household</span>
+              </div>
+              <ul className="member-list">
+                {members.map((uid) => {
+                  const isSelf = uid === auth.uid;
+                  const isOwner = uid === ownerId;
+                  return (
+                    <li key={uid} className="member-row">
+                      <span className="member-id" title={uid}>
+                        {uid.slice(0, 8)}…
+                      </span>
+                      <span className="row" style={{ gap: 6 }}>
+                        {isOwner && <span className="tag">Owner</span>}
+                        {isSelf && <span className="tag">This device</span>}
+                      </span>
+                      {auth.uid === ownerId && !isSelf && (
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={busy}
+                          onClick={() => void handleRemoveMember(uid)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {auth.uid !== ownerId && (
+                <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Only the device that created the household can remove members.
+                </p>
+              )}
             </div>
           )}
           <div className="row" style={{ marginTop: 8 }}>

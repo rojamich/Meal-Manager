@@ -1,4 +1,5 @@
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import ErrorBoundary from "./ErrorBoundary";
 import Layout from "./Layout";
 import PantryPage from "../features/pantry/PantryPage";
 import RecipesPage from "../features/recipes/RecipesPage";
@@ -13,21 +14,24 @@ import SettingsPage from "../features/settings/SettingsPage";
 export default function App() {
   return (
     <HashRouter>
-      <Routes>
-        <Route path="/cook/:id" element={<CookPage />} />
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/planner" replace />} />
-          <Route path="planner" element={<PlannerPage />} />
-          <Route path="grocery" element={<GroceryPage />} />
-          <Route path="recipes" element={<RecipesPage />} />
-          <Route path="recipes/new" element={<RecipeEditPage />} />
-          <Route path="recipes/:id" element={<RecipeEditPage />} />
-          <Route path="recipes/:id/print" element={<RecipePrint />} />
-          <Route path="pantry" element={<PantryPage />} />
-          <Route path="locations" element={<LocationsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/cook/:id" element={<CookPage />} />
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Navigate to="/planner" replace />} />
+            <Route path="planner" element={<PlannerPage />} />
+            <Route path="grocery" element={<GroceryPage />} />
+            <Route path="recipes" element={<RecipesPage />} />
+            <Route path="recipes/new" element={<RecipeEditPage />} />
+            <Route path="recipes/:id" element={<RecipeEditPage />} />
+            <Route path="recipes/:id/print" element={<RecipePrint />} />
+            <Route path="pantry" element={<PantryPage />} />
+            <Route path="locations" element={<LocationsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/planner" replace />} />
+        </Routes>
+      </ErrorBoundary>
     </HashRouter>
   );
 }

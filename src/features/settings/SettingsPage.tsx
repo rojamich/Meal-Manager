@@ -5,7 +5,9 @@ import PeopleSection from "../people/PeopleSection";
 import PricesSection from "../prices/PricesSection";
 
 const SyncSection = lazy(() => import("../sync/SyncSection"));
-import { exportAll, importAll } from "../../db/db";
+import { describeBundle, exportAll, importAll } from "../../db/db";
+import { importRecipes, parseRecipeImport } from "../../db/recipeImport";
+import { getActiveHouseholdId } from "../../sync/householdRepo";
 import { seedExampleData } from "../../db/seedExamples";
 import {
   getAutoEatLeftovers,
@@ -17,6 +19,7 @@ import {
 } from "./preferences";
 import type { UnitDisplayMode } from "../../utils/unitConversion";
 import { useToast } from "../../components/useToast";
+import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 
 export default function SettingsPage() {
   const [importError, setImportError] = useState<string | null>(null);
@@ -24,7 +27,10 @@ export default function SettingsPage() {
   const [unitDisplayMode, setUnitDisplayModeState] = useState<UnitDisplayMode>(getUnitDisplayMode());
   const [autoEatLeftovers, setAutoEatLeftoversState] = useState<boolean>(getAutoEatLeftovers());
   const [seedingBusy, setSeedingBusy] = useState(false);
+  const [recipeImportError, setRecipeImportError] = useState<string | null>(null);
+  const [recipeImportReport, setRecipeImportReport] = useState<string[] | null>(null);
   const { notify, toast } = useToast();
+  const { requestChoice, modal } = useConfirmChoiceModal();
 
   async function handleSeedExamples() {
     setSeedingBusy(true);
@@ -50,21 +56,116 @@ export default function SettingsPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `meal-manager-backup-${bundle.exportedAt.slice(0, 10)}.json`;
+    // The anchor has to be in the document for Firefox to act on the click, and revoking
+    // in the same tick races the download starting — which silently produced empty files.
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      a.remove();
+    }, 10_000);
+    notify("Backup downloaded.", "success");
   }
 
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const input = e.target;
+    const file = input.files?.[0];
+    // Reset immediately so picking the same file twice still fires a change event.
+    input.value = "";
     if (!file) return;
+
+    setImportError(null);
+    let data: unknown;
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      await importAll(data, true);
-      setImportError(null);
-      notify("Import complete. Reload the app.", "success");
+      data = JSON.parse(await file.text());
+    } catch {
+      setImportError("That file isn't valid JSON. Pick a Meal Manager backup file.");
+      return;
+    }
+
+    // Parse before asking, so the prompt can say what's actually in the file.
+    let summary: string;
+    try {
+      summary = describeBundle(data);
     } catch (err: any) {
-      setImportError(err.message || "Import failed");
+      setImportError(err?.message || "That file isn't a Meal Manager backup.");
+      return;
+    }
+
+    const connected = Boolean(getActiveHouseholdId());
+    const choice = await requestChoice({
+      title: "Replace everything with this backup?",
+      message: `${summary} This erases all data currently on this device and cannot be undone.`,
+      detail: connected
+        ? "This device is connected to a household, so the replacement syncs to everyone else in it too. Export a backup first if you're not certain."
+        : "Export a backup first if anything on this device matters.",
+      choices: [
+        { label: "Replace all data", value: "confirm-import", tone: "danger" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm-import") return;
+
+    try {
+      await importAll(data, true);
+      notify("Import complete — reloading…", "success");
+      window.setTimeout(() => window.location.reload(), 1200);
+    } catch (err: any) {
+      setImportError(err?.message || "Import failed");
+    }
+  }
+
+  async function handleRecipePackImport(e: ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+
+    setRecipeImportError(null);
+    setRecipeImportReport(null);
+
+    let recipes;
+    try {
+      recipes = parseRecipeImport(JSON.parse(await file.text()));
+    } catch (err: any) {
+      setRecipeImportError(err?.message || "That file isn't a recipe pack.");
+      return;
+    }
+
+    const choice = await requestChoice({
+      title: `Add ${recipes.length} recipe${recipes.length === 1 ? "" : "s"}?`,
+      message: recipes.map((r) => r.title).join(", ") + ".",
+      detail:
+        "Nothing is replaced. Ingredients reuse pantry items you already have — matching ignores case, accents and plurals, so “Onions” finds your existing “onion”. Recipes you already have are skipped.",
+      choices: [
+        { label: "Add recipes", value: "confirm", tone: "primary" },
+        { label: "Cancel", value: "cancel", tone: "neutral" }
+      ]
+    });
+    if (choice !== "confirm") return;
+
+    try {
+      const summary = await importRecipes(recipes);
+      const lines: string[] = [];
+      if (summary.recipesAdded.length) lines.push(`Added: ${summary.recipesAdded.join(", ")}`);
+      if (summary.recipesSkipped.length)
+        lines.push(`Already had, skipped: ${summary.recipesSkipped.join(", ")}`);
+      if (summary.itemsCreated.length)
+        lines.push(`New pantry items: ${summary.itemsCreated.join(", ")}`);
+      if (summary.itemsReused.length) {
+        const reused = summary.itemsReused.map((r) => `${r.wanted} → ${r.matched}`);
+        lines.push(`Reused what you already had: ${[...new Set(reused)].join(", ")}`);
+      }
+      setRecipeImportReport(lines);
+      notify(
+        summary.recipesAdded.length
+          ? `Added ${summary.recipesAdded.length} recipe${summary.recipesAdded.length === 1 ? "" : "s"}.`
+          : "Nothing new to add — you already have these.",
+        summary.recipesAdded.length ? "success" : "info"
+      );
+    } catch (err: any) {
+      setRecipeImportError(err?.message || "Could not add those recipes.");
     }
   }
 
@@ -143,6 +244,30 @@ export default function SettingsPage() {
       </details>
 
       <details className="panel" open>
+        <summary>Add recipes</summary>
+        <p className="muted">
+          Load a recipe pack without touching anything you already have. Ingredients are matched
+          against your pantry by meaning rather than exact spelling, so a pack asking for
+          &ldquo;Onions&rdquo; uses the &ldquo;onion&rdquo; you already have instead of adding a
+          second one beside it.
+        </p>
+        <div className="row">
+          <label>
+            Choose a recipe pack
+            <input type="file" accept="application/json" onChange={handleRecipePackImport} />
+          </label>
+        </div>
+        {recipeImportError && <p style={{ color: "var(--danger-text)" }}>{recipeImportError}</p>}
+        {recipeImportReport && (
+          <ul className="import-report">
+            {recipeImportReport.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </details>
+
+      <details className="panel" open>
         <summary>Backup</summary>
         <div className="row">
           <button onClick={handleExport}>Export JSON</button>
@@ -151,7 +276,7 @@ export default function SettingsPage() {
             <input type="file" accept="application/json" onChange={handleImport} />
           </label>
         </div>
-        {importError && <p style={{ color: "#dc2626" }}>{importError}</p>}
+        {importError && <p style={{ color: "var(--danger-text)" }}>{importError}</p>}
       </details>
 
       <details className="panel" open>
@@ -166,6 +291,7 @@ export default function SettingsPage() {
         <summary>Price History</summary>
         <PricesSection embedded />
       </details>
+      {modal}
       {toast}
     </div>
   );

@@ -8,6 +8,7 @@ import { emptyPantry } from "../../db/repositories/inventoryRepo";
 import { generateGroceryList } from "../grocery/generate";
 import { setActiveLocationId } from "../locations/activeLocation";
 import { addDays, dateKey, parseISODate } from "../../utils/date";
+import { reportLoadError } from "../../utils/loadError";
 
 export default function TripSetupModal({
   open,
@@ -33,7 +34,7 @@ export default function TripSetupModal({
 
   useEffect(() => {
     if (!open) return;
-    listLocations().then(setLocations);
+    listLocations().then(setLocations).catch(reportLoadError("locations"));
     listWeekTemplates().then((all) => {
       setTemplates(all);
       if (all.length && !templateId) setTemplateId(all[0].id);
@@ -157,7 +158,7 @@ export default function TripSetupModal({
           Grocery list will cover {startDate} → {endDate}.
         </p>
 
-        {error && <p style={{ color: "#dc2626" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger-text)" }}>{error}</p>}
 
         <div className="confirm-modal-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={submitting}>

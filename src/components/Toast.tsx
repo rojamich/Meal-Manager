@@ -27,8 +27,11 @@ export default function Toast({
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className={`toast toast-${tone}`} role="status" aria-live="polite" onClick={onDismiss}>
+    <div className={`toast toast-${tone}`} role="status" aria-live="polite">
       <span>{message}</span>
+      <button type="button" className="toast-dismiss" onClick={onDismiss} aria-label="Dismiss notification">
+        ×
+      </button>
     </div>,
     document.body
   );

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PantryItem, Recipe, RecipeIngredient } from "../../models";
 import { getRecipe, listIngredients } from "../../db/repositories/recipeRepo";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { roundQty } from "../../utils/math";
+import { reportLoadError } from "../../utils/loadError";
+import { useWakeLock } from "./useWakeLock";
 
 function getEffectiveBaseServings(recipe: Recipe) {
   return Math.max(recipe.baseServings ?? recipe.defaultServings ?? 1, 1);
@@ -17,16 +19,37 @@ export default function CookPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "missing">("loading");
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [stepsViewMode, setStepsViewMode] = useState<"step" | "full">("step");
+  const [keepAwake, setKeepAwake] = useState(true);
+  const wakeLock = useWakeLock(keepAwake);
 
   useEffect(() => {
-    if (!id) return;
-    getRecipe(id).then((value) => value && setRecipe(value));
-    listIngredients(id).then(setIngredients);
-    listPantryItems().then(setPantryItems);
+    if (!id) {
+      setStatus("missing");
+      return;
+    }
+    let cancelled = false;
+    setStatus("loading");
+    getRecipe(id)
+      .then((value) => {
+        if (cancelled) return;
+        setRecipe(value ?? null);
+        setStatus(value ? "ready" : "missing");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStatus("missing");
+        reportLoadError("this recipe")(err);
+      });
+    listIngredients(id).then(setIngredients).catch(reportLoadError("ingredients"));
+    listPantryItems().then(setPantryItems).catch(reportLoadError("pantry items"));
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const plannedServings = Math.max(Number(searchParams.get("servings") || 0) || 0, 0);
@@ -45,7 +68,29 @@ export default function CookPage() {
     }));
   }, [effectiveServings, ingredients, recipe]);
 
-  if (!recipe) return <div className="container"><div className="panel"><p>Loading...</p></div></div>;
+  if (status === "missing") {
+    return (
+      <div className="container">
+        <div className="panel">
+          <h2>Recipe not found</h2>
+          <p className="muted">It may have been deleted, or the link may be out of date.</p>
+          <Link className="tag" to="/recipes">
+            Back to recipes
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!recipe) {
+    return (
+      <div className="container">
+        <div className="panel">
+          <p className="muted">Loading recipe…</p>
+        </div>
+      </div>
+    );
+  }
 
   const currentStep = recipe.steps[stepIndex] || "";
   const totalSteps = Math.max(recipe.steps.length, 1);
@@ -79,6 +124,16 @@ export default function CookPage() {
               </p>
             )}
           </div>
+          {wakeLock.supported && (
+            <label className="keep-awake" title="Stops the screen dimming while you cook">
+              <input
+                type="checkbox"
+                checked={keepAwake}
+                onChange={(e) => setKeepAwake(e.target.checked)}
+              />
+              <span>{keepAwake && wakeLock.active ? "Screen staying on" : "Keep screen on"}</span>
+            </label>
+          )}
         </div>
 
         {recipe.notes && (

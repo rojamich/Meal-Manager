@@ -34,6 +34,7 @@ import {
   closestCenter,
   DndContext,
   DragEndEvent,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors
@@ -61,13 +62,18 @@ import {
 } from "./plannerDomain";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
+import { reportLoadError } from "../../utils/loadError";
+
+type PlannerView = "5day" | "week" | "month";
+
+/** Pure, so it lives outside the component and stays a stable dependency. */
+function rangeFor(v: PlannerView, anchor: string) {
+  return v === "month" ? monthRange(anchor) : v === "week" ? weekRange(anchor) : fiveDayRange(anchor);
+}
 
 export default function PlannerPage() {
   const DEBUG_DND = false;
-  type PlannerView = "5day" | "week" | "month";
   const [view, setView] = useState<PlannerView>("5day");
-  const rangeFor = (v: PlannerView, anchor: string) =>
-    v === "month" ? monthRange(anchor) : v === "week" ? weekRange(anchor) : fiveDayRange(anchor);
   const [anchorDate, setAnchorDate] = useState(dateKey(new Date()));
   const [slots, setSlots] = useState<MealSlot[]>([]);
   const [meals, setMeals] = useState<PlannedMeal[]>([]);
@@ -115,11 +121,14 @@ export default function PlannerPage() {
   const [cookRecipe, setCookRecipe] = useState<Recipe | null>(null);
   const [cookPlan, setCookPlan] = useState<CookPlan | null>(null);
   const [cookServings, setCookServings] = useState<number>(0);
-  const isMobileLayout = useMediaQuery("(max-width: 768px)");
+  const isMobileLayout = useMediaQuery("(max-width: 767.98px)");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 4 }
-    })
+    }),
+    // Without this the drag handles are focusable and announce themselves as buttons but
+    // do nothing on Space/Enter, leaving the planner's main interaction mouse-only.
+    useSensor(KeyboardSensor)
   );
   const { requestChoice, modal } = useConfirmChoiceModal();
   const { notify, toast } = useToast();
@@ -133,15 +142,15 @@ export default function PlannerPage() {
   }
 
   useEffect(() => {
-    listMealSlots().then(setSlots);
-    listRecipes().then(setRecipes);
-    listLocations().then(setLocations);
-    listWeekTemplates().then(setTemplates);
-    const loadPeople = () => listPeople().then(setPeople);
-    const loadRecipes = () => listRecipes().then(setRecipes);
-    const loadSlots = () => listMealSlots().then(setSlots);
-    const loadLocations = () => listLocations().then(setLocations);
-    const loadTemplates = () => listWeekTemplates().then(setTemplates);
+    listMealSlots().then(setSlots).catch(reportLoadError("meal slots"));
+    listRecipes().then(setRecipes).catch(reportLoadError("recipes"));
+    listLocations().then(setLocations).catch(reportLoadError("locations"));
+    listWeekTemplates().then(setTemplates).catch(reportLoadError("week templates"));
+    const loadPeople = () => listPeople().then(setPeople).catch(reportLoadError("people"));
+    const loadRecipes = () => listRecipes().then(setRecipes).catch(reportLoadError("recipes"));
+    const loadSlots = () => listMealSlots().then(setSlots).catch(reportLoadError("meal slots"));
+    const loadLocations = () => listLocations().then(setLocations).catch(reportLoadError("locations"));
+    const loadTemplates = () => listWeekTemplates().then(setTemplates).catch(reportLoadError("week templates"));
     loadPeople();
     window.addEventListener(PEOPLE_UPDATED_EVENT, loadPeople);
     window.addEventListener("recipes-updated", loadRecipes);
@@ -264,7 +273,9 @@ export default function PlannerPage() {
       setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
       setLeftoverCandidates([]);
-      void listLeftoverSourceCandidates(slot.date).then(setLeftoverCandidates);
+      void listLeftoverSourceCandidates(slot.date)
+        .then(setLeftoverCandidates)
+        .catch(reportLoadError("leftovers"));
     },
     [resetInline]
   );
@@ -359,14 +370,24 @@ export default function PlannerPage() {
 
   useEffect(() => {
     if (!activeSlot || !panelAnchorEl) return;
+
+    // This runs on capture, so it fires for every scrollable ancestor. Reading layout and
+    // setting state on each event forced a synchronous reflow plus a re-render of this
+    // whole component per scroll frame — coalesce to one update per animation frame.
+    let frame: number | null = null;
     const updatePanelPosition = () => {
-      setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
+      if (frame != null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
+      });
     };
 
-    updatePanelPosition();
+    setPanelStyle(buildInlinePanelStyle(panelAnchorEl, panelRef.current));
     window.addEventListener("resize", updatePanelPosition);
     window.addEventListener("scroll", updatePanelPosition, true);
     return () => {
+      if (frame != null) window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", updatePanelPosition);
       window.removeEventListener("scroll", updatePanelPosition, true);
     };

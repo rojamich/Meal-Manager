@@ -13,19 +13,22 @@ import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
-import { bestUnitPrice } from "../../utils/price";
-import { pantryCategoryLabel } from "../../utils/pantryCategories";
+import { bestUnitPrice, buildCurrencyRates } from "../../utils/price";
+import { normalizePantryCategoryKey, pantryCategoryLabel, pantryCategorySortIndex } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { getActiveLocationId } from "../locations/activeLocation";
 import { getUnitDisplayMode } from "../settings/preferences";
 import { imperialAlternate } from "../../utils/unitConversion";
+import { reportLoadError } from "../../utils/loadError";
+import { LocationProfile } from "../../models";
+import { compareNames } from "../../utils/sort";
 
 export default function GroceryPage() {
   const [lists, setLists] = useState<GroceryList[]>([]);
   const [lines, setLines] = useState<GroceryLine[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>("");
   const [addedLotsCount, setAddedLotsCount] = useState(0);
@@ -137,7 +140,8 @@ export default function GroceryPage() {
 
   useEffect(() => {
     if (!selectedListId) return;
-    const reloadLines = () => listGroceryLines(selectedListId).then(setLines);
+    const reloadLines = () =>
+      listGroceryLines(selectedListId).then(setLines).catch(reportLoadError("grocery lines"));
     reloadLines();
     window.addEventListener("grocery-lines-updated", reloadLines);
     return () => window.removeEventListener("grocery-lines-updated", reloadLines);
@@ -183,17 +187,37 @@ export default function GroceryPage() {
     await refresh();
   }
 
+  const pantryItemById = useMemo(
+    () => new Map(pantryItems.map((item) => [item.id, item])),
+    [pantryItems]
+  );
+
+  const lineLabel = useCallback(
+    (line: GroceryLine) =>
+      line.freeformLabel || (line.pantryItemId ? pantryItemById.get(line.pantryItemId)?.name : "") || "",
+    [pantryItemById]
+  );
+
   const grouped = useMemo(() => {
     const map = new Map<string, GroceryLine[]>();
     for (const line of lines) {
-      const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
-      const category = line.category || item?.category || "other";
+      const item = line.pantryItemId ? pantryItemById.get(line.pantryItemId) : undefined;
+      // Normalise first, or a line still carrying a legacy key ("pantry") forms its own
+      // section alongside the current one ("pantry_dry") under an identical heading.
+      const category = normalizePantryCategoryKey(line.category || item?.category || "other");
       const list = map.get(category) ?? [];
       list.push(line);
       map.set(category, list);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [lines, pantryItems]);
+    // Sort each aisle's lines here rather than during render — sorting in the JSX mutated
+    // these arrays in place on every pass.
+    for (const list of map.values()) {
+      list.sort((a, b) => compareNames(lineLabel(a), lineLabel(b)));
+    }
+    return Array.from(map.entries()).sort(
+      ([a], [b]) => pantryCategorySortIndex(a) - pantryCategorySortIndex(b)
+    );
+  }, [lines, pantryItemById, lineLabel]);
 
   const toggleExpanded = useCallback((lineId: string) => {
     setExpandedLineIds((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
@@ -211,19 +235,24 @@ export default function GroceryPage() {
     [isCountUnit]
   );
 
+  const currencyRates = useMemo(
+    () => buildCurrencyRates(locations, settings.locationId || undefined),
+    [locations, settings.locationId]
+  );
+
   const estimate = useMemo(() => {
     let total = 0;
     let known = 0;
     for (const line of lines) {
       if (!line.pantryItemId) continue;
-      const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined);
+      const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined, currencyRates);
       if (price) {
         total += price * line.toBuyQty;
         known += 1;
       }
     }
     return { total, known, totalLines: lines.length };
-  }, [lines, purchases, settings.locationId]);
+  }, [currencyRates, lines, purchases, settings.locationId]);
 
   async function handleCopy() {
     const text = lines
@@ -452,17 +481,6 @@ export default function GroceryPage() {
               </thead>
               <tbody>
                 {items
-                  .sort((a, b) => {
-                    const nameA =
-                      a.freeformLabel ||
-                      pantryItems.find((p) => p.id === a.pantryItemId)?.name ||
-                      "";
-                    const nameB =
-                      b.freeformLabel ||
-                      pantryItems.find((p) => p.id === b.pantryItemId)?.name ||
-                      "";
-                    return nameA.localeCompare(nameB);
-                  })
                   .map((line) => {
                     const item = line.pantryItemId ? pantryItems.find((p) => p.id === line.pantryItemId) : undefined;
                     const usedFor = parseGroceryUsageEntries(line.usedForJson);

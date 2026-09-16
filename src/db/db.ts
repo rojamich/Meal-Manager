@@ -18,6 +18,17 @@ import {
 } from "../models";
 import { STARTER_WEEK_TEMPLATES } from "./seedTemplates";
 import { newId } from "../utils/id";
+import { normalizeItemName } from "../utils/itemNames";
+
+/**
+ * Device-local sync bookkeeping: one row per document we know the cloud held for the
+ * active household. Never synced and never exported — it exists so a reconnecting
+ * device can tell "another device deleted this" apart from "I made this while offline".
+ */
+export interface SyncedDoc {
+  key: string;
+  householdId: string;
+}
 
 class MealDb extends Dexie {
   pantryItems!: Table<PantryItem, string>;
@@ -34,6 +45,7 @@ class MealDb extends Dexie {
   weekTemplates!: Table<WeekTemplate, string>;
   people!: Table<Person, string>;
   cookedPortions!: Table<CookedPortion, string>;
+  syncedDocs!: Table<SyncedDoc, string>;
 
   constructor() {
     super("meal-manager-db");
@@ -221,6 +233,34 @@ class MealDb extends Dexie {
           }
         });
       });
+
+    // Dexie merges schema across versions, so only the new table needs declaring here.
+    this.version(10).stores({
+      syncedDocs: "key, householdId"
+    });
+
+    // Names were typed ad hoc over months, so the same list mixed "onion" with "Onions".
+    // Capitalise the first letter and tidy whitespace; the rest of each name is left
+    // alone so "Ají molido" and brand names survive intact.
+    // The tables are restated rather than left to inherit: a version declared with only
+    // .upgrade() and no .stores() never registers, so the migration silently never ran.
+    // The tables are restated rather than left to inherit: a version declared with only
+    // .upgrade() and no .stores() never registers, so the migration silently never ran.
+    this.version(11)
+      .stores({
+        pantryItems: "id, name, category, storageType",
+        recipes: "id, title"
+      })
+      .upgrade(async (tx) => {
+        await tx.table("pantryItems").toCollection().modify((item: any) => {
+          const tidy = normalizeItemName(item.name || "");
+          if (tidy && tidy !== item.name) item.name = tidy;
+        });
+        await tx.table("recipes").toCollection().modify((recipe: any) => {
+          const tidy = normalizeItemName(recipe.title || "");
+          if (tidy && tidy !== recipe.title) recipe.title = tidy;
+        });
+      });
   }
 }
 
@@ -302,7 +342,20 @@ function validateBundle(bundle: unknown): ExportBundle {
   if (!b.data || typeof b.data !== "object") {
     throw new Error("Backup file is missing the 'data' section.");
   }
-  const arr = (value: unknown) => (Array.isArray(value) ? value : []);
+  // Rows come from a file on disk and go straight into IndexedDB and, when sync is on,
+  // straight to Firestore. Anything without a usable string id would throw mid-transaction,
+  // so drop those rather than failing the whole restore.
+  const arr = (value: unknown) => {
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (row) =>
+        row !== null &&
+        typeof row === "object" &&
+        !Array.isArray(row) &&
+        typeof (row as { id?: unknown }).id === "string" &&
+        (row as { id: string }).id.length > 0
+    );
+  };
   const data = {
     pantryItems: arr(b.data.pantryItems),
     inventoryLots: arr(b.data.inventoryLots),
@@ -327,6 +380,23 @@ function validateBundle(bundle: unknown): ExportBundle {
     exportedAt: typeof b.exportedAt === "string" ? b.exportedAt : new Date().toISOString(),
     data
   };
+}
+
+/**
+ * Validate a bundle and describe it in one line, so the import confirmation can say what
+ * the file actually contains. Throws the same errors `importAll` would.
+ */
+export function describeBundle(rawBundle: unknown): string {
+  const bundle = validateBundle(rawBundle);
+  const { recipes, pantryItems, plannedMeals } = bundle.data;
+  const total = Object.values(bundle.data).reduce((sum, rows) => sum + rows.length, 0);
+  const exported = bundle.exportedAt.slice(0, 10);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return (
+    `This backup was taken ${exported} and holds ${plural(recipes.length, "recipe")}, ` +
+    `${plural(pantryItems.length, "pantry item")}, and ${plural(plannedMeals.length, "planned meal")} ` +
+    `(${total} records in all).`
+  );
 }
 
 export async function importAll(rawBundle: unknown, replaceAll = true) {
@@ -384,5 +454,9 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
       await db.cookedPortions.bulkPut(bundle.data.cookedPortions || []);
     }
   );
+  // Every id on this device just changed, so what we recorded about the cloud's contents
+  // no longer describes anything. Clearing it means the next reconnect reconciles nothing
+  // rather than reconciling against stale bookkeeping.
+  await db.syncedDocs.clear();
   await seedDefaults();
 }

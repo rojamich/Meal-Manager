@@ -25,6 +25,12 @@ import { buildRecipeMealInput, createMealWithRules } from "../planner/plannerDom
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import CookMode from "./CookMode";
+import { reportLoadError } from "../../utils/loadError";
+import { safeImageUrl, safeLinkUrl } from "../../utils/url";
+import { buildCurrencyRates } from "../../utils/price";
+import { newId } from "../../utils/id";
+import { listLocations } from "../../db/repositories/locationRepo";
+import { LocationProfile } from "../../models";
 
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"];
 
@@ -106,7 +112,7 @@ export default function RecipeEditPage() {
     if (!recipe?.id) return;
     const onSync = () => {
       void getRecipe(recipe.id).then((next) => next && setRecipe(next));
-      void listIngredients(recipe.id).then(setIngredients);
+      void listIngredients(recipe.id).then(setIngredients).catch(reportLoadError("ingredients"));
     };
     window.addEventListener("recipes-updated", onSync);
     window.addEventListener("recipe-ingredients-updated", onSync);
@@ -338,6 +344,34 @@ function RecipeEditorForm({
   const [plannerMessage, setPlannerMessage] = useState("");
 
   const [activeLocationId] = useActiveLocationId();
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
+  // Steps are plain strings in the model, so the editor keeps its own identity for each
+  // row. Without it React reuses textareas by position when a step is removed.
+  const [stepKeys, setStepKeys] = useState<string[]>(() => form.steps.map(() => newId()));
+
+  const stepCount = form.steps.length;
+  useEffect(() => {
+    setStepKeys((prev) =>
+      prev.length === stepCount
+        ? prev
+        : Array.from({ length: stepCount }, (_, i) => prev[i] ?? newId())
+    );
+  }, [stepCount]);
+
+  useEffect(() => {
+    const load = () =>
+      listLocations()
+        .then((rows) => setLocations([...rows]))
+        .catch(reportLoadError("locations"));
+    load();
+    window.addEventListener("locations-updated", load);
+    return () => window.removeEventListener("locations-updated", load);
+  }, []);
+
+  const currencyRates = useMemo(
+    () => buildCurrencyRates(locations, activeLocationId || undefined),
+    [locations, activeLocationId]
+  );
   const costBreakdown = useMemo(() => {
     const payload = {
       title: form.title,
@@ -348,9 +382,19 @@ function RecipeEditorForm({
       ingredients,
       pantryItems,
       purchases,
-      locationId: activeLocationId || undefined
+      locationId: activeLocationId || undefined,
+      rates: currencyRates
     });
-  }, [activeLocationId, form.baseServings, form.title, ingredients, pantryItems, purchases, recipe]);
+  }, [
+    activeLocationId,
+    currencyRates,
+    form.baseServings,
+    form.title,
+    ingredients,
+    pantryItems,
+    purchases,
+    recipe
+  ]);
 
   const filteredPantryItems = useMemo(
     () =>
@@ -484,11 +528,16 @@ function RecipeEditorForm({
   }
 
   function addStep() {
+    setStepKeys((prev) => [...prev, newId()]);
     setForm({ ...form, steps: [...form.steps, ""] });
   }
 
   function removeStep(index: number) {
     const next = form.steps.filter((_, i) => i !== index);
+    setStepKeys((prev) => {
+      const keys = prev.filter((_, i) => i !== index);
+      return keys.length ? keys : [newId()];
+    });
     setForm({ ...form, steps: next.length ? next : [""] });
   }
 
@@ -509,8 +558,8 @@ function RecipeEditorForm({
           <h2 style={{ margin: 0 }}>{recipe.id ? "Edit Recipe" : "New Recipe"}</h2>
         </div>
         <div className="row resource-toolbar">
-          {recipe.url && (
-            <a className="tag" href={recipe.url} target="_blank" rel="noreferrer">
+          {safeLinkUrl(recipe.url) && (
+            <a className="tag" href={safeLinkUrl(recipe.url)} target="_blank" rel="noreferrer">
               Open URL
             </a>
           )}
@@ -622,8 +671,17 @@ function RecipeEditorForm({
             onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
             placeholder="Image URL"
           />
-          {form.imageUrl && (
-            <img src={form.imageUrl} alt="Recipe preview" style={{ width: 64, height: 64, objectFit: "cover" }} />
+          {safeImageUrl(form.imageUrl) && (
+            <img
+              src={safeImageUrl(form.imageUrl)}
+              alt="Recipe preview"
+              style={{ width: 64, height: 64, objectFit: "cover" }}
+            />
+          )}
+          {form.imageUrl.trim() && !safeImageUrl(form.imageUrl) && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Image URL must start with http:// or https://
+            </span>
           )}
         </div>
         <textarea
@@ -823,7 +881,7 @@ function RecipeEditorForm({
                               ` (${costBreakdown.pricedCount} of ${costBreakdown.lineCount} ingredients priced)`}
                           </strong>
                         </td>
-                        <td>
+                        <td data-label="Total per serving">
                           <strong>
                             {costBreakdown.costPerServing.toFixed(2)}
                             {!costBreakdown.complete && "+"}
@@ -888,7 +946,7 @@ function RecipeEditorForm({
         <div>
           <strong>Steps</strong>
           {form.steps.map((step, idx) => (
-            <div className="row resource-toolbar recipe-step-row" key={idx}>
+            <div className="row resource-toolbar recipe-step-row" key={stepKeys[idx] ?? idx}>
               <textarea value={step} onChange={(e) => updateStep(idx, e.target.value)} placeholder={`Step ${idx + 1}`} />
               <button type="button" className="secondary" onClick={() => removeStep(idx)}>
                 Remove

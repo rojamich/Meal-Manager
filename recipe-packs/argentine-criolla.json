@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "name": "Argentine criolla",
+  "recipes": [
+    {
+      "title": "Chorizo a la criolla sobre arroz",
+      "baseServings": 4,
+      "timeMinutes": 45,
+      "calories": 480,
+      "proteinGrams": 40,
+      "mealTypes": [
+        "dinner"
+      ],
+      "tags": [
+        "argentine",
+        "criolla",
+        "one pan",
+        "rice"
+      ],
+      "notes": "There is no salt in this recipe and that's deliberate. Chorizo is a cured-adjacent product and carries a lot of it — 400g will bring roughly 1,200-1,600mg on its own. Taste at the end before adding any.\n\nWhy half beef: straight chorizo at this volume is very fatty and very salty, and Spanish cooks warn that its flavour eclipses everything else in the pot. Cutting it with carne picada keeps the protein up, the fat and sodium down, and you still taste it clearly. Macros land around 40g protein and 480 kcal a serving.\n\nSqueezing the casings: slit each one lengthwise with a knife and peel it off like a wrapper, or just squeeze from one end. It's easier than it sounds and takes two minutes.\n\nStart the chorizo in a cold pan, not a hot one. It renders more of its fat out that way instead of searing shut, and that orange fat is what flavours the onions.\n\nKeeps four days. Reheats well. Make rice fresh each time.",
+      "steps": [
+        "Render the chorizo from cold: slit the casings off the chorizo and break the meat into a cold pan. Turn the heat to medium and cook, breaking it up, until browned and the orange fat has rendered out — about 8 minutes.",
+        "Add the beef and cook until properly browned. If there's a lot of fat pooling, pour some off, but leave enough to cook the vegetables in.",
+        "Add the onions and peppers and cook until soft, scraping the bottom. Add the garlic for a minute.",
+        "Off the heat, stir in the pimentón dulce, ají molido, oregano and black pepper for ten seconds. Back on the heat, add the crushed tomato, stock and bay leaf.",
+        "Simmer uncovered until it thickens into a sauce rather than a soup — about 20 minutes. Remove the bay leaf and taste. Only now decide whether it needs salt.",
+        "If using the queso cremoso, scatter it over the top off the heat and put the lid on for 4 minutes so it softens without breaking. Finish with parsley and spoon over rice."
+      ],
+      "ingredients": [
+        {
+          "name": "Chorizo fresco",
+          "quantity": 400,
+          "unit": "g",
+          "category": "protein_fresh",
+          "storageType": "fridge",
+          "prepNote": "parrillero; casings removed"
+        },
+        {
+          "name": "Ground beef",
+          "quantity": 400,
+          "unit": "g",
+          "category": "protein_fresh",
+          "storageType": "fridge",
+          "prepNote": "carne picada"
+        },
+        {
+          "name": "Onion",
+          "quantity": 2,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "pantry",
+          "prepNote": "chopped"
+        },
+        {
+          "name": "Bell pepper",
+          "quantity": 2,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "fridge",
+          "prepNote": "morrones; one red one green, chopped"
+        },
+        {
+          "name": "Garlic clove",
+          "quantity": 4,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "pantry",
+          "prepNote": "minced"
+        },
+        {
+          "name": "Pimentón dulce",
+          "quantity": 5,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 2 tsp"
+        },
+        {
+          "name": "Ají molido",
+          "quantity": 2,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1 tsp"
+        },
+        {
+          "name": "Dried oregano",
+          "quantity": 1,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1 tsp"
+        },
+        {
+          "name": "Crushed tomato",
+          "quantity": 400,
+          "unit": "g",
+          "category": "pantry_canned_jarred",
+          "storageType": "pantry",
+          "prepNote": "tomate triturado"
+        },
+        {
+          "name": "Beef stock",
+          "quantity": 150,
+          "unit": "ml",
+          "category": "pantry_canned_jarred",
+          "storageType": "pantry",
+          "prepNote": "or water"
+        },
+        {
+          "name": "Bay leaf",
+          "quantity": 1,
+          "unit": "count",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "laurel"
+        },
+        {
+          "name": "Queso cremoso",
+          "quantity": 150,
+          "unit": "g",
+          "category": "dairy",
+          "storageType": "fridge",
+          "prepNote": "diced — optional"
+        },
+        {
+          "name": "Parsley",
+          "quantity": 20,
+          "unit": "g",
+          "category": "produce",
+          "storageType": "fridge",
+          "prepNote": "perejil; a handful, chopped"
+        },
+        {
+          "name": "Black pepper",
+          "quantity": 1,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1/2 tsp"
+        }
+      ]
+    },
+    {
+      "title": "Bifes a la criolla (sin papa)",
+      "baseServings": 4,
+      "timeMinutes": 60,
+      "calories": 380,
+      "proteinGrams": 44,
+      "mealTypes": [
+        "dinner"
+      ],
+      "tags": [
+        "argentine",
+        "criolla",
+        "one pot",
+        "rice",
+        "hands off"
+      ],
+      "notes": "Macros, roughly: about 44g protein and 380 kcal per serving before rice. Sodium is low because nothing here is cured — no chorizo, no panceta, no olives.\n\nWhy the tomato goes on top and not in the layers: it releases liquid downward as it heats and steams everything underneath. Mixed in from the start you get a wetter, blander pot.\n\nCut choice matters less than usual here because the long covered cook tenderizes everything. Paleta is the cheap pick and works perfectly. Don't buy anything expensive for this.\n\nTotal hands-on time is about 10 minutes of slicing. The other 40 you're not in the kitchen.\n\nLeftovers are excellent and the sauce thickens overnight. Make rice fresh — it takes 15 minutes and reheated rice is never as good.",
+      "steps": [
+        "Slice the onions into rings and the peppers into strips. Chop the garlic. Cut the beef into large bite-size pieces. That's all the prep there is.",
+        "Pour the olive oil into a heavy pot. Layer in this order: half the onion and pepper, then the beef, then the garlic, then the rest of the onion and pepper. Season with the salt, black pepper, pimentón dulce, ají molido and oregano as you go, and tuck in the bay leaves.",
+        "Pour the crushed tomato over the top without stirring, then the stock around the edge. The tomato stays on top on purpose.",
+        "Cover and bring to a boil over high heat. Once it's bubbling, uncover, stir once to combine everything, then re-cover with the lid slightly ajar.",
+        "Turn to medium-low and leave it 30-40 minutes, stirring once or twice. It's done when the beef gives easily to a fork and the sauce has thickened. Add the peas for the last 5 minutes if using.",
+        "Take it off the heat and let it sit 10 minutes. Fish out the bay leaves and serve over white rice."
+      ],
+      "ingredients": [
+        {
+          "name": "Beef",
+          "quantity": 800,
+          "unit": "g",
+          "category": "protein_fresh",
+          "storageType": "fridge",
+          "prepNote": "paleta, nalga or cuadrada; cut in large bite-size pieces"
+        },
+        {
+          "name": "Onion",
+          "quantity": 2,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "pantry",
+          "prepNote": "sliced in rings"
+        },
+        {
+          "name": "Bell pepper",
+          "quantity": 2,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "fridge",
+          "prepNote": "morrones; one red one green, in strips"
+        },
+        {
+          "name": "Garlic clove",
+          "quantity": 4,
+          "unit": "count",
+          "category": "produce",
+          "storageType": "pantry",
+          "prepNote": "roughly chopped"
+        },
+        {
+          "name": "Crushed tomato",
+          "quantity": 400,
+          "unit": "g",
+          "category": "pantry_canned_jarred",
+          "storageType": "pantry",
+          "prepNote": "tomate triturado"
+        },
+        {
+          "name": "Pimentón dulce",
+          "quantity": 5,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 2 tsp"
+        },
+        {
+          "name": "Ají molido",
+          "quantity": 2,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1 tsp"
+        },
+        {
+          "name": "Dried oregano",
+          "quantity": 1,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1 tsp"
+        },
+        {
+          "name": "Bay leaf",
+          "quantity": 2,
+          "unit": "count",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "laurel"
+        },
+        {
+          "name": "Beef stock",
+          "quantity": 250,
+          "unit": "ml",
+          "category": "pantry_canned_jarred",
+          "storageType": "pantry",
+          "prepNote": "caldo"
+        },
+        {
+          "name": "Olive oil",
+          "quantity": 45,
+          "unit": "ml",
+          "category": "condiments",
+          "storageType": "pantry",
+          "prepNote": "about 3 tbsp"
+        },
+        {
+          "name": "Salt",
+          "quantity": 8,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1 1/3 tsp"
+        },
+        {
+          "name": "Black pepper",
+          "quantity": 1,
+          "unit": "g",
+          "category": "spices",
+          "storageType": "pantry",
+          "prepNote": "about 1/2 tsp"
+        },
+        {
+          "name": "Frozen peas",
+          "quantity": 150,
+          "unit": "g",
+          "category": "frozen",
+          "storageType": "freezer",
+          "prepNote": "arvejas — optional, for the last 5 minutes"
+        }
+      ]
+    }
+  ]
+}
