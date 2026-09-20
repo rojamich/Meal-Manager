@@ -27,7 +27,7 @@ import { useToast } from "../../components/useToast";
 import CookMode from "./CookMode";
 import { reportLoadError } from "../../utils/loadError";
 import { safeImageUrl, safeLinkUrl } from "../../utils/url";
-import { buildCurrencyRates } from "../../utils/price";
+import { STALE_PRICE_DAYS, buildCurrencyRates, formatPriceAge } from "../../utils/price";
 import { newId } from "../../utils/id";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { LocationProfile } from "../../models";
@@ -383,11 +383,13 @@ function RecipeEditorForm({
       pantryItems,
       purchases,
       locationId: activeLocationId || undefined,
-      rates: currencyRates
+      rates: currencyRates,
+      annualInflationPct: locations.find((loc) => loc.id === activeLocationId)?.annualInflationPct
     });
   }, [
     activeLocationId,
     currencyRates,
+    locations,
     form.baseServings,
     form.title,
     ingredients,
@@ -851,6 +853,7 @@ function RecipeEditorForm({
                         <th>Ingredient</th>
                         <th>Qty / serving</th>
                         <th>Unit price</th>
+                        <th>Charged</th>
                         <th>Cost / serving</th>
                       </tr>
                     </thead>
@@ -862,7 +865,51 @@ function RecipeEditorForm({
                             {Math.round(line.qtyPerServing * 100) / 100} {line.unit}
                           </td>
                           <td data-label="Unit price">
-                            {line.unitPrice !== undefined ? line.unitPrice.toFixed(2) : "—"}
+                            {line.negligible ? (
+                              <span className="muted">negligible</span>
+                            ) : line.unitPrice !== undefined ? (
+                              <>
+                                {line.unitPrice.toFixed(2)}
+                                {line.ageDays !== undefined && (
+                                  <span
+                                    className="muted"
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: line.ageDays > STALE_PRICE_DAYS ? 600 : 400
+                                    }}
+                                  >
+                                    {" "}
+                                    · {formatPriceAge(line.ageDays)}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td data-label="Charged">
+                            {line.basis === "negligible" ? (
+                              <span className="muted">free</span>
+                            ) : line.basis === "package" && line.packsCharged ? (
+                              <span style={{ fontSize: 12 }}>
+                                {line.packsCharged} pack{line.packsCharged === 1 ? "" : "s"} ×{" "}
+                                {Math.round((line.packQty ?? 0) * 100) / 100} {line.unit}
+                                {line.wastedQty ? (
+                                  <span className="muted">
+                                    {" "}
+                                    · {Math.round(line.wastedQty * 100) / 100} {line.unit} spare
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : line.basis === "usage" ? (
+                              <span className="muted" style={{ fontSize: 12 }}>
+                                shared — only what it uses
+                              </span>
+                            ) : (
+                              <span className="muted" style={{ fontSize: 12 }}>
+                                loose — no pack size set
+                              </span>
+                            )}
                           </td>
                           <td data-label="Cost / serving">
                             {line.costPerServing !== undefined ? (
@@ -874,14 +921,32 @@ function RecipeEditorForm({
                         </tr>
                       ))}
                       <tr>
-                        <td colSpan={3}>
+                        <td colSpan={4}>
+                          <strong>Cost to make the whole recipe</strong>
+                          {costBreakdown.leftoverCost > 0 && (
+                            <span className="muted" style={{ fontSize: 12 }}>
+                              {" "}
+                              · {costBreakdown.leftoverCost.toFixed(2)} of that is packet you
+                              do not use here
+                            </span>
+                          )}
+                        </td>
+                        <td data-label="Cost to make">
                           <strong>
-                            Total per serving
+                            {costBreakdown.costToMake.toFixed(2)}
+                            {!costBreakdown.complete && "+"}
+                          </strong>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td colSpan={4}>
+                          <strong>
+                            Per serving
                             {!costBreakdown.complete &&
                               ` (${costBreakdown.pricedCount} of ${costBreakdown.lineCount} ingredients priced)`}
                           </strong>
                         </td>
-                        <td data-label="Total per serving">
+                        <td data-label="Per serving">
                           <strong>
                             {costBreakdown.costPerServing.toFixed(2)}
                             {!costBreakdown.complete && "+"}
@@ -906,7 +971,17 @@ function RecipeEditorForm({
                   </button>
                   <span className="muted" style={{ fontSize: 12 }}>
                     Prices come from your purchase history{activeLocationId ? " for the active location" : ""};
-                    alt groups use the cheapest priced option. Save the recipe to keep the estimate.
+                    alt groups use the cheapest priced option. Anything sold in a fixed pack is
+                    charged by the pack, because the rest of the jar is not guaranteed to be
+                    used — mark an ingredient as shared on the Pantry page to charge it only for
+                    what it uses. Save the recipe to keep the estimate.
+                    {costBreakdown.hasStalePrices && (
+                      <>
+                        {" "}
+                        Some of these prices are more than {Math.round(STALE_PRICE_DAYS / 30)} months
+                        old, so treat the total as a rough figure.
+                      </>
+                    )}
                   </span>
                 </div>
               </>

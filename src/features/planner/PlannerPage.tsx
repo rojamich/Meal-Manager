@@ -15,6 +15,7 @@ import { buildCookPlan, commitCook, CookPlan, uncookMeal } from "./cookPlan";
 import CookMealModal from "./CookMealModal";
 import ExpiringSoon from "./ExpiringSoon";
 import FridgePanel from "./FridgePanel";
+import PlanCostPanel from "./PlanCostPanel";
 import TripSetupModal from "./TripSetupModal";
 import InlineAddPanel from "./InlineAddPanel";
 import MealLabel from "./MealLabel";
@@ -1055,6 +1056,13 @@ export default function PlannerPage() {
         )}
       </section>
 
+      <PlanCostPanel
+        days={days}
+        meals={meals}
+        recipes={recipes}
+        householdSize={householdSize}
+        locationId={plannerLocationId || undefined}
+      />
       <FridgePanel locationId={plannerLocationId || undefined} />
       <ExpiringSoon locationId={plannerLocationId || undefined} />
 

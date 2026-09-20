@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
+import { BaseUnit, GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
 import {
   buildGroceryLines,
   generateGroceryList,
@@ -11,6 +11,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
+import { saveReceipt } from "../../db/repositories/receiptRepo";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
 import { bestUnitPrice, buildCurrencyRates } from "../../utils/price";
@@ -33,6 +34,14 @@ export default function GroceryPage() {
   const [selectedListId, setSelectedListId] = useState<string>("");
   const [addedLotsCount, setAddedLotsCount] = useState(0);
   const [purchaseOverrides, setPurchaseOverrides] = useState<Record<string, string>>({});
+  /**
+   * What each checked line actually cost, keyed by line id.
+   *
+   * Recorded here because this is the one moment the receipt is in your hand. Sending
+   * you to a separate screen afterwards to retype what you just bought is how price
+   * history stops getting kept.
+   */
+  const [pricePaid, setPricePaid] = useState<Record<string, string>>({});
   const [altPickerOpen, setAltPickerOpen] = useState(false);
   const [altSelections, setAltSelections] = useState<Record<string, string>>({});
   const [expandedLineIds, setExpandedLineIds] = useState<Record<string, boolean>>({});
@@ -292,6 +301,10 @@ export default function GroceryPage() {
     );
     if (!toAdd.length) return;
 
+    // Prices typed against the checked lines become a shopping trip, so a single
+    // "add to pantry" records both what you now have and what it cost.
+    const pricedLines: { pantryItemId: string; baseUnit: BaseUnit; packSize: number; grossPrice: number }[] = [];
+
     await Promise.all(
       toAdd.map(async (line) => {
         const chosenId = line.pantryItemId || selectionMap[line.id];
@@ -313,11 +326,53 @@ export default function GroceryPage() {
           locationId,
           notes: note
         });
+        const paid = Number(pricePaid[line.id]);
+        if (Number.isFinite(paid) && paid > 0) {
+          // Quantity is already in the item's base unit here, so it needs no pack unit.
+          pricedLines.push({
+            pantryItemId: chosenId,
+            baseUnit: item.baseUnit,
+            packSize: quantity,
+            grossPrice: paid
+          });
+        }
         await updateGroceryLine(line.id, { checked: false });
       })
     );
+
+    if (pricedLines.length) {
+      const currencyCode =
+        locations.find((loc) => loc.id === locationId)?.currencyCode?.trim().toUpperCase() || "";
+      if (currencyCode) {
+        const location = locations.find((loc) => loc.id === locationId);
+        await saveReceipt(
+          {
+            currencyCode,
+            locationId,
+            date: purchasedAt,
+            exchangeRateToUSD: location?.exchangeRateToUSD,
+            notes: note
+          },
+          pricedLines
+        );
+        notify(`Added ${toAdd.length} lots and recorded ${pricedLines.length} price(s)`, "success");
+      } else {
+        // Without a currency a price is a bare number that cannot be compared with
+        // anything, so it is refused rather than stored as an unlabelled figure.
+        notify(
+          "Added to pantry, but prices were not saved — the active location has no currency set.",
+          "error"
+        );
+      }
+    }
+
     setAddedLotsCount(toAdd.length);
     setPurchaseOverrides((prev) => {
+      const next = { ...prev };
+      toAdd.forEach((line) => delete next[line.id]);
+      return next;
+    });
+    setPricePaid((prev) => {
       const next = { ...prev };
       toAdd.forEach((line) => delete next[line.id]);
       return next;
@@ -475,6 +530,7 @@ export default function GroceryPage() {
                   <th>Item</th>
                   <th>To Buy</th>
                   <th>Purchased</th>
+                  <th>Price paid</th>
                   <th>Used For</th>
                   <th>Check</th>
                 </tr>
@@ -510,6 +566,23 @@ export default function GroceryPage() {
                                   ...prev,
                                   [line.id]: normalizePurchaseOverride(e.target.value, line.unit)
                                 }))
+                              }
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td data-label="Price paid">
+                          {line.checked && line.toBuyQty > 0 && line.pantryItemId ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="optional"
+                              style={{ width: 90 }}
+                              value={pricePaid[line.id] ?? ""}
+                              onChange={(e) =>
+                                setPricePaid((prev) => ({ ...prev, [line.id]: e.target.value }))
                               }
                             />
                           ) : (

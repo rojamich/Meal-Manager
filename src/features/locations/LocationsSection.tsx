@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { LocationProfile } from "../../models";
 import { createLocation, deleteLocation, listLocations, updateLocation } from "../../db/repositories/locationRepo";
+import { dateKey } from "../../utils/date";
+import { formatPriceAge } from "../../utils/price";
 
 export default function LocationsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [locations, setLocations] = useState<LocationProfile[]>([]);
@@ -37,7 +39,8 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
     await createLocation({
       name,
       currencyCode,
-      exchangeRateToUSD: rateValue
+      exchangeRateToUSD: rateValue,
+      rateAsOf: rateValue !== undefined ? dateKey(new Date()) : undefined
     });
     const formEl = e.currentTarget as HTMLFormElement | null;
     formEl?.reset();
@@ -46,8 +49,28 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
   }
 
   async function updateField(id: string, key: keyof LocationProfile, value: any) {
-    await updateLocation(id, { [key]: value });
+    // A rate edit restamps its own date. Otherwise a rate typed a year ago and corrected
+    // today would still claim to be a year old, and the staleness warning would be noise.
+    const extra = key === "exchangeRateToUSD" ? { rateAsOf: dateKey(new Date()) } : undefined;
+    await updateLocation(id, { [key]: value, ...extra });
     await refresh();
+  }
+
+  /** Reads a number field, leaving the value alone while it is mid-typing. */
+  function numericUpdate(id: string, key: keyof LocationProfile, raw: string) {
+    const next = raw === "" ? undefined : Number(raw);
+    if (raw !== "" && !Number.isFinite(next)) return;
+    updateField(id, key, next);
+  }
+
+  function rateAge(loc: LocationProfile) {
+    if (!loc.exchangeRateToUSD || !loc.rateAsOf) return null;
+    const days = Math.max(
+      Math.round((Date.now() - new Date(`${loc.rateAsOf}T00:00:00`).getTime()) / 86_400_000),
+      0
+    );
+    if (days < 45) return null;
+    return <span className="muted" style={{ fontSize: 11 }}> rate {formatPriceAge(days)}</span>;
   }
 
   async function remove(id: string) {
@@ -78,6 +101,13 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
         0.0067 for yen, about 1.08 for euro. Costs are only compared between purchases that can
         be converted, so a location with no rate keeps its prices to itself.
       </p>
+      <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+        <strong>Eating out, per person</strong> is what a normal meal out costs here, in this
+        location&rsquo;s currency. Planned meals are compared against it, so you can see when
+        cooking has stopped being the cheaper option.{" "}
+        <strong>Inflation</strong> is optional and only matters where prices move fast: set it
+        and an older price gets carried forward instead of being shown as if it were today&rsquo;s.
+      </p>
       {error && <p className="muted">{error}</p>}
       <table className="table">
         <thead>
@@ -85,6 +115,8 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
             <th>Name</th>
             <th>Currency</th>
             <th>USD per 1 unit</th>
+            <th>Eating out, per person</th>
+            <th>Inflation %/yr</th>
             <th></th>
           </tr>
         </thead>
@@ -102,12 +134,26 @@ export default function LocationsSection({ embedded = false }: { embedded?: bool
                   type="number"
                   step="any"
                   value={loc.exchangeRateToUSD || ""}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    const next = raw === "" ? undefined : Number(raw);
-                    if (raw !== "" && !Number.isFinite(next)) return;
-                    updateField(loc.id, "exchangeRateToUSD", next);
-                  }}
+                  onChange={(e) => numericUpdate(loc.id, "exchangeRateToUSD", e.target.value)}
+                />
+                {rateAge(loc)}
+              </td>
+              <td data-label="Eating out, per person">
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="—"
+                  value={loc.eatOutCostPerPerson ?? ""}
+                  onChange={(e) => numericUpdate(loc.id, "eatOutCostPerPerson", e.target.value)}
+                />
+              </td>
+              <td data-label="Inflation %/yr">
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={loc.annualInflationPct ?? ""}
+                  onChange={(e) => numericUpdate(loc.id, "annualInflationPct", e.target.value)}
                 />
               </td>
               <td data-label="Actions">
