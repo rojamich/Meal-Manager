@@ -46,6 +46,7 @@ export default function RecipesPage() {
   const [lastCookedByRecipe, setLastCookedByRecipe] = useState<Map<string, string>>(new Map());
   const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time" | "lastCooked">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
+  const [beatsEatingOutOnly, setBeatsEatingOutOnly] = useState(false);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
@@ -152,6 +153,17 @@ export default function RecipesPage() {
     return result;
   }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
+  /**
+   * What a meal out costs per head here, if it has been recorded.
+   *
+   * Filtering against it turns the cost column into an answer rather than a number:
+   * "what can I cook tonight that is actually cheaper than going out".
+   */
+  const eatOutPerPerson = useMemo(
+    () => locations.find((loc) => loc.id === activeLocationId)?.eatOutCostPerPerson,
+    [activeLocationId, locations]
+  );
+
   const currencyRates = useMemo(
     () => buildCurrencyRates(locations, activeLocationId || undefined),
     [locations, activeLocationId]
@@ -225,6 +237,11 @@ export default function RecipesPage() {
           !maxCalories || (recipeCalories(r) !== undefined && (recipeCalories(r) as number) <= Number(maxCalories));
         const cost = costInfoByRecipe.get(r.id)?.cost;
         const costOk = !maxCost || (cost !== undefined && cost <= Number(maxCost));
+        // Unpriced recipes are excluded rather than assumed cheap: the whole point of
+        // the filter is a claim about cost, and there is nothing to back one up with.
+        const beatsEatingOut =
+          !beatsEatingOutOnly ||
+          (eatOutPerPerson !== undefined && cost !== undefined && cost < eatOutPerPerson);
         const timeOk =
           !maxTime || (r.timeMinutes !== undefined && r.timeMinutes <= Number(maxTime));
         // "Not cooked in N days" deliberately keeps never-cooked recipes — they are the
@@ -237,7 +254,7 @@ export default function RecipesPage() {
         const canMake = makeableByRecipe.get(r.id) ?? true;
         return (
           matchesText && matchesMealType && caloriesOk && costOk && timeOk && staleOk &&
-          (!canMakeOnly || canMake)
+          beatsEatingOut && (!canMakeOnly || canMake)
         );
       })
       .sort((a, b) => {
@@ -261,7 +278,7 @@ export default function RecipesPage() {
         const bVal = costInfoByRecipe.get(b.id)?.cost ?? Number.MAX_VALUE;
         return aVal - bVal;
       });
-  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, notCookedInDays, sortBy, makeableByRecipe, canMakeOnly, costInfoByRecipe, ingredientNamesByRecipe, lastCookedByRecipe]);
+  }, [recipes, search, mealTypeFilters, maxCalories, maxCost, maxTime, notCookedInDays, sortBy, makeableByRecipe, canMakeOnly, beatsEatingOutOnly, eatOutPerPerson, costInfoByRecipe, ingredientNamesByRecipe, lastCookedByRecipe]);
 
   async function removeRecipe(id: string) {
     const { plannedMealCount } = await countRecipeReferences(id);
@@ -357,6 +374,16 @@ export default function RecipesPage() {
             />
             Can make with pantry
           </label>
+          {eatOutPerPerson !== undefined && (
+            <label title={`Cheaper per serving than the ${eatOutPerPerson} a head recorded for this location`}>
+              <input
+                type="checkbox"
+                checked={beatsEatingOutOnly}
+                onChange={(e) => setBeatsEatingOutOnly(e.target.checked)}
+              />
+              Cheaper than eating out
+            </label>
+          )}
           <select value={availabilityLocationId} onChange={(e) => setAvailabilityLocationId(e.target.value)}>
             <option value="">All locations</option>
             {locations.map((loc) => (

@@ -52,15 +52,19 @@ export function pantryCategorySortIndex(value?: string) {
 /**
  * Categories whose contents are, by their nature, spread over many meals.
  *
- * A jar of paprika or a bottle of oil lasts months, so charging a recipe the whole
- * bottle — the safe default everywhere else — is wrong here by a wide margin, and wrong
- * on exactly the ingredients that appear in the most recipes. Defaulting these to shared
- * is what stops a first week of costs reading as nonsense before anyone has swept the
- * coverage list.
+ * A jar of paprika lasts months, so charging a recipe the whole jar — the safe default
+ * everywhere else — is wrong here by a wide margin, and wrong on exactly the ingredients
+ * that appear in the most recipes. Defaulting these to shared is what stops a first week
+ * of costs reading as nonsense before anyone has swept the coverage list.
  *
- * Only a default. It is a plain checkbox on the pantry item afterwards.
+ * Condiments are deliberately *not* here. The category holds both the bottle of oil that
+ * really does go into everything and the jar of mustard bought for one dish and never
+ * opened again, so there is no default that is right more often than not. Those get
+ * decided one at a time.
+ *
+ * Only a default either way. It is a plain checkbox on the pantry item afterwards.
  */
-const SHARED_BY_DEFAULT = new Set(["spices", "condiments"]);
+const SHARED_BY_DEFAULT = new Set(["spices"]);
 
 export function defaultSharedAcrossMeals(category?: string): boolean {
   return SHARED_BY_DEFAULT.has(normalizePantryCategoryKey(category));
