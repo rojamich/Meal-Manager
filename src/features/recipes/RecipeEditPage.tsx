@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { PantryItem, PurchaseEntry, Recipe, RecipeIngredient } from "../../models";
+import { BaseUnit, PantryItem, PurchaseEntry, Recipe, RecipeIngredient, StorageType } from "../../models";
 import {
   addIngredient,
   countRecipeReferences,
@@ -14,7 +14,9 @@ import {
   updateIngredient,
   updateRecipe
 } from "../../db/repositories/recipeRepo";
-import { listPantryItems } from "../../db/repositories/pantryRepo";
+import { createPantryItem, listPantryItems } from "../../db/repositories/pantryRepo";
+import { PANTRY_CATEGORY_OPTIONS, defaultSharedAcrossMeals } from "../../utils/pantryCategories";
+import { findByNameOrAlias } from "../../utils/itemNames";
 import { listMealSlots } from "../../db/repositories/mealPlanRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { useActiveLocationId } from "../locations/activeLocation";
@@ -184,6 +186,39 @@ export default function RecipeEditPage() {
     if (recipe?.id) setIngredients(await listIngredients(recipe.id));
   }
 
+  /**
+   * Add a pantry item without leaving the recipe being written.
+   *
+   * Lives in the parent because it owns the pantry list every ingredient dropdown reads
+   * from; creating one deeper down would leave the list stale until a reload.
+   */
+  async function handleCreatePantryItem(
+    name: string,
+    opts: { baseUnit: BaseUnit; category: string; storageType: StorageType }
+  ): Promise<PantryItem | undefined> {
+    try {
+      const created = await createPantryItem({
+        name,
+        category: opts.category,
+        storageType: opts.storageType,
+        baseUnit: opts.baseUnit
+      });
+      setPantryItems([...(await listPantryItems())]);
+      notify(`Added "${created.name}" to the pantry`, "success");
+      return created;
+    } catch (err) {
+      // createPantryItem refuses near-duplicates; hand back the existing one rather
+      // than leaving the person on an error they cannot act on.
+      const existing = findByNameOrAlias(await listPantryItems(), name);
+      if (existing) {
+        notify(`Using existing "${existing.name}"`, "info");
+        return existing;
+      }
+      notify(err instanceof Error ? err.message : "Could not create item", "error");
+      return undefined;
+    }
+  }
+
   async function handleDeleteIngredient(ingId: string) {
     await deleteIngredient(ingId);
     if (recipe?.id) setIngredients(await listIngredients(recipe.id));
@@ -271,6 +306,7 @@ export default function RecipeEditPage() {
         onAddIngredient={handleAddIngredient}
         onUpdateIngredient={handleUpdateIngredient}
         onDeleteIngredient={handleDeleteIngredient}
+        onCreatePantryItem={handleCreatePantryItem}
         onAddToPlanner={handleAddRecipeToPlanner}
         onBack={handleBack}
         onDelete={handleDelete}
@@ -292,6 +328,7 @@ function RecipeEditorForm({
   onAddIngredient,
   onUpdateIngredient,
   onDeleteIngredient,
+  onCreatePantryItem,
   onAddToPlanner,
   onBack,
   onDelete,
@@ -309,6 +346,11 @@ function RecipeEditorForm({
   ) => void;
   onUpdateIngredient: (id: string, changes: Partial<RecipeIngredient>) => void;
   onDeleteIngredient: (id: string) => void;
+  /** Creates a pantry item mid-recipe and returns it, or undefined if it could not be. */
+  onCreatePantryItem: (
+    name: string,
+    opts: { baseUnit: BaseUnit; category: string; storageType: StorageType }
+  ) => Promise<PantryItem | undefined>;
   onAddToPlanner: (recipeId: string, date: string, mealSlotId: string, servingsPlanned?: number) => Promise<void>;
   onBack: () => void;
   onDelete: () => void;
@@ -337,6 +379,19 @@ function RecipeEditorForm({
   });
   const [ingredientError, setIngredientError] = useState<string | null>(null);
   const [noMatches, setNoMatches] = useState(false);
+  /**
+   * Fields for creating a missing ingredient without leaving the recipe.
+   *
+   * Writing a recipe is when you discover you have never recorded "tahini", and being
+   * sent to the pantry page and back for each one is how a five-ingredient recipe
+   * becomes a ten-minute errand.
+   */
+  const [newItemDraft, setNewItemDraft] = useState<{
+    baseUnit: BaseUnit;
+    category: string;
+    storageType: StorageType;
+  }>({ baseUnit: "g", category: "other", storageType: "pantry" });
+  const [creatingItem, setCreatingItem] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [plannerDate, setPlannerDate] = useState(dateKey(new Date()));
   const [plannerSlotId, setPlannerSlotId] = useState("");
@@ -409,6 +464,21 @@ function RecipeEditorForm({
     () => new Map(pantryItems.map((item) => [item.id, item])),
     [pantryItems]
   );
+
+  /** Create the searched-for item and select it, so the next keystroke is a quantity. */
+  async function createSearchedItem() {
+    const name = ingredientFilter.trim();
+    if (!name || creatingItem) return;
+    setCreatingItem(true);
+    try {
+      const created = await onCreatePantryItem(name, newItemDraft);
+      if (!created) return;
+      setIngredientFilter(created.name);
+      setIngredientDraft((prev) => ({ ...prev, pantryItemId: created.id }));
+    } finally {
+      setCreatingItem(false);
+    }
+  }
 
   function submitIngredientDraft() {
     const qty = Number(ingredientDraft.quantity || 0);
@@ -696,14 +766,12 @@ function RecipeEditorForm({
           <p className="info-box">Ingredients save as you add/remove them.</p>
           {!recipe.id && <p>Save the recipe first to add ingredients.</p>}
           {recipe.id && pantryItems.length === 0 && (
-            <div className="row resource-toolbar">
-              <p>No pantry items yet.</p>
-              <Link className="tag" to="/pantry">
-                Go to Pantry
-              </Link>
-            </div>
+            <p className="muted" style={{ fontSize: 12 }}>
+              Nothing in the pantry yet. Type an ingredient name below and create it here —
+              no need to go to the <Link className="tag" to="/pantry">Pantry</Link> first.
+            </p>
           )}
-          {recipe.id && pantryItems.length > 0 && (
+          {recipe.id && (
             <>
               <div className="row resource-toolbar ingredient-editor-row">
                 <input
@@ -732,7 +800,62 @@ function RecipeEditorForm({
                     </option>
                   ))}
                 </select>
-                {noMatches && <span className="muted">No matches</span>}
+                {filteredPantryItems.length === 0 && ingredientFilter.trim() && (
+                  <div className="row" style={{ gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      No match — create &ldquo;{ingredientFilter.trim()}&rdquo; as
+                    </span>
+                    <select
+                      value={newItemDraft.baseUnit}
+                      onChange={(e) =>
+                        setNewItemDraft({ ...newItemDraft, baseUnit: e.target.value as BaseUnit })
+                      }
+                    >
+                      <option value="g">g</option>
+                      <option value="ml">ml</option>
+                      <option value="count">count</option>
+                    </select>
+                    <select
+                      value={newItemDraft.category}
+                      onChange={(e) => setNewItemDraft({ ...newItemDraft, category: e.target.value })}
+                    >
+                      {PANTRY_CATEGORY_OPTIONS.map((opt) => (
+                        <option key={opt.key} value={opt.key}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={newItemDraft.storageType}
+                      onChange={(e) =>
+                        setNewItemDraft({
+                          ...newItemDraft,
+                          storageType: e.target.value as StorageType
+                        })
+                      }
+                    >
+                      <option value="pantry">pantry</option>
+                      <option value="fridge">fridge</option>
+                      <option value="freezer">freezer</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={creatingItem}
+                      onClick={() => void createSearchedItem()}
+                    >
+                      {creatingItem ? "Creating…" : "Create & use"}
+                    </button>
+                    {defaultSharedAcrossMeals(newItemDraft.category) && (
+                      <span className="muted" style={{ fontSize: 11 }}>
+                        will be charged only for what each recipe uses
+                      </span>
+                    )}
+                  </div>
+                )}
+                {noMatches && filteredPantryItems.length > 0 && (
+                  <span className="muted">No matches</span>
+                )}
                 <input
                   type="number"
                   step="0.01"

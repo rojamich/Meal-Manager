@@ -31,6 +31,12 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - Android (Chrome): visit the site → menu → “Add to Home screen.”
 - iOS (Safari): Share → “Add to Home Screen.”
 
+## Writing recipes
+
+Ingredients come from the pantry, but you do not have to go there first. Type a name in
+the ingredient search and, if nothing matches, create it inline with a unit, a category
+and a storage place — it is added to the pantry and selected ready for a quantity.
+
 ## Tracking what meals cost
 
 The point of this is deciding what to eat, not bookkeeping. A rough per-serving figure is
@@ -93,11 +99,12 @@ Three ways an ingredient can be charged, shown per line in the recipe cost break
 | **Shared** | Ticked *used across many meals* — butter, milk, oil, spices | Only what the recipe uses |
 | **Loose** | No pack size set — anything weighed at the counter | Only what the recipe uses |
 
-**Spices and condiments default to shared**, because a jar of paprika or a bottle of oil
-lasts months and charging a whole bottle to every recipe that touches it is wrong by a
-wide margin — on exactly the ingredients that appear in the most recipes. The checkbox
-follows the category as you pick it, so the rule is visible rather than applied on save.
-Everything else defaults to whole packs.
+**Spices default to shared**, because a jar of paprika lasts months and charging the
+whole jar to every recipe that touches it is wrong by a wide margin — on exactly the
+ingredients that appear in the most recipes. The checkbox follows the category as you
+pick it, so the rule is visible rather than applied on save. Everything else, condiments
+included, defaults to whole packs and is decided one item at a time: that category holds
+both the oil that goes into everything and the jar of mustard bought for one dish.
 
 Pack sizes fill themselves in from the first shopping trip that records one, and are
 editable on the Pantry page. Untick *sold in this size* while entering a trip for
@@ -146,7 +153,9 @@ cost me".
   up to the batch, so nothing is counted twice and planning to eat leftovers does not look
   free — it never was.
 - **Recipes** — cost per serving, filterable and sortable, with `+` meaning some
-  ingredients are still unpriced.
+  ingredients are still unpriced. A **Cheaper than eating out** filter narrows the list
+  to recipes that beat the eat-out cost recorded for the active location; recipes with no
+  price are left out rather than assumed cheap.
 - **Recipe editor** — the per-ingredient breakdown showing how each line was charged
   ("1 pack × 970 g · 770 g spare"), the cost to make the whole recipe, and how much of
   that is packet you do not use here.
