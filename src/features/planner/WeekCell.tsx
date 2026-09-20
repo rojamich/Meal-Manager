@@ -22,6 +22,7 @@ export default function WeekCell({
   recipes,
   slots: _slots,
   people,
+  costByMealId,
   householdSize: _householdSize,
   onRemove,
   onSetServings,
@@ -49,6 +50,8 @@ export default function WeekCell({
   allMealsMap?: Map<string, PlannedMeal>;
   slots: MealSlot[];
   people: Person[];
+  /** Formatted cost per meal for the badge on each card. */
+  costByMealId?: Map<string, { label?: string; dearer?: boolean }>;
   householdSize: number;
   onRemove: (id: string) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
@@ -93,6 +96,8 @@ export default function WeekCell({
           recipes={recipes}
           color={colorForMeal(meal)}
           personBadge={personBadgeFor(meal, people)}
+          costLabel={costByMealId?.get(meal.id)?.label}
+          costDearer={costByMealId?.get(meal.id)?.dearer}
           onRemove={onRemove}
           onSetServings={onSetServings}
           onCook={onCook}

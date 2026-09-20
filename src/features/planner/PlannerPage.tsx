@@ -16,6 +16,7 @@ import CookMealModal from "./CookMealModal";
 import ExpiringSoon from "./ExpiringSoon";
 import FridgePanel from "./FridgePanel";
 import PlanCostPanel from "./PlanCostPanel";
+import { useMealCosts } from "./useMealCosts";
 import TripSetupModal from "./TripSetupModal";
 import InlineAddPanel from "./InlineAddPanel";
 import MealLabel from "./MealLabel";
@@ -781,6 +782,32 @@ export default function PlannerPage() {
     return list;
   }, [range.start, range.end]);
 
+  const planCosts = useMealCosts({
+    days,
+    meals,
+    recipes,
+    householdSize,
+    locationId: plannerLocationId || undefined
+  });
+
+  /**
+   * Cost badges keyed by meal, formatted for display.
+   *
+   * Built from the same analysis the summary panel uses, so a card and the panel can
+   * never disagree about what a meal costs.
+   */
+  const costBadges = useMemo(() => {
+    const map = new Map<string, { label?: string; dearer?: boolean }>();
+    planCosts.byMealId.forEach((row, id) => {
+      if (row.total === undefined) return;
+      map.set(id, {
+        label: `${row.total.toFixed(0)}${planCosts.currency ? ` ${planCosts.currency}` : ""}`,
+        dearer: row.dearerThanEatingOut
+      });
+    });
+    return map;
+  }, [planCosts]);
+
   const printDays = useMemo(() => {
     const list: string[] = [];
     let d = parseISODate(printRange.start);
@@ -1056,13 +1083,7 @@ export default function PlannerPage() {
         )}
       </section>
 
-      <PlanCostPanel
-        days={days}
-        meals={meals}
-        recipes={recipes}
-        householdSize={householdSize}
-        locationId={plannerLocationId || undefined}
-      />
+      <PlanCostPanel analysis={planCosts} />
       <FridgePanel locationId={plannerLocationId || undefined} />
       <ExpiringSoon locationId={plannerLocationId || undefined} />
 
@@ -1118,6 +1139,7 @@ export default function PlannerPage() {
                               slots={slots}
                               people={people}
                               householdSize={householdSize}
+                              costByMealId={costBadges}
                               onRemove={removeMeal}
                               onSetServings={(meal) => {
                                 setServingsEditMealId(meal.id);
@@ -1196,6 +1218,7 @@ export default function PlannerPage() {
                           slots={slots}
                           people={people}
                           householdSize={householdSize}
+                          costByMealId={costBadges}
                           onRemove={removeMeal}
                           onSetServings={(meal) => {
                             setServingsEditMealId(meal.id);

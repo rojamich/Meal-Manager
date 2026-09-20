@@ -2,6 +2,7 @@ import { db } from "../db";
 import { PantryItem } from "../../models";
 import { newId } from "../../utils/id";
 import { compareNames } from "../../utils/sort";
+import { defaultSharedAcrossMeals } from "../../utils/pantryCategories";
 import { alreadyKnownAs, findByNameOrAlias, itemMatchKey, normalizeItemName } from "../../utils/itemNames";
 
 export async function listPantryItems() {
@@ -61,6 +62,10 @@ export async function createPantryItem(input: Omit<PantryItem, "id" | "createdAt
   const item: PantryItem = {
     ...input,
     name,
+    // Applied here rather than in one form, so an item created inline while entering a
+    // shopping trip gets the same treatment as one added on the pantry page. Only fills
+    // an unset value: an explicit false stays false.
+    sharedAcrossMeals: input.sharedAcrossMeals ?? defaultSharedAcrossMeals(input.category),
     id: newId(),
     createdAt: now,
     updatedAt: now

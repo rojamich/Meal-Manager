@@ -93,6 +93,12 @@ Three ways an ingredient can be charged, shown per line in the recipe cost break
 | **Shared** | Ticked *used across many meals* — butter, milk, oil, spices | Only what the recipe uses |
 | **Loose** | No pack size set — anything weighed at the counter | Only what the recipe uses |
 
+**Spices and condiments default to shared**, because a jar of paprika or a bottle of oil
+lasts months and charging a whole bottle to every recipe that touches it is wrong by a
+wide margin — on exactly the ingredients that appear in the most recipes. The checkbox
+follows the category as you pick it, so the rule is visible rather than applied on save.
+Everything else defaults to whole packs.
+
 Pack sizes fill themselves in from the first shopping trip that records one, and are
 editable on the Pantry page. Untick *sold in this size* while entering a trip for
 anything weighed at the counter. **Prices → Price coverage** lists everything currently
@@ -123,7 +129,8 @@ cost me".
 
 ### Where costs show up
 
-- **Planner** — a plan cost panel with the total for the days on screen, the
+- **Planner** — a cost on each meal card, marked `!` when that meal costs more per
+  serving than eating out, plus a plan cost panel with the total for the days on screen, the
   servings-weighted average per serving, a per-meal breakdown, and a flag on any meal
   that costs more than eating out. Meals not yet priced are counted separately, never as
   free.
@@ -143,6 +150,9 @@ cost me".
 - **Recipe editor** — the per-ingredient breakdown showing how each line was charged
   ("1 pack × 970 g · 770 g spare"), the cost to make the whole recipe, and how much of
   that is packet you do not use here.
+- **Prices → Shopping trips** — every trip you have entered, with its lines, how the
+  total compares with what the receipt said, and a way to delete a whole trip if it went
+  in wrong. Deleting a trip removes its prices with it; pantry stock is left alone.
 - **Prices → Price coverage** — unpriced ingredients ranked by how many recipes each one
   is holding back, so the shortest route to useful numbers is obvious. Salt and the like
   can be marked *cost is negligible* so they stop counting as missing.
