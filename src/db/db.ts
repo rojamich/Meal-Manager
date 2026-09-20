@@ -11,6 +11,7 @@ import {
   Person,
   CookedPortion,
   PurchaseEntry,
+  Receipt,
   GroceryList,
   GroceryLine,
   WeekTemplate,
@@ -40,6 +41,7 @@ class MealDb extends Dexie {
   essentialItems!: Table<EssentialItem, string>;
   locationProfiles!: Table<LocationProfile, string>;
   purchaseEntries!: Table<PurchaseEntry, string>;
+  receipts!: Table<Receipt, string>;
   groceryLists!: Table<GroceryList, string>;
   groceryLines!: Table<GroceryLine, string>;
   weekTemplates!: Table<WeekTemplate, string>;
@@ -261,6 +263,31 @@ class MealDb extends Dexie {
           if (tidy && tidy !== recipe.title) recipe.title = tidy;
         });
       });
+
+    // Cost tracking: shopping trips are recorded as a receipt with its own lines, so the
+    // lines can be checked against the total that was actually paid. Purchase entries
+    // gain the pack fields ("400 g", "0.744 kg") and the discount that turns a shelf
+    // price into what left your wallet.
+    this.version(12)
+      .stores({
+        receipts: "id, date, locationId, store",
+        purchaseEntries: "id, pantryItemId, locationId, date, receiptId"
+      })
+      .upgrade(async (tx) => {
+        // Existing entries were typed as a flat price for a quantity with no discount,
+        // which is exactly "gross equals net". Saying so explicitly keeps later readers
+        // from treating the absence of a discount as unknown rather than as zero.
+        await tx.table("purchaseEntries").toCollection().modify((entry: any) => {
+          if (entry.grossPrice === undefined) entry.grossPrice = entry.totalPrice;
+          if (entry.discount === undefined) entry.discount = 0;
+        });
+      });
+
+    // Pantry items learn what size they are sold in, so a recipe can be charged for the
+    // packet it forces you to buy rather than only the grams it takes out of it.
+    this.version(13).stores({
+      pantryItems: "id, name, category, storageType"
+    });
   }
 }
 
@@ -324,6 +351,7 @@ export async function exportAll(): Promise<ExportBundle> {
       essentialItems: await db.essentialItems.toArray(),
       locationProfiles: await db.locationProfiles.toArray(),
       purchaseEntries: await db.purchaseEntries.toArray(),
+      receipts: await db.receipts.toArray(),
       groceryLists: await db.groceryLists.toArray(),
       groceryLines: await db.groceryLines.toArray(),
       weekTemplates: await db.weekTemplates.toArray(),
@@ -366,6 +394,7 @@ function validateBundle(bundle: unknown): ExportBundle {
     essentialItems: arr(b.data.essentialItems),
     locationProfiles: arr(b.data.locationProfiles),
     purchaseEntries: arr(b.data.purchaseEntries),
+    receipts: arr(b.data.receipts),
     groceryLists: arr(b.data.groceryLists),
     groceryLines: arr(b.data.groceryLines),
     weekTemplates: arr(b.data.weekTemplates),
@@ -413,6 +442,7 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
       db.essentialItems,
       db.locationProfiles,
       db.purchaseEntries,
+      db.receipts,
       db.groceryLists,
       db.groceryLines,
       db.weekTemplates,
@@ -431,6 +461,7 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
           db.essentialItems.clear(),
           db.locationProfiles.clear(),
           db.purchaseEntries.clear(),
+          db.receipts.clear(),
           db.groceryLists.clear(),
           db.groceryLines.clear(),
           db.weekTemplates.clear(),
@@ -447,6 +478,7 @@ export async function importAll(rawBundle: unknown, replaceAll = true) {
       await db.essentialItems.bulkPut(bundle.data.essentialItems);
       await db.locationProfiles.bulkPut(bundle.data.locationProfiles);
       await db.purchaseEntries.bulkPut(bundle.data.purchaseEntries);
+      await db.receipts.bulkPut(bundle.data.receipts ?? []);
       await db.groceryLists.bulkPut(bundle.data.groceryLists);
       await db.groceryLines.bulkPut(bundle.data.groceryLines);
       await db.weekTemplates.bulkPut(bundle.data.weekTemplates);

@@ -16,6 +16,7 @@ export default function Layout() {
         <NavLink to="/grocery">Grocery</NavLink>
         <NavLink to="/recipes">Recipes</NavLink>
         <NavLink to="/pantry">Pantry</NavLink>
+        <NavLink to="/prices">Prices</NavLink>
         <NavLink to="/locations">Locations</NavLink>
         <NavLink to="/settings">Settings</NavLink>
         <ActiveLocationPicker />

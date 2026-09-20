@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { BaseUnit, InventoryLot, PantryItem, StorageType } from "../../models";
+import { BaseUnit, InventoryLot, PackUnit, PantryItem, StorageType } from "../../models";
 import {
   countPantryItemReferences,
   createPantryItem,
@@ -21,6 +21,7 @@ import { dateKey } from "../../utils/date";
 import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useActiveLocationId } from "../locations/activeLocation";
+import { PACK_UNIT_OPTIONS, packUnitsForBaseUnit } from "../../utils/packUnits";
 
 const STORAGE_TYPE_OPTIONS: StorageType[] = ["pantry", "fridge", "freezer"];
 
@@ -427,6 +428,10 @@ function PantryForm({
     baseUnit: item.baseUnit || "count",
     defaultShelfLifeDays: item.defaultShelfLifeDays || "",
     defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
+    packSize: item.packSize ?? "",
+    packUnit: item.packUnit ?? "",
+    sharedAcrossMeals: Boolean(item.sharedAcrossMeals),
+    negligibleCost: Boolean(item.negligibleCost),
     notes: item.notes || ""
   });
 
@@ -438,6 +443,10 @@ function PantryForm({
       baseUnit: item.baseUnit || "count",
       defaultShelfLifeDays: item.defaultShelfLifeDays || "",
       defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
+      packSize: item.packSize ?? "",
+      packUnit: item.packUnit ?? "",
+      sharedAcrossMeals: Boolean(item.sharedAcrossMeals),
+      negligibleCost: Boolean(item.negligibleCost),
       notes: item.notes || ""
     });
   }, [item.id]);
@@ -451,6 +460,10 @@ function PantryForm({
       baseUnit: form.baseUnit as PantryItem["baseUnit"],
       defaultShelfLifeDays: form.defaultShelfLifeDays ? Number(form.defaultShelfLifeDays) : undefined,
       defaultAfterOpeningDays: form.defaultAfterOpeningDays ? Number(form.defaultAfterOpeningDays) : undefined,
+      packSize: form.packSize === "" ? undefined : Number(form.packSize),
+      packUnit: (form.packUnit || undefined) as PackUnit | undefined,
+      sharedAcrossMeals: form.sharedAcrossMeals || undefined,
+      negligibleCost: form.negligibleCost || undefined,
       notes: form.notes || undefined
     };
     if (item.id) {
@@ -507,6 +520,54 @@ function PantryForm({
           placeholder="After opening days"
         />
       </div>
+      <div className="row resource-toolbar form-row-grid">
+        <label className="field-stack">
+          <span>Sold in</span>
+          <input
+            type="number"
+            step="any"
+            value={form.packSize}
+            onChange={(e) => setForm({ ...form, packSize: e.target.value })}
+            placeholder="e.g. 970"
+          />
+        </label>
+        <label className="field-stack">
+          <span>Pack unit</span>
+          <select
+            value={form.packUnit}
+            onChange={(e) => setForm({ ...form, packUnit: e.target.value })}
+          >
+            <option value="">same as item</option>
+            {packUnitsForBaseUnit(form.baseUnit as BaseUnit).map((u) => (
+              <option key={u} value={u}>
+                {PACK_UNIT_OPTIONS.find((o) => o.value === u)?.label ?? u}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label className="muted" style={{ fontSize: 12 }}>
+        <input
+          type="checkbox"
+          checked={form.sharedAcrossMeals}
+          onChange={(e) => setForm({ ...form, sharedAcrossMeals: e.target.checked })}
+        />{" "}
+        Used across many meals — charge recipes only for what they use
+      </label>
+      <label className="muted" style={{ fontSize: 12 }}>
+        <input
+          type="checkbox"
+          checked={form.negligibleCost}
+          onChange={(e) => setForm({ ...form, negligibleCost: e.target.checked })}
+        />{" "}
+        Cost is negligible — count as free rather than unpriced
+      </label>
+      <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+        With a pack size set and the box above unticked, a recipe is charged whole packs of
+        this — using 200 g of a 970 g jar costs the jar. That is the cautious estimate for
+        anything you will not get through before moving on. Tick it for butter, milk, oil and
+        spices, and leave the pack size empty for things weighed at the counter.
+      </p>
       <textarea
         value={form.notes}
         onChange={(e) => setForm({ ...form, notes: e.target.value })}

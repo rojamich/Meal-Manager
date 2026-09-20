@@ -31,6 +31,106 @@ Local-first meal planner and grocery list generator that works fully offline usi
 - Android (Chrome): visit the site → menu → “Add to Home screen.”
 - iOS (Safari): Share → “Add to Home Screen.”
 
+## Tracking what meals cost
+
+The point of this is deciding what to eat, not bookkeeping. A rough per-serving figure is
+enough to notice when a meal has quietly become more expensive than going out.
+
+### Recording prices
+
+**Prices → Add a shopping trip** takes a receipt the way it is printed:
+
+- Enter the pack the way the label states it — `400 g`, `1 kg`, `750 cc`, `0.744 kg`,
+  `2.41 lb`. The conversion into the units the pantry uses happens for you.
+- Put the **price you were charged** in Price and anything taken off in **Discount**.
+  Only the net matters for cost, and supermarket promotions are big enough that using
+  shelf prices would overstate every meal made from those ingredients.
+- Type the **printed total** at the top. The running total is compared against it, so a
+  mistyped price or a skipped line shows up immediately instead of quietly biasing costs.
+- Unrecognised names offer a **Create** button inline, so a trip can be entered without
+  leaving for the pantry page and back.
+
+Prices can also be captured straight from the grocery list: tick items off as usual and
+fill the **Price paid** column, and *Add checked to pantry* records both the stock and
+the prices in one go.
+
+### Keeping prices comparable across places
+
+A price history split across "Suprema", "Pechuga" and "Chicken breast" is three short
+histories and no comparison. So each ingredient is one pantry item that can answer to
+several names: when you type a shop's name and pick your item, you are offered
+*remember this as another name for it*, and it resolves by itself next time.
+
+### Locations
+
+Each location carries its currency, an exchange rate, and two optional numbers:
+
+- **Eating out, per person** — what a normal meal out costs there. Planned meals are
+  compared against it, which is the comparison the whole feature exists for.
+- **Inflation %/yr** — only worth setting where prices move fast. With it, an older price
+  is carried forward rather than presented as if it were today's.
+
+Costs are only ever compared between purchases that can be converted into the same
+currency; a location with no exchange rate keeps its prices to itself rather than
+producing an average that means nothing. The rate in force on the day is stamped onto
+each purchase, so correcting a rate later never rewrites past trips.
+
+### Whole packets, not grams
+
+A recipe is charged for what it makes you **buy**, not for what it takes out of the
+packet. Using 200 g from a 970 g jar costs the jar.
+
+This is deliberately the cautious estimate. Charging 200 g assumes the other 770 g gets
+eaten later, and that assumption fails every time a half-used jar gets left behind in a
+move. Over-stating a cost makes you cook something else; under-stating it makes you think
+cooking was cheap when it was not.
+
+Three ways an ingredient can be charged, shown per line in the recipe cost breakdown:
+
+| Basis | When | Charged |
+| --- | --- | --- |
+| **Whole packs** (default) | A pack size is set and the item is not marked shared | Packs rounded up: 200 g of a 970 g jar → one jar |
+| **Shared** | Ticked *used across many meals* — butter, milk, oil, spices | Only what the recipe uses |
+| **Loose** | No pack size set — anything weighed at the counter | Only what the recipe uses |
+
+Pack sizes fill themselves in from the first shopping trip that records one, and are
+editable on the Pantry page. Untick *sold in this size* while entering a trip for
+anything weighed at the counter. **Prices → Price coverage** lists everything currently
+charged by the pack, so you can sweep through once and mark the genuinely shared ones.
+
+Because a jar is a jar, cost per serving does not scale linearly — doubling a recipe that
+still fits in one jar halves its cost per serving. So the whole recipe is costed first and
+divided by its base servings afterwards.
+
+One consequence worth knowing: the grocery list estimate still works in grams, so it will
+not match a recipe's cost to make.
+
+### Where costs show up
+
+- **Planner** — a plan cost panel with the total for the days on screen, the
+  servings-weighted average per serving, a per-meal breakdown, and a flag on any meal
+  that costs more than eating out. Meals not yet priced are counted separately, never as
+  free.
+
+  Whether a meal beats eating out is always judged **per serving**, never on the batch
+  total: a pot that feeds six costs more than an omelette and is not the worse deal for
+  it. Batch totals are shown beside the per-serving figures for the "what did tonight
+  cost" question, but they never decide the verdict.
+
+  Each day is charged what it **consumes**. A batch cooked on Sunday and finished on
+  Wednesday is split across those days: the cook day is charged the servings its leftovers
+  did not claim, and each leftover meal carries its own share. The parts always add back
+  up to the batch, so nothing is counted twice and planning to eat leftovers does not look
+  free — it never was.
+- **Recipes** — cost per serving, filterable and sortable, with `+` meaning some
+  ingredients are still unpriced.
+- **Recipe editor** — the per-ingredient breakdown showing how each line was charged
+  ("1 pack × 970 g · 770 g spare"), the cost to make the whole recipe, and how much of
+  that is packet you do not use here.
+- **Prices → Price coverage** — unpriced ingredients ranked by how many recipes each one
+  is holding back, so the shortest route to useful numbers is obvious. Salt and the like
+  can be marked *cost is negligible* so they stop counting as missing.
+
 ## Backup and restore
 
 - Go to Settings -> Backup.

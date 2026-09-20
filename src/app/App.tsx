@@ -9,6 +9,7 @@ import CookPage from "../features/recipes/CookPage";
 import PlannerPage from "../features/planner/PlannerPage";
 import GroceryPage from "../features/grocery/GroceryPage";
 import LocationsPage from "../features/locations/LocationsPage";
+import PricesPage from "../features/prices/PricesPage";
 import SettingsPage from "../features/settings/SettingsPage";
 
 export default function App() {
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="recipes/:id" element={<RecipeEditPage />} />
             <Route path="recipes/:id/print" element={<RecipePrint />} />
             <Route path="pantry" element={<PantryPage />} />
+            <Route path="prices" element={<PricesPage />} />
             <Route path="locations" element={<LocationsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

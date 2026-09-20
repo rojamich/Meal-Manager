@@ -2,7 +2,7 @@ import { db } from "../db";
 import { PantryItem } from "../../models";
 import { newId } from "../../utils/id";
 import { compareNames } from "../../utils/sort";
-import { itemMatchKey, normalizeItemName } from "../../utils/itemNames";
+import { alreadyKnownAs, findByNameOrAlias, itemMatchKey, normalizeItemName } from "../../utils/itemNames";
 
 export async function listPantryItems() {
   // Sorted in memory rather than with orderBy("name"): the index is case-sensitive, so it
@@ -21,6 +21,26 @@ export async function findMatchingPantryItem(name: string): Promise<PantryItem |
   if (!key) return undefined;
   const existing = await db.pantryItems.toArray();
   return existing.find((item) => itemMatchKey(item.name) === key);
+}
+
+/** Existing item matching `text` by its name or by one of its aliases. */
+export async function findPantryItemByNameOrAlias(text: string): Promise<PantryItem | undefined> {
+  return findByNameOrAlias(await db.pantryItems.toArray(), text);
+}
+
+/**
+ * Teach an item another name for itself, so the next time a shop calls it that, the
+ * price lands on the history you already have rather than starting a new one.
+ */
+export async function addPantryItemAlias(id: string, alias: string) {
+  const name = normalizeItemName(alias);
+  if (!name) return;
+  const item = await db.pantryItems.get(id);
+  if (!item || alreadyKnownAs(item, name)) return;
+  await db.pantryItems.update(id, {
+    aliases: [...(item.aliases ?? []), name],
+    updatedAt: new Date().toISOString()
+  });
 }
 
 export async function createPantryItem(input: Omit<PantryItem, "id" | "createdAt" | "updatedAt">) {

@@ -172,7 +172,8 @@ export default function RecipesPage() {
         pantryItems,
         purchases,
         locationId: activeLocationId || undefined,
-        rates: currencyRates
+        rates: currencyRates,
+        annualInflationPct: locations.find((loc) => loc.id === activeLocationId)?.annualInflationPct
       });
       result.set(recipe.id, {
         cost: effectiveCostPerServing(breakdown, recipe),
@@ -181,7 +182,7 @@ export default function RecipesPage() {
       });
     });
     return result;
-  }, [activeLocationId, allIngredients, currencyRates, pantryItems, purchases, recipes]);
+  }, [activeLocationId, allIngredients, currencyRates, locations, pantryItems, purchases, recipes]);
 
   // Searching only title and tags meant you could not ask "what uses chicken", even
   // though every ingredient and pantry item is already loaded on this page.
@@ -319,7 +320,7 @@ export default function RecipesPage() {
           />
           <input
             type="number"
-            placeholder="Max cost"
+            placeholder="Max cost/serving"
             value={maxCost}
             onChange={(e) => setMaxCost(e.target.value)}
           />
@@ -346,7 +347,7 @@ export default function RecipesPage() {
             <option value="time">Sort: time</option>
             <option value="lastCooked">Sort: least recently cooked</option>
             <option value="calories">Sort: calories</option>
-            <option value="cost">Sort: cost</option>
+            <option value="cost">Sort: cost / serving</option>
           </select>
           <label>
             <input
@@ -383,7 +384,7 @@ export default function RecipesPage() {
                 <th className="recipes-col-servings">Servings</th>
                 <th className="recipes-col-metadata">Metadata</th>
                 <th className="recipes-col-last-cooked">Last cooked</th>
-                <th className="recipes-col-cost">Cost</th>
+                <th className="recipes-col-cost">Cost / serving</th>
                 <th className="recipes-col-actions"></th>
               </tr>
             </thead>
