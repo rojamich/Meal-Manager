@@ -56,6 +56,11 @@ enough to notice when a meal has quietly become more expensive than going out.
 - Unrecognised names offer a **Create** button inline, so a trip can be entered without
   leaving for the pantry page and back.
 
+A trip you are part-way through is **kept on the device until you save it**, so going to
+another page and back — or closing the app entirely — does not lose it. You are told when
+one has been picked up, and can start over instead. It is device-local and never synced:
+an unfinished draft is not something another device should receive.
+
 Prices can also be captured straight from the grocery list: tick items off as usual and
 fill the **Price paid** column, and *Add checked to pantry* records both the stock and
 the prices in one go.

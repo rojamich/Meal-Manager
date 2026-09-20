@@ -13,6 +13,7 @@ import { dateKey, addDays } from "../../utils/date";
 import { useActiveLocationId } from "../locations/activeLocation";
 import { useToast } from "../../components/useToast";
 import { newId } from "../../utils/id";
+import { getLocal, removeLocal, setLocal } from "../../utils/storage";
 
 /**
  * Entering a shopping trip by hand.
@@ -70,6 +71,41 @@ function blankLine(): DraftLine {
   };
 }
 
+/**
+ * A trip being typed is kept on the device until it is saved.
+ *
+ * Halfway through entering a receipt you notice an ingredient you never added, go to the
+ * pantry to add it, come back — and without this the whole trip is gone, because it only
+ * ever existed in component state. Losing twenty hand-typed lines to one navigation is
+ * the kind of thing that ends the habit on the spot.
+ *
+ * Device-local and deliberately not synced: an unfinished draft is not something another
+ * device should receive.
+ */
+const DRAFT_KEY = "receipt-draft.v1";
+
+interface StoredDraft {
+  savedAt: string;
+  store: string;
+  date: string;
+  locationId: string;
+  currencyCode: string;
+  printedTotal: string;
+  addToPantry: boolean;
+  lines: DraftLine[];
+}
+
+function readDraft(): StoredDraft | undefined {
+  const draft = getLocal<StoredDraft | null>(DRAFT_KEY, null);
+  if (!draft || !Array.isArray(draft.lines)) return undefined;
+  // Only worth restoring if something was actually typed.
+  const hasContent =
+    draft.lines.some((line) => line?.text?.trim() || line?.grossPrice?.trim() || line?.packSize?.trim()) ||
+    Boolean(draft.printedTotal?.trim()) ||
+    Boolean(draft.store?.trim());
+  return hasContent ? draft : undefined;
+}
+
 const num = (raw: string): number | undefined => {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return undefined;
@@ -84,14 +120,18 @@ export default function ReceiptEntryPage() {
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [locations, setLocations] = useState<LocationProfile[]>([]);
 
-  const [store, setStore] = useState("");
-  const [date, setDate] = useState(dateKey(new Date()));
-  const [locationId, setLocationId] = useState("");
-  const [currencyCode, setCurrencyCode] = useState("");
+  const [restored] = useState(() => readDraft());
+  const [restoreNoticeOpen, setRestoreNoticeOpen] = useState(Boolean(restored));
+  const [store, setStore] = useState(restored?.store ?? "");
+  const [date, setDate] = useState(restored?.date || dateKey(new Date()));
+  const [locationId, setLocationId] = useState(restored?.locationId ?? "");
+  const [currencyCode, setCurrencyCode] = useState(restored?.currencyCode ?? "");
   const [lastUsedCurrency, setLastUsedCurrency] = useState("");
-  const [printedTotal, setPrintedTotal] = useState("");
-  const [addToPantry, setAddToPantry] = useState(true);
-  const [lines, setLines] = useState<DraftLine[]>(() => [blankLine()]);
+  const [printedTotal, setPrintedTotal] = useState(restored?.printedTotal ?? "");
+  const [addToPantry, setAddToPantry] = useState(restored?.addToPantry ?? true);
+  const [lines, setLines] = useState<DraftLine[]>(() =>
+    restored?.lines?.length ? restored.lines : [blankLine()]
+  );
   const [saving, setSaving] = useState(false);
   const lastRowRef = useRef<HTMLInputElement | null>(null);
   const focusLast = useRef(false);
@@ -132,6 +172,27 @@ export default function ReceiptEntryPage() {
   useEffect(() => {
     setCurrencyCode((prev) => prev || lastUsedCurrency);
   }, [lastUsedCurrency]);
+
+  useEffect(() => {
+    const hasContent =
+      lines.some((line) => line.text.trim() || line.grossPrice.trim() || line.packSize.trim()) ||
+      Boolean(printedTotal.trim()) ||
+      Boolean(store.trim());
+    if (!hasContent) {
+      removeLocal(DRAFT_KEY);
+      return;
+    }
+    setLocal<StoredDraft>(DRAFT_KEY, {
+      savedAt: new Date().toISOString(),
+      store,
+      date,
+      locationId,
+      currencyCode,
+      printedTotal,
+      addToPantry,
+      lines
+    });
+  }, [store, date, locationId, currencyCode, printedTotal, addToPantry, lines]);
 
   useEffect(() => {
     if (focusLast.current) {
@@ -340,6 +401,9 @@ export default function ReceiptEntryPage() {
 
       setLines([blankLine()]);
       setPrintedTotal("");
+      setStore("");
+      removeLocal(DRAFT_KEY);
+      setRestoreNoticeOpen(false);
       await refresh();
     } catch (err) {
       notify(err instanceof Error ? err.message : "Could not save this trip", "error");
@@ -350,6 +414,36 @@ export default function ReceiptEntryPage() {
 
   return (
     <div className="grid">
+      {restoreNoticeOpen && restored && (
+        <section className="panel">
+          <div className="row resource-toolbar" style={{ justifyContent: "space-between" }}>
+            <span>
+              Picked up an unfinished trip from{" "}
+              {new Date(restored.savedAt).toLocaleString()} — {restored.lines.length} line
+              {restored.lines.length === 1 ? "" : "s"}.
+            </span>
+            <span className="row" style={{ gap: 8 }}>
+              <button type="button" className="secondary" onClick={() => setRestoreNoticeOpen(false)}>
+                Keep it
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  setLines([blankLine()]);
+                  setStore("");
+                  setPrintedTotal("");
+                  setDate(dateKey(new Date()));
+                  removeLocal(DRAFT_KEY);
+                  setRestoreNoticeOpen(false);
+                }}
+              >
+                Start over
+              </button>
+            </span>
+          </div>
+        </section>
+      )}
       <section className="panel">
         <h2>Add a shopping trip</h2>
         <p className="muted" style={{ fontSize: 12 }}>
@@ -475,6 +569,9 @@ export default function ReceiptEntryPage() {
                     )}
                     {unresolved && (
                       <div className="row" style={{ gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+                        <span className="muted" style={{ fontSize: 11, width: "100%" }}>
+                          Not in your pantry yet — add it here, no need to leave this page:
+                        </span>
                         <select
                           value={line.newBaseUnit}
                           onChange={(e) =>
