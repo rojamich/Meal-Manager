@@ -194,6 +194,33 @@ export default function ReceiptEntryPage() {
     });
   }, [store, date, locationId, currencyCode, printedTotal, addToPantry, lines]);
 
+  /**
+   * Re-check unresolved rows whenever the pantry changes.
+   *
+   * A row used to bind its item only while you typed it, so a name typed *before* the
+   * item existed stayed unlinked forever. Add the missing item — on the pantry page, or
+   * on another row here — come back, and the row still quietly counted for nothing at
+   * save time. Restoring a draft hit the same thing, since the text comes back but the
+   * link was never stored.
+   */
+  useEffect(() => {
+    setLines((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        if (line.pantryItemId || !line.text.trim()) return line;
+        const match = findByNameOrAlias(pantryItems, line.text);
+        if (!match) return line;
+        changed = true;
+        return {
+          ...line,
+          pantryItemId: match.id,
+          packUnit: line.packUnit || defaultPackUnit(match.baseUnit)
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [pantryItems]);
+
   useEffect(() => {
     if (focusLast.current) {
       focusLast.current = false;
@@ -317,8 +344,29 @@ export default function ReceiptEntryPage() {
     return line.pantryItemId && c?.baseQty !== undefined && c.net !== undefined;
   }).length;
 
+  /** Why a started row will not be saved, or undefined when it is good to go. */
+  const rowProblem = useCallback(
+    (line: DraftLine): string | undefined => {
+      const started = line.text.trim() || line.grossPrice.trim() || line.packSize.trim();
+      if (!started) return undefined;
+      if (!line.pantryItemId) return "pick or create an item";
+      if (num(line.packSize) === undefined) return "needs a pack size";
+      if (num(line.grossPrice) === undefined) return "needs a price";
+      if (computed.get(line.key)?.problem) return "unit does not fit this item";
+      return undefined;
+    },
+    [computed]
+  );
+
+  /** Rows with something typed in them, whether or not they are complete. */
+  const startedCount = lines.filter(
+    (line) => line.text.trim() || line.grossPrice.trim() || line.packSize.trim()
+  ).length;
+  const incompleteCount = startedCount - readyCount;
+
   // Said in the page rather than only in a toast. A disabled button with no visible
-  // reason reads as the app being broken, which is exactly what it looked like.
+  // reason reads as the app being broken, which is exactly what it looked like — and an
+  // incomplete row being dropped in silence reads as the app losing your work.
   const blockedReason = !currencyCode.trim()
     ? "Set a currency for this trip before saving."
     : readyCount === 0
@@ -328,6 +376,7 @@ export default function ReceiptEntryPage() {
   async function save() {
     const payload: ReceiptLineInput[] = [];
     const aliasWork: { id: string; alias: string }[] = [];
+    const savedKeys = new Set<string>();
 
     for (const line of lines) {
       const item = line.pantryItemId ? itemById.get(line.pantryItemId) : undefined;
@@ -344,6 +393,7 @@ export default function ReceiptEntryPage() {
         discount: num(line.discount) ?? 0,
         learnPackSize: line.soldInThisPack
       });
+      savedKeys.add(line.key);
       if (line.rememberAlias && line.text.trim() && !alreadyKnownAs(item, line.text)) {
         aliasWork.push({ id: item.id, alias: line.text.trim() });
       }
@@ -397,11 +447,25 @@ export default function ReceiptEntryPage() {
       const skippedNote = result.skipped.length
         ? ` ${result.skipped.length} line(s) skipped — unit did not match the item.`
         : "";
-      notify(`Saved ${result.entries.length} price(s).${skippedNote}`, "success");
+      const leftOutNote = incompleteCount > 0
+        ? ` ${incompleteCount} incomplete line(s) were not saved.`
+        : "";
+      notify(
+        `Saved ${result.entries.length} price(s).${skippedNote}${leftOutNote}`,
+        incompleteCount > 0 || result.skipped.length ? "info" : "success"
+      );
 
-      setLines([blankLine()]);
+      // Anything that could not be saved stays on screen to be finished, rather than
+      // being cleared away with the rows that went through. Clearing it would lose the
+      // very lines the warning just said were left out.
+      const leftOver = lines.filter(
+        (line) =>
+          !savedKeys.has(line.key) &&
+          (line.text.trim() || line.grossPrice.trim() || line.packSize.trim())
+      );
+      setLines(leftOver.length ? leftOver : [blankLine()]);
       setPrintedTotal("");
-      setStore("");
+      if (!leftOver.length) setStore("");
       removeLocal(DRAFT_KEY);
       setRestoreNoticeOpen(false);
       await refresh();
@@ -655,7 +719,11 @@ export default function ReceiptEntryPage() {
                     />
                   </td>
                   <td data-label="Works out to">
-                    {c?.problem ? (
+                    {rowProblem(line) ? (
+                      <span style={{ fontSize: 11 }}>
+                        ⚠ won&rsquo;t be saved — {rowProblem(line)}
+                      </span>
+                    ) : c?.problem ? (
                       <span className="muted" style={{ fontSize: 11 }}>{c.problem}</span>
                     ) : c?.baseQty !== undefined ? (
                       <span style={{ fontSize: 12 }}>
@@ -698,10 +766,20 @@ export default function ReceiptEntryPage() {
             also add these to pantry stock
           </label>
           <button type="button" onClick={save} disabled={saving || Boolean(blockedReason)}>
-            {saving ? "Saving…" : `Save ${readyCount} line(s)`}
+            {saving
+              ? "Saving…"
+              : incompleteCount > 0
+                ? `Save ${readyCount} of ${startedCount} lines`
+                : `Save ${readyCount} line(s)`}
           </button>
           {blockedReason && (
             <span className="muted" style={{ fontSize: 12 }}>{blockedReason}</span>
+          )}
+          {!blockedReason && incompleteCount > 0 && (
+            <span style={{ fontSize: 12 }}>
+              ⚠ {incompleteCount} line{incompleteCount === 1 ? "" : "s"} will be left out —
+              see the marked rows.
+            </span>
           )}
         </div>
 
