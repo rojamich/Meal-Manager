@@ -12,6 +12,7 @@ import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
 import { saveReceipt } from "../../db/repositories/receiptRepo";
+import { packQtyFor } from "../../utils/mealCost";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
 import { bestUnitPrice, buildCurrencyRates } from "../../utils/price";
@@ -249,19 +250,60 @@ export default function GroceryPage() {
     [locations, settings.locationId]
   );
 
+  /**
+   * What the trip should come to at the till.
+   *
+   * Rounded up to whole packs, because that is what you actually hand over — but rounded
+   * once for the list rather than once per recipe. Two dishes needing 200 g of passata
+   * each still buy one jar, so this total is lower than the sum of those two meals'
+   * costs, and deliberately: a meal's cost asks "what did this dish cost me", the list
+   * asks "what will this shop cost me".
+   *
+   * Unlike recipe costing, this ignores `sharedAcrossMeals`. Whether the rest of the
+   * butter gets used next week has no bearing on the fact that a whole block is going
+   * through the till today.
+   */
   const estimate = useMemo(() => {
     let total = 0;
     let known = 0;
+    let rounded = 0;
     for (const line of lines) {
       if (!line.pantryItemId) continue;
       const price = bestUnitPrice(purchases, line.pantryItemId, settings.locationId || undefined, currencyRates);
-      if (price) {
+      if (!price) continue;
+      const item = pantryItems.find((p) => p.id === line.pantryItemId);
+      const packQty = packQtyFor(item);
+      if (packQty !== undefined && line.toBuyQty > 0) {
+        const packs = Math.ceil(line.toBuyQty / packQty);
+        total += packs * packQty * price;
+        if (packs * packQty > line.toBuyQty) rounded += 1;
+      } else {
         total += price * line.toBuyQty;
-        known += 1;
       }
+      known += 1;
     }
-    return { total, known, totalLines: lines.length };
-  }, [currencyRates, lines, purchases, settings.locationId]);
+    return { total, known, totalLines: lines.length, rounded };
+  }, [currencyRates, lines, pantryItems, purchases, settings.locationId]);
+
+  /**
+   * How many packs a quantity works out to, as a hint beside the grams.
+   *
+   * The grams stay the number that matters — they are what tells you whether one jar
+   * covers it, whether you need two, and which size to reach for. This only saves you
+   * doing that division at the shelf.
+   */
+  const packHint = useCallback(
+    (line: GroceryLine) => {
+      if (!line.pantryItemId || !(line.toBuyQty > 0)) return null;
+      const item = pantryItems.find((p) => p.id === line.pantryItemId);
+      const packQty = packQtyFor(item);
+      if (packQty === undefined || !item) return null;
+      const packs = Math.ceil(line.toBuyQty / packQty);
+      const size = `${item.packSize} ${item.packUnit ?? item.baseUnit}`;
+      return `${packs} × ${size}`;
+    },
+    [pantryItems]
+  );
 
   async function handleCopy() {
     const text = lines
@@ -519,7 +561,16 @@ export default function GroceryPage() {
             </div>
           </div>
         )}
-        <p>Estimated total: {estimate.total.toFixed(2)} ({estimate.known}/{estimate.totalLines} items priced)</p>
+        <p>
+          Estimated total: {estimate.total.toFixed(2)} ({estimate.known}/{estimate.totalLines} items
+          priced)
+          {estimate.rounded > 0 && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              {" "}
+              · {estimate.rounded} item{estimate.rounded === 1 ? "" : "s"} rounded up to whole packs
+            </span>
+          )}
+        </p>
         {grouped.map(([category, items]) => (
           <div key={category} className="panel">
             <h3>{pantryCategoryLabel(category)}</h3>
@@ -553,7 +604,15 @@ export default function GroceryPage() {
                             </div>
                           )}
                         </td>
-                        <td data-label="To buy">{formatQty(line.toBuyQty, line.unit)}</td>
+                        <td data-label="To buy">
+                          {formatQty(line.toBuyQty, line.unit)}
+                          {(() => {
+                            const hint = packHint(line);
+                            return hint ? (
+                              <div className="muted" style={{ fontSize: 11 }}>{hint}</div>
+                            ) : null;
+                          })()}
+                        </td>
                         <td data-label="Purchased">
                           {line.checked && line.toBuyQty > 0 && (line.pantryItemId || line.altOptionsJson) ? (
                             <input

@@ -102,8 +102,24 @@ Because a jar is a jar, cost per serving does not scale linearly — doubling a 
 still fits in one jar halves its cost per serving. So the whole recipe is costed first and
 divided by its base servings afterwards.
 
-One consequence worth knowing: the grocery list estimate still works in grams, so it will
-not match a recipe's cost to make.
+### The grocery list stays in grams
+
+Quantities on the list are the amount actually needed, never a pack count. The grams are
+what tell you whether one jar covers it, whether you need two, and which size to reach
+for — a pack count would throw that away. The number of packs is shown underneath as a
+hint, so you do not have to divide at the shelf.
+
+The list's **estimated total** does round up to whole packs, because that is what goes
+through the till. Two numbers here will not agree, and should not:
+
+- It rounds **once for the list**, not once per recipe. Two dishes each needing 200 g of
+  passata buy one jar between them, so the list total is lower than the two meals' costs
+  added together.
+- It ignores *used across many meals*. Whether the rest of the butter gets used next week
+  has no bearing on a whole block going through the till today.
+
+A meal's cost answers "what did this dish cost me". The list answers "what will this shop
+cost me".
 
 ### Where costs show up
 
