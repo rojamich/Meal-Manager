@@ -138,9 +138,18 @@ export default function PlanCostPanel({
       return value;
     };
 
+    // A meal with no stated servings falls back to its recipe's own yield, which is
+    // exactly what grocery generation assumes. Falling back to household size here
+    // instead would charge for two servings of ingredients the list had just bought
+    // four of.
+    const defaultServingsFor = (m: PlannedMeal) => {
+      const r = m.recipeId ? recipeById.get(m.recipeId) : undefined;
+      return Math.max(r?.baseServings ?? r?.defaultServings ?? householdSize, 1);
+    };
+
     // Computed over every meal, not just the visible ones: leftovers eaten next week
     // still reduce what the day they were cooked on is charged.
-    const consumed = servingsConsumedByMeal(meals, householdSize);
+    const consumed = servingsConsumedByMeal(meals, defaultServingsFor);
 
     const inRange = meals.filter((meal) => days.includes(meal.date));
     const byDay = new Map<string, MealCostRow[]>();
@@ -150,7 +159,7 @@ export default function PlanCostPanel({
     const dearer: MealCostRow[] = [];
 
     for (const meal of inRange) {
-      const servings = consumed.get(meal.id) ?? Math.max(meal.servingsPlanned ?? householdSize, 1);
+      const servings = consumed.get(meal.id) ?? defaultServingsFor(meal);
       const recipe = meal.recipeId ? recipeById.get(meal.recipeId) : undefined;
       const title = recipe?.title || meal.freeformTitle || "Meal";
 

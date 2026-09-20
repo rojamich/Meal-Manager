@@ -290,13 +290,19 @@ export function buildRecipeCostBreakdown({
  *
  * Every meal is needed to work this out, not only the ones on screen: a leftover eaten
  * next Tuesday still reduces what this Sunday is charged.
+ *
+ * `defaultServings` can be a function so a meal with no stated servings falls back to
+ * its own recipe's yield. Grocery generation makes the same assumption, and the two must
+ * agree — a plan that buys ingredients for four and charges for two is worse than either.
  */
 export function servingsConsumedByMeal(
   allMeals: PlannedMeal[],
-  defaultServings = 1
+  defaultServings: number | ((meal: PlannedMeal) => number) = 1
 ): Map<string, number> {
+  const fallbackFor = (meal: PlannedMeal) =>
+    typeof defaultServings === "function" ? defaultServings(meal) : defaultServings;
   const servingsOf = (meal: PlannedMeal) =>
-    Math.max(meal.servingsPlanned ?? defaultServings, 0);
+    Math.max(meal.servingsPlanned ?? fallbackFor(meal), 0);
 
   const claimed = new Map<string, number>();
   for (const meal of allMeals) {
