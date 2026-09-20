@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { BaseUnit, GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
+import { GroceryLine, GroceryList, PantryItem, PurchaseEntry } from "../../models";
 import {
   buildGroceryLines,
   generateGroceryList,
@@ -11,7 +11,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
-import { saveReceipt } from "../../db/repositories/receiptRepo";
+import { ReceiptLineInput, saveReceipt } from "../../db/repositories/receiptRepo";
 import { packQtyFor } from "../../utils/mealCost";
 import { copyText } from "../../utils/clipboard";
 import { addDays, dateKey } from "../../utils/date";
@@ -43,6 +43,15 @@ export default function GroceryPage() {
    * history stops getting kept.
    */
   const [pricePaid, setPricePaid] = useState<Record<string, string>>({});
+  /**
+   * How many packs the purchased quantity came as, for items whose pack size is not yet
+   * known. Dividing the two teaches the item what it is sold in.
+   *
+   * Without this, a shopping loop that never visits the Prices page would never learn a
+   * single pack size, and whole-packet costing — the whole point of the cautious
+   * estimate — would silently never switch on.
+   */
+  const [packsBought, setPacksBought] = useState<Record<string, string>>({});
   const [altPickerOpen, setAltPickerOpen] = useState(false);
   const [altSelections, setAltSelections] = useState<Record<string, string>>({});
   const [expandedLineIds, setExpandedLineIds] = useState<Record<string, boolean>>({});
@@ -345,7 +354,7 @@ export default function GroceryPage() {
 
     // Prices typed against the checked lines become a shopping trip, so a single
     // "add to pantry" records both what you now have and what it cost.
-    const pricedLines: { pantryItemId: string; baseUnit: BaseUnit; packSize: number; grossPrice: number }[] = [];
+    const pricedLines: ReceiptLineInput[] = [];
 
     await Promise.all(
       toAdd.map(async (line) => {
@@ -371,11 +380,17 @@ export default function GroceryPage() {
         const paid = Number(pricePaid[line.id]);
         if (Number.isFinite(paid) && paid > 0) {
           // Quantity is already in the item's base unit here, so it needs no pack unit.
+          // Splitting it by the number of packs bought gives the size one pack is sold
+          // in, which is only worth learning while the item has none on file.
+          const packs = Math.max(Math.round(Number(packsBought[line.id] ?? "1")) || 1, 1);
+          const learn = !item.packSize && quantity / packs > 0;
           pricedLines.push({
             pantryItemId: chosenId,
             baseUnit: item.baseUnit,
-            packSize: quantity,
-            grossPrice: paid
+            packCount: learn ? packs : undefined,
+            packSize: learn ? quantity / packs : quantity,
+            grossPrice: paid,
+            learnPackSize: learn
           });
         }
         await updateGroceryLine(line.id, { checked: false });
@@ -415,6 +430,11 @@ export default function GroceryPage() {
       return next;
     });
     setPricePaid((prev) => {
+      const next = { ...prev };
+      toAdd.forEach((line) => delete next[line.id]);
+      return next;
+    });
+    setPacksBought((prev) => {
       const next = { ...prev };
       toAdd.forEach((line) => delete next[line.id]);
       return next;
@@ -633,17 +653,35 @@ export default function GroceryPage() {
                         </td>
                         <td data-label="Price paid">
                           {line.checked && line.toBuyQty > 0 && line.pantryItemId ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="optional"
-                              style={{ width: 90 }}
-                              value={pricePaid[line.id] ?? ""}
-                              onChange={(e) =>
-                                setPricePaid((prev) => ({ ...prev, [line.id]: e.target.value }))
-                              }
-                            />
+                            <>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="optional"
+                                style={{ width: 90 }}
+                                value={pricePaid[line.id] ?? ""}
+                                onChange={(e) =>
+                                  setPricePaid((prev) => ({ ...prev, [line.id]: e.target.value }))
+                                }
+                              />
+                              {!item?.packSize && (
+                                <label className="muted" style={{ fontSize: 11, display: "block" }}>
+                                  as{" "}
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    style={{ width: 44 }}
+                                    value={packsBought[line.id] ?? "1"}
+                                    onChange={(e) =>
+                                      setPacksBought((prev) => ({ ...prev, [line.id]: e.target.value }))
+                                    }
+                                  />{" "}
+                                  pack(s)
+                                </label>
+                              )}
+                            </>
                           ) : (
                             "-"
                           )}
