@@ -8,6 +8,8 @@ export default function DraggableMeal({
   recipes,
   color,
   personBadge,
+  costLabel,
+  costDearer,
   onRemove,
   onSetServings,
   onCook,
@@ -28,6 +30,10 @@ export default function DraggableMeal({
   recipes: Recipe[];
   color: string;
   personBadge?: { name: string; initial: string; color: string };
+  /** What this meal costs on this day, already formatted. Absent when unpriced. */
+  costLabel?: string;
+  /** Cooking it costs at least as much as eating out here, per serving. */
+  costDearer?: boolean;
   onRemove: (id: string) => void | Promise<void>;
   onSetServings: (meal: PlannedMeal) => void | Promise<void>;
   onCook: (meal: PlannedMeal) => void | Promise<void>;
@@ -103,6 +109,20 @@ export default function DraggableMeal({
       <span className="meal-primary-label">
         <MealLabel meal={meal} recipes={recipes} />
       </span>
+      {costLabel && (
+        <span
+          className="muted"
+          style={{ fontSize: 11, fontWeight: costDearer ? 600 : 400 }}
+          title={
+            costDearer
+              ? "Per serving, this costs at least as much as eating out here"
+              : "What this meal accounts for on this day"
+          }
+        >
+          {costDearer ? "! " : ""}
+          {costLabel}
+        </span>
+      )}
       {(meal.type === "recipe" || meal.type === "leftover") && (
         <button
           className="secondary"

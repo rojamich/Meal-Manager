@@ -18,7 +18,7 @@ import {
 } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { dateKey } from "../../utils/date";
-import { PANTRY_CATEGORY_OPTIONS, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
+import { PANTRY_CATEGORY_OPTIONS, defaultSharedAcrossMeals, normalizePantryCategoryKey, pantryCategoryLabel } from "../../utils/pantryCategories";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useActiveLocationId } from "../locations/activeLocation";
 import { PACK_UNIT_OPTIONS, packUnitsForBaseUnit } from "../../utils/packUnits";
@@ -430,10 +430,18 @@ function PantryForm({
     defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
     packSize: item.packSize ?? "",
     packUnit: item.packUnit ?? "",
-    sharedAcrossMeals: Boolean(item.sharedAcrossMeals),
+    sharedAcrossMeals:
+      item.sharedAcrossMeals ??
+      (item.id ? false : defaultSharedAcrossMeals(item.category || "produce")),
     negligibleCost: Boolean(item.negligibleCost),
     notes: item.notes || ""
   });
+  /**
+   * Whether the shared box has been set by hand. Until it has, it follows the category,
+   * so picking "Spices" visibly ticks it rather than the default being applied silently
+   * on save — a cost rule you cannot see is one you cannot correct.
+   */
+  const [sharedTouched, setSharedTouched] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -445,10 +453,13 @@ function PantryForm({
       defaultAfterOpeningDays: item.defaultAfterOpeningDays || "",
       packSize: item.packSize ?? "",
       packUnit: item.packUnit ?? "",
-      sharedAcrossMeals: Boolean(item.sharedAcrossMeals),
+      sharedAcrossMeals:
+        item.sharedAcrossMeals ??
+        (item.id ? false : defaultSharedAcrossMeals(item.category || "produce")),
       negligibleCost: Boolean(item.negligibleCost),
       notes: item.notes || ""
     });
+    setSharedTouched(false);
   }, [item.id]);
 
   function submit(e: FormEvent) {
@@ -462,7 +473,7 @@ function PantryForm({
       defaultAfterOpeningDays: form.defaultAfterOpeningDays ? Number(form.defaultAfterOpeningDays) : undefined,
       packSize: form.packSize === "" ? undefined : Number(form.packSize),
       packUnit: (form.packUnit || undefined) as PackUnit | undefined,
-      sharedAcrossMeals: form.sharedAcrossMeals || undefined,
+      sharedAcrossMeals: form.sharedAcrossMeals,
       negligibleCost: form.negligibleCost || undefined,
       notes: form.notes || undefined
     };
@@ -483,7 +494,20 @@ function PantryForm({
         autoFocus
       />
       <div className="row resource-toolbar form-row-grid">
-        <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+        <select
+          value={form.category}
+          onChange={(e) => {
+            const category = e.target.value;
+            setForm((prev) => ({
+              ...prev,
+              category,
+              sharedAcrossMeals:
+                !item.id && !sharedTouched
+                  ? defaultSharedAcrossMeals(category)
+                  : prev.sharedAcrossMeals
+            }));
+          }}
+        >
           {PANTRY_CATEGORY_OPTIONS.map((cat) => (
             <option key={cat.key} value={cat.key}>
               {cat.label}
@@ -550,7 +574,10 @@ function PantryForm({
         <input
           type="checkbox"
           checked={form.sharedAcrossMeals}
-          onChange={(e) => setForm({ ...form, sharedAcrossMeals: e.target.checked })}
+          onChange={(e) => {
+            setSharedTouched(true);
+            setForm({ ...form, sharedAcrossMeals: e.target.checked });
+          }}
         />{" "}
         Used across many meals — charge recipes only for what they use
       </label>
