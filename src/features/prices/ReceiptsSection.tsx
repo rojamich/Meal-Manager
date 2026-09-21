@@ -6,7 +6,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { formatDateLabel } from "../../utils/date";
-import { unitPrice, usdOf } from "../../utils/price";
+import { formatMoney, formatUsd, unitPrice, usdOf } from "../../utils/price";
 import { LocationProfile } from "../../models";
 import { listLocations } from "../../db/repositories/locationRepo";
 
@@ -32,6 +32,8 @@ interface TripRow {
    * partial total never passes for the whole shop.
    */
   linesTotalUsd?: number;
+  /** The rate snapshot for this trip, from the receipt or from the lines it holds. */
+  rate?: number;
 }
 
 export default function ReceiptsSection({ embedded = false }: { embedded?: boolean } = {}) {
@@ -95,7 +97,10 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
         linesTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0),
         linesTotalUsd: allConvertible
           ? lines.reduce((sum, line) => sum + line.totalPrice * (line.exchangeRateToUSD ?? 0), 0)
-          : undefined
+          : undefined,
+        // Prefer the trip's own snapshot; fall back to a line's for trips recorded
+        // before the receipt carried one.
+        rate: receipt.exchangeRateToUSD ?? lines.find((line) => line.exchangeRateToUSD)?.exchangeRateToUSD
       };
     });
   }, [purchases, receipts]);
@@ -140,6 +145,7 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
               <th>Where</th>
               <th>Lines</th>
               <th>Total entered</th>
+              <th>Rate that day</th>
               <th>Receipt said</th>
               <th></th>
             </tr>
@@ -172,12 +178,24 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                     </button>
                   </td>
                   <td data-label="Total entered">
-                    {trip.linesTotal.toFixed(2)} {trip.receipt.currencyCode}
+                    {formatMoney(trip.linesTotal, trip.receipt.currencyCode)}
                     {trip.linesTotalUsd !== undefined ? (
                       <div className="muted" style={{ fontSize: 11 }}>
-                        ${trip.linesTotalUsd.toFixed(2)}
+                        {formatUsd(trip.linesTotalUsd)}
                       </div>
                     ) : null}
+                  </td>
+                  <td data-label="Rate that day">
+                    {trip.rate !== undefined ? (
+                      <span
+                        style={{ fontSize: 12 }}
+                        title="Frozen when the trip was entered, and never recalculated"
+                      >
+                        {trip.rate} USD per {trip.receipt.currencyCode}
+                      </span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                   </td>
                   <td data-label="Receipt said">
                     {check.known ? (
@@ -210,7 +228,7 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                     {isOpen && trip.lines.length === 0 && (
                         <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
                           No prices left on this trip — safe to delete.
@@ -258,8 +276,7 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                                           <span className="muted">/{unit}</span>
                                           {perUsd !== undefined && (
                                             <div className="muted" style={{ fontSize: 11 }}>
-                                              ${perUsd < 1 ? perUsd.toFixed(4) : perUsd.toFixed(2)}/
-                                              {unit}
+                                              {formatUsd(perUsd)}/{unit}
                                             </div>
                                           )}
                                         </>
@@ -279,9 +296,7 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                                     </td>
                                     <td data-label="In USD">
                                       {line.exchangeRateToUSD ? (
-                                        <>
-                                          ${(line.totalPrice * line.exchangeRateToUSD).toFixed(2)}
-                                        </>
+                                        <>{formatUsd(line.totalPrice * line.exchangeRateToUSD)}</>
                                       ) : (
                                         <span
                                           className="muted"

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { PlanCostAnalysis } from "./useMealCosts";
 import { formatDateLabel } from "../../utils/date";
+import { formatMoney } from "../../utils/price";
 
 /**
  * What the plan in front of you costs, and when it stops being worth cooking.
@@ -22,7 +23,7 @@ export default function PlanCostPanel({ analysis }: { analysis: PlanCostAnalysis
   const currency = analysis.currency;
   const eatOut = analysis.eatOut;
 
-  const money = (value: number) => `${value.toFixed(2)}${currency ? ` ${currency}` : ""}`;
+  const money = (value: number) => formatMoney(value, currency);
 
   if (analysis.pricedMeals === 0 && analysis.unpricedMeals === 0) return null;
 

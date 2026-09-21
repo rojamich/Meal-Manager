@@ -1,5 +1,5 @@
 import { RecipeCostBreakdown } from "../../utils/mealCost";
-import { STALE_PRICE_DAYS, formatPriceAge } from "../../utils/price";
+import { STALE_PRICE_DAYS, formatMoney, formatPriceAge, formatUsd } from "../../utils/price";
 
 /**
  * Why a recipe costs what it does, ingredient by ingredient.
@@ -24,8 +24,7 @@ export default function RecipeCostTable({
   // The breakdown knows what currency it computed in. A caller's guess is only a
   // fallback, because labelling pesos as dollars is worse than labelling nothing.
   const code = breakdown.currency ?? currency;
-  const money = (value: number) => `${value.toFixed(2)}${code ? ` ${code}` : ""}`;
-  const usd = (value: number) => `$${value.toFixed(value < 1 ? 4 : 2)}`;
+  const money = (value: number) => formatMoney(value, code);
 
   return (
     <div className="table-wrap">
@@ -96,14 +95,14 @@ export default function RecipeCostTable({
               </td>
               <td data-label="Cost / serving">
                 {line.costPerServing !== undefined ? (
-                  line.costPerServing.toFixed(2)
+                  money(line.costPerServing)
                 ) : (
                   <span className="muted">no price data</span>
                 )}
               </td>
               <td data-label="In USD">
                 {line.costPerServingUsd !== undefined ? (
-                  usd(line.costPerServingUsd)
+                  formatUsd(line.costPerServingUsd)
                 ) : line.costPerServing !== undefined ? (
                   <span className="muted" title="No exchange rate was recorded with this purchase">
                     —
@@ -133,7 +132,7 @@ export default function RecipeCostTable({
             <td data-label="In USD">
               {breakdown.costToMakeUsd !== undefined ? (
                 <strong>
-                  {usd(breakdown.costToMakeUsd)}
+                  {formatUsd(breakdown.costToMakeUsd)}
                   {!breakdown.complete && "+"}
                 </strong>
               ) : (
@@ -158,7 +157,7 @@ export default function RecipeCostTable({
             <td data-label="In USD">
               {breakdown.costPerServingUsd !== undefined ? (
                 <strong>
-                  {usd(breakdown.costPerServingUsd)}
+                  {formatUsd(breakdown.costPerServingUsd)}
                   {!breakdown.complete && "+"}
                 </strong>
               ) : (

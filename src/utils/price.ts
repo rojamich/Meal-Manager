@@ -249,6 +249,27 @@ export function bestUnitPrice(
   return bestUnitPriceInfo(purchases, pantryItemId, { locationId, rates })?.price;
 }
 
+/**
+ * Money with its currency attached.
+ *
+ * A bare "239.97" is unreadable once you have shopped in two countries, and every screen
+ * inventing its own version of this is how one of them ends up not saying. One helper,
+ * used everywhere a figure is shown.
+ */
+export function formatMoney(value: number, currencyCode?: string): string {
+  return `${value.toFixed(2)}${currencyCode ? ` ${currencyCode}` : ""}`;
+}
+
+/**
+ * The dollar equivalent, at whatever rate was frozen on the purchase.
+ *
+ * Small unit prices get four decimals: a gram of passata at two thousandths of a dollar
+ * rounds to "$0.00" otherwise, which reads as free.
+ */
+export function formatUsd(value: number): string {
+  return `$${value.toFixed(Math.abs(value) < 1 ? 4 : 2)}`;
+}
+
 /** How old a price is, phrased the way you would think about whether to trust it. */
 export function formatPriceAge(ageDays: number): string {
   if (ageDays <= 0) return "today";

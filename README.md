@@ -168,6 +168,12 @@ cost me".
 
 Every cost figure is labelled with the currency it is in, and carries a **US dollar**
 equivalent beside it, converted at the rate frozen on each purchase rather than today's.
+That rate is a **snapshot**: it is frozen when the purchase is recorded and never
+recalculated, so a figure always shows what the thing cost on the day you bought it. The
+next trip will carry its own rate. Every path that records a price stamps one — a full
+shopping trip, ticking items off a grocery list, and the individual price form — and the
+trip itself shows the rate it was entered at.
+
 That dollar column is the one that stays comparable across countries and years, and it is
 deliberately not inflation-adjusted: in a high-inflation economy the local price rising
 and the currency falling are largely the same event, so adjusting and then converting
