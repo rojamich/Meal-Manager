@@ -6,6 +6,9 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { formatDateLabel } from "../../utils/date";
+import { unitPrice } from "../../utils/price";
+import { LocationProfile } from "../../models";
+import { listLocations } from "../../db/repositories/locationRepo";
 
 /**
  * The shopping trips you have entered, and a way to undo one.
@@ -29,17 +32,20 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEntry[]>([]);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [receiptRows, purchaseRows, items] = await Promise.all([
+    const [receiptRows, purchaseRows, items, locationRows] = await Promise.all([
       listReceipts(),
       listPurchaseEntries(),
-      listPantryItems()
+      listPantryItems(),
+      listLocations()
     ]);
     setReceipts([...receiptRows]);
     setPurchases([...purchaseRows]);
     setPantryItems([...items]);
+    setLocations([...locationRows]);
   }, []);
 
   useEffect(() => {
@@ -56,6 +62,14 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
   const itemName = useCallback(
     (id: string) => pantryItems.find((item) => item.id === id)?.name ?? "Unknown item",
     [pantryItems]
+  );
+  const itemUnit = useCallback(
+    (id: string) => pantryItems.find((item) => item.id === id)?.baseUnit ?? "",
+    [pantryItems]
+  );
+  const locationName = useCallback(
+    (id?: string) => (id ? locations.find((loc) => loc.id === id)?.name : undefined),
+    [locations]
   );
 
   const trips = useMemo<TripRow[]>(() => {
@@ -111,6 +125,7 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
             <tr>
               <th>Date</th>
               <th>Store</th>
+              <th>Where</th>
               <th>Lines</th>
               <th>Total entered</th>
               <th>Receipt said</th>
@@ -125,6 +140,11 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                 <tr key={trip.receipt.id}>
                   <td data-label="Date">{formatDateLabel(trip.receipt.date)}</td>
                   <td data-label="Store">{trip.receipt.store || "—"}</td>
+                  <td data-label="Where">
+                    {locationName(trip.receipt.locationId) || (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
                   <td data-label="Lines">
                     <button
                       type="button"
@@ -133,26 +153,70 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                     >
                       {trip.lines.length} {isOpen ? "▲" : "▼"}
                     </button>
-                    {isOpen && (
-                      <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12 }}>
-                        {trip.lines.map((line) => (
-                          <li key={line.id}>
-                            {itemName(line.pantryItemId)} — {line.quantity}
-                            {line.packSize
-                              ? ` (${line.packCount ?? 1} × ${line.packSize}${line.packUnit ?? ""})`
-                              : ""}{" "}
-                            · {line.totalPrice.toFixed(2)}
-                            {line.discount ? (
-                              <span className="muted"> · {line.discount.toFixed(2)} off</span>
-                            ) : null}
-                          </li>
-                        ))}
-                        {trip.lines.length === 0 && (
-                          <li className="muted">
-                            No prices left on this trip — safe to delete.
-                          </li>
-                        )}
-                      </ul>
+                    {isOpen && trip.lines.length === 0 && (
+                      <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
+                        No prices left on this trip — safe to delete.
+                      </p>
+                    )}
+                    {isOpen && trip.lines.length > 0 && (
+                      <div className="table-wrap" style={{ marginTop: 6 }}>
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>Item</th>
+                              <th>Bought</th>
+                              <th>Quantity</th>
+                              <th>Per unit</th>
+                              <th>Discount</th>
+                              <th>Paid</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {trip.lines.map((line) => {
+                              const unit = itemUnit(line.pantryItemId);
+                              const per = unitPrice(line);
+                              return (
+                                <tr key={line.id}>
+                                  <td data-label="Item">{itemName(line.pantryItemId)}</td>
+                                  <td data-label="Bought">
+                                    {line.packSize !== undefined ? (
+                                      <>
+                                        {line.packCount ?? 1} × {line.packSize}
+                                        {line.packUnit ?? unit}
+                                      </>
+                                    ) : (
+                                      <span className="muted">—</span>
+                                    )}
+                                  </td>
+                                  <td data-label="Quantity">
+                                    {Math.round(line.quantity * 100) / 100} {unit}
+                                  </td>
+                                  <td data-label="Per unit">
+                                    {per > 0 ? (
+                                      <>
+                                        {per < 1 ? per.toFixed(4) : per.toFixed(2)}
+                                        <span className="muted">/{unit}</span>
+                                      </>
+                                    ) : (
+                                      <span className="muted">—</span>
+                                    )}
+                                  </td>
+                                  <td data-label="Discount">
+                                    {line.discount ? (
+                                      <>−{line.discount.toFixed(2)}</>
+                                    ) : (
+                                      <span className="muted">—</span>
+                                    )}
+                                  </td>
+                                  <td data-label="Paid">
+                                    <strong>{line.totalPrice.toFixed(2)}</strong>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </td>
                   <td data-label="Total entered">

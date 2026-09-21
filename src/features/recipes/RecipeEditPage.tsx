@@ -17,6 +17,7 @@ import {
 import { createPantryItem, listPantryItems } from "../../db/repositories/pantryRepo";
 import { PANTRY_CATEGORY_OPTIONS, defaultSharedAcrossMeals } from "../../utils/pantryCategories";
 import { findByNameOrAlias } from "../../utils/itemNames";
+import RecipeCostTable from "./RecipeCostTable";
 import { listMealSlots } from "../../db/repositories/mealPlanRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { useActiveLocationId } from "../locations/activeLocation";
@@ -29,7 +30,7 @@ import { useToast } from "../../components/useToast";
 import CookMode from "./CookMode";
 import { reportLoadError } from "../../utils/loadError";
 import { safeImageUrl, safeLinkUrl } from "../../utils/url";
-import { STALE_PRICE_DAYS, buildCurrencyRates, formatPriceAge } from "../../utils/price";
+import { STALE_PRICE_DAYS, buildCurrencyRates } from "../../utils/price";
 import { newId } from "../../utils/id";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { LocationProfile } from "../../models";
@@ -969,116 +970,7 @@ function RecipeEditorForm({
               </p>
             ) : (
               <>
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Ingredient</th>
-                        <th>Qty / serving</th>
-                        <th>Unit price</th>
-                        <th>Charged</th>
-                        <th>Cost / serving</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {costBreakdown.lines.map((line) => (
-                        <tr key={line.key}>
-                          <td data-label="Ingredient">{line.label}</td>
-                          <td data-label="Qty / serving">
-                            {Math.round(line.qtyPerServing * 100) / 100} {line.unit}
-                          </td>
-                          <td data-label="Unit price">
-                            {line.negligible ? (
-                              <span className="muted">negligible</span>
-                            ) : line.unitPrice !== undefined ? (
-                              <>
-                                {line.unitPrice.toFixed(2)}
-                                {line.ageDays !== undefined && (
-                                  <span
-                                    className="muted"
-                                    style={{
-                                      fontSize: 11,
-                                      fontWeight: line.ageDays > STALE_PRICE_DAYS ? 600 : 400
-                                    }}
-                                  >
-                                    {" "}
-                                    · {formatPriceAge(line.ageDays)}
-                                  </span>
-                                )}
-                              </>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td data-label="Charged">
-                            {line.basis === "negligible" ? (
-                              <span className="muted">free</span>
-                            ) : line.basis === "package" && line.packsCharged ? (
-                              <span style={{ fontSize: 12 }}>
-                                {line.packsCharged} pack{line.packsCharged === 1 ? "" : "s"} ×{" "}
-                                {Math.round((line.packQty ?? 0) * 100) / 100} {line.unit}
-                                {line.wastedQty ? (
-                                  <span className="muted">
-                                    {" "}
-                                    · {Math.round(line.wastedQty * 100) / 100} {line.unit} spare
-                                  </span>
-                                ) : null}
-                              </span>
-                            ) : line.basis === "usage" ? (
-                              <span className="muted" style={{ fontSize: 12 }}>
-                                shared — only what it uses
-                              </span>
-                            ) : (
-                              <span className="muted" style={{ fontSize: 12 }}>
-                                loose — no pack size set
-                              </span>
-                            )}
-                          </td>
-                          <td data-label="Cost / serving">
-                            {line.costPerServing !== undefined ? (
-                              line.costPerServing.toFixed(2)
-                            ) : (
-                              <span className="muted">no price data</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td colSpan={4}>
-                          <strong>Cost to make the whole recipe</strong>
-                          {costBreakdown.leftoverCost > 0 && (
-                            <span className="muted" style={{ fontSize: 12 }}>
-                              {" "}
-                              · {costBreakdown.leftoverCost.toFixed(2)} of that is packet you
-                              do not use here
-                            </span>
-                          )}
-                        </td>
-                        <td data-label="Cost to make">
-                          <strong>
-                            {costBreakdown.costToMake.toFixed(2)}
-                            {!costBreakdown.complete && "+"}
-                          </strong>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td colSpan={4}>
-                          <strong>
-                            Per serving
-                            {!costBreakdown.complete &&
-                              ` (${costBreakdown.pricedCount} of ${costBreakdown.lineCount} ingredients priced)`}
-                          </strong>
-                        </td>
-                        <td data-label="Per serving">
-                          <strong>
-                            {costBreakdown.costPerServing.toFixed(2)}
-                            {!costBreakdown.complete && "+"}
-                          </strong>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                <RecipeCostTable breakdown={costBreakdown} />
                 <div className="row resource-toolbar">
                   <button
                     type="button"
