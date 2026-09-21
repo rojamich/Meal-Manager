@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { PantryItem, PurchaseEntry, Receipt } from "../../models";
 import { deleteReceipt, listReceipts, reconcile } from "../../db/repositories/receiptRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
@@ -6,7 +6,7 @@ import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { useToast } from "../../components/useToast";
 import { formatDateLabel } from "../../utils/date";
-import { unitPrice } from "../../utils/price";
+import { unitPrice, usdOf } from "../../utils/price";
 import { LocationProfile } from "../../models";
 import { listLocations } from "../../db/repositories/locationRepo";
 
@@ -24,6 +24,14 @@ interface TripRow {
   receipt: Receipt;
   lines: PurchaseEntry[];
   linesTotal: number;
+  /**
+   * The trip in dollars, at the rates frozen on its own lines.
+   *
+   * Summed per line rather than taken from the trip, because the rate is recorded
+   * against each purchase — and left undefined unless every line carries one, so a
+   * partial total never passes for the whole shop.
+   */
+  linesTotalUsd?: number;
 }
 
 export default function ReceiptsSection({ embedded = false }: { embedded?: boolean } = {}) {
@@ -80,10 +88,14 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
     }
     return receipts.map((receipt) => {
       const lines = byReceipt.get(receipt.id) ?? [];
+      const allConvertible = lines.length > 0 && lines.every((line) => line.exchangeRateToUSD);
       return {
         receipt,
         lines,
-        linesTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0)
+        linesTotal: lines.reduce((sum, line) => sum + line.totalPrice, 0),
+        linesTotalUsd: allConvertible
+          ? lines.reduce((sum, line) => sum + line.totalPrice * (line.exchangeRateToUSD ?? 0), 0)
+          : undefined
       };
     });
   }, [purchases, receipts]);
@@ -137,7 +149,12 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
               const check = reconcile(trip.receipt.total, trip.linesTotal);
               const isOpen = expanded === trip.receipt.id;
               return (
-                <tr key={trip.receipt.id}>
+                <Fragment key={trip.receipt.id}>
+                <tr
+                  onClick={() => setExpanded(isOpen ? null : trip.receipt.id)}
+                  style={{ cursor: "pointer" }}
+                  title={isOpen ? "Hide what was bought" : "Show what was bought"}
+                >
                   <td data-label="Date">{formatDateLabel(trip.receipt.date)}</td>
                   <td data-label="Store">{trip.receipt.store || "—"}</td>
                   <td data-label="Where">
@@ -153,74 +170,14 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                     >
                       {trip.lines.length} {isOpen ? "▲" : "▼"}
                     </button>
-                    {isOpen && trip.lines.length === 0 && (
-                      <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
-                        No prices left on this trip — safe to delete.
-                      </p>
-                    )}
-                    {isOpen && trip.lines.length > 0 && (
-                      <div className="table-wrap" style={{ marginTop: 6 }}>
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Item</th>
-                              <th>Bought</th>
-                              <th>Quantity</th>
-                              <th>Per unit</th>
-                              <th>Discount</th>
-                              <th>Paid</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {trip.lines.map((line) => {
-                              const unit = itemUnit(line.pantryItemId);
-                              const per = unitPrice(line);
-                              return (
-                                <tr key={line.id}>
-                                  <td data-label="Item">{itemName(line.pantryItemId)}</td>
-                                  <td data-label="Bought">
-                                    {line.packSize !== undefined ? (
-                                      <>
-                                        {line.packCount ?? 1} × {line.packSize}
-                                        {line.packUnit ?? unit}
-                                      </>
-                                    ) : (
-                                      <span className="muted">—</span>
-                                    )}
-                                  </td>
-                                  <td data-label="Quantity">
-                                    {Math.round(line.quantity * 100) / 100} {unit}
-                                  </td>
-                                  <td data-label="Per unit">
-                                    {per > 0 ? (
-                                      <>
-                                        {per < 1 ? per.toFixed(4) : per.toFixed(2)}
-                                        <span className="muted">/{unit}</span>
-                                      </>
-                                    ) : (
-                                      <span className="muted">—</span>
-                                    )}
-                                  </td>
-                                  <td data-label="Discount">
-                                    {line.discount ? (
-                                      <>−{line.discount.toFixed(2)}</>
-                                    ) : (
-                                      <span className="muted">—</span>
-                                    )}
-                                  </td>
-                                  <td data-label="Paid">
-                                    <strong>{line.totalPrice.toFixed(2)}</strong>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
                   </td>
                   <td data-label="Total entered">
                     {trip.linesTotal.toFixed(2)} {trip.receipt.currencyCode}
+                    {trip.linesTotalUsd !== undefined ? (
+                      <div className="muted" style={{ fontSize: 11 }}>
+                        ${trip.linesTotalUsd.toFixed(2)}
+                      </div>
+                    ) : null}
                   </td>
                   <td data-label="Receipt said">
                     {check.known ? (
@@ -239,11 +196,112 @@ export default function ReceiptsSection({ embedded = false }: { embedded?: boole
                     )}
                   </td>
                   <td data-label="Actions">
-                    <button type="button" className="danger" onClick={() => remove(trip)}>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void remove(trip);
+                      }}
+                    >
                       Delete
                     </button>
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={7}>
+                    {isOpen && trip.lines.length === 0 && (
+                        <p className="muted" style={{ fontSize: 12, margin: "6px 0 0" }}>
+                          No prices left on this trip — safe to delete.
+                        </p>
+                      )}
+                      {isOpen && trip.lines.length > 0 && (
+                        <div className="table-wrap" style={{ marginTop: 6 }}>
+                          <table className="table">
+                            <thead>
+                              <tr>
+                                <th>Item</th>
+                                <th>Bought</th>
+                                <th>Quantity</th>
+                                <th>Per unit</th>
+                                <th>Discount</th>
+                                <th>Paid</th>
+                                <th>In USD</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {trip.lines.map((line) => {
+                                const unit = itemUnit(line.pantryItemId);
+                                const per = unitPrice(line);
+                                const perUsd = usdOf(line);
+                                return (
+                                  <tr key={line.id}>
+                                    <td data-label="Item">{itemName(line.pantryItemId)}</td>
+                                    <td data-label="Bought">
+                                      {line.packSize !== undefined ? (
+                                        <>
+                                          {line.packCount ?? 1} × {line.packSize}
+                                          {line.packUnit ?? unit}
+                                        </>
+                                      ) : (
+                                        <span className="muted">—</span>
+                                      )}
+                                    </td>
+                                    <td data-label="Quantity">
+                                      {Math.round(line.quantity * 100) / 100} {unit}
+                                    </td>
+                                    <td data-label="Per unit">
+                                      {per > 0 ? (
+                                        <>
+                                          {per < 1 ? per.toFixed(4) : per.toFixed(2)}
+                                          <span className="muted">/{unit}</span>
+                                          {perUsd !== undefined && (
+                                            <div className="muted" style={{ fontSize: 11 }}>
+                                              ${perUsd < 1 ? perUsd.toFixed(4) : perUsd.toFixed(2)}/
+                                              {unit}
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="muted">—</span>
+                                      )}
+                                    </td>
+                                    <td data-label="Discount">
+                                      {line.discount ? (
+                                        <>−{line.discount.toFixed(2)}</>
+                                      ) : (
+                                        <span className="muted">—</span>
+                                      )}
+                                    </td>
+                                    <td data-label="Paid">
+                                      <strong>{line.totalPrice.toFixed(2)}</strong>
+                                    </td>
+                                    <td data-label="In USD">
+                                      {line.exchangeRateToUSD ? (
+                                        <>
+                                          ${(line.totalPrice * line.exchangeRateToUSD).toFixed(2)}
+                                        </>
+                                      ) : (
+                                        <span
+                                          className="muted"
+                                          title="No exchange rate was recorded with this purchase"
+                                        >
+                                          —
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
