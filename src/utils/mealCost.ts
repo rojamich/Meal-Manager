@@ -28,7 +28,11 @@ export interface RecipeCostLine {
   qtyNeeded: number;
   /** Price per base unit from purchase history; undefined = no price data. */
   unitPrice?: number;
+  /** The same unit price in US dollars, at the rate frozen on the purchase. */
+  unitPriceUsd?: number;
   costPerServing?: number;
+  /** Cost per serving in US dollars, for comparing across countries and years. */
+  costPerServingUsd?: number;
   /** What this ingredient adds to the cost of making the whole recipe. */
   costToMake?: number;
   /** How this line was charged. */
@@ -55,6 +59,16 @@ export interface RecipeCostBreakdown {
   costToMake: number;
   /** `costToMake` spread over the recipe's base servings. */
   costPerServing: number;
+  /** The currency the figures above are in, taken from the prices that produced them. */
+  currency?: string;
+  /**
+   * The same two figures in US dollars, at the rates frozen on each purchase.
+   *
+   * Undefined unless *every* priced line could be converted — a partial dollar total
+   * would look like the cost of the dish while silently omitting an ingredient.
+   */
+  costToMakeUsd?: number;
+  costPerServingUsd?: number;
   /** True when every ingredient line has a price. */
   complete: boolean;
   /** Age of the oldest price behind this figure, for judging how much to trust it. */
@@ -142,6 +156,14 @@ export function buildRecipeCostBreakdown({
   }
 
   const lines: RecipeCostLine[] = [];
+  /**
+   * The currency the prices actually came back in.
+   *
+   * Taken from the price lookup rather than from the caller, so a figure can never be
+   * labelled with a currency it was not computed in — which is exactly how a peso total
+   * ends up reading as dollars.
+   */
+  let resolvedCurrency: string | undefined;
   const pushLine = (ing: RecipeIngredient, labelPrefix?: string) => {
     const item = itemById.get(ing.pantryItemId);
     const qtyNeeded = ing.quantity;
@@ -160,7 +182,9 @@ export function buildRecipeCostBreakdown({
         qtyPerServing,
         qtyNeeded,
         unitPrice: 0,
+        unitPriceUsd: 0,
         costPerServing: 0,
+        costPerServingUsd: 0,
         costToMake: 0,
         basis: "negligible",
         negligible: true
@@ -169,6 +193,7 @@ export function buildRecipeCostBreakdown({
     }
 
     const info = bestUnitPriceInfo(purchases, ing.pantryItemId, priceOptions);
+    if (info?.currency && !resolvedCurrency) resolvedCurrency = info.currency;
     const packQty = packQtyFor(item);
     // Shared items are charged per gram by choice; loose ones because there is no
     // packet to round up to. Kept apart so the UI can explain which is which.
@@ -202,8 +227,11 @@ export function buildRecipeCostBreakdown({
         qtyPerServing,
         qtyNeeded,
         unitPrice: info.price,
+        unitPriceUsd: info.priceUsd,
         costToMake,
         costPerServing: costToMake / baseServings,
+        costPerServingUsd:
+          info.priceUsd !== undefined ? (chargedQty * info.priceUsd) / baseServings : undefined,
         basis,
         packsCharged,
         packQty,
@@ -222,8 +250,11 @@ export function buildRecipeCostBreakdown({
       qtyPerServing,
       qtyNeeded,
       unitPrice: info.price,
+      unitPriceUsd: info.priceUsd,
       costToMake,
       costPerServing: costToMake / baseServings,
+      costPerServingUsd:
+        info.priceUsd !== undefined ? (qtyNeeded * info.priceUsd) / baseServings : undefined,
       basis,
       packQty,
       asOf: info.asOf,
@@ -255,6 +286,17 @@ export function buildRecipeCostBreakdown({
 
   const pricedCount = lines.filter((line) => line.costPerServing !== undefined).length;
   const costToMake = lines.reduce((sum, line) => sum + (line.costToMake ?? 0), 0);
+
+  // Only offered when every priced line converted. A dollar total missing an ingredient
+  // reads as the cost of the dish and is not.
+  const pricedLines = lines.filter((line) => line.costPerServing !== undefined);
+  const usdComplete =
+    pricedLines.length > 0 && pricedLines.every((line) => line.costPerServingUsd !== undefined);
+  const costPerServingUsd = usdComplete
+    ? pricedLines.reduce((sum, line) => sum + (line.costPerServingUsd ?? 0), 0)
+    : undefined;
+
+
   const leftoverCost = lines.reduce(
     (sum, line) => sum + (line.wastedQty ?? 0) * (line.unitPrice ?? 0),
     0
@@ -270,6 +312,9 @@ export function buildRecipeCostBreakdown({
     lineCount: lines.length,
     costToMake,
     costPerServing: costToMake / baseServings,
+    currency: resolvedCurrency,
+    costToMakeUsd: costPerServingUsd !== undefined ? costPerServingUsd * baseServings : undefined,
+    costPerServingUsd,
     complete: lines.length > 0 && pricedCount === lines.length,
     oldestPriceAgeDays,
     hasStalePrices: oldestPriceAgeDays !== undefined && oldestPriceAgeDays > STALE_PRICE_DAYS,

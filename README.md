@@ -165,11 +165,21 @@ cost me".
 - **Recipe editor** — the per-ingredient breakdown showing how each line was charged
   ("1 pack × 970 g · 770 g spare"), the cost to make the whole recipe, and how much of
   that is packet you do not use here.
+
+Every cost figure is labelled with the currency it is in, and carries a **US dollar**
+equivalent beside it, converted at the rate frozen on each purchase rather than today's.
+That dollar column is the one that stays comparable across countries and years, and it is
+deliberately not inflation-adjusted: in a high-inflation economy the local price rising
+and the currency falling are largely the same event, so adjusting and then converting
+would count it twice. A dollar total only appears when *every* priced ingredient could be
+converted — a partial one would read as the cost of the dish while quietly omitting an
+ingredient.
 - **Prices → Shopping trips** — every trip you have entered, with the store and place it
   happened. Expanding one lists each thing bought: the packs you took, the quantity that
   came to, the price per gram or millilitre, any discount, and what you paid. The entered
   total is shown against what the receipt said, and a whole trip can be deleted if it
-  went in wrong — its prices go with it, pantry stock is left alone.
+  went in wrong — its prices go with it, pantry stock is left alone. Click anywhere on a
+  trip to open it. Each line also shows what it came to in dollars at the day's rate.
 - **Prices → Price coverage** — unpriced ingredients ranked by how many recipes each one
   is holding back, so the shortest route to useful numbers is obvious. Salt and the like
   can be marked *cost is negligible* so they stop counting as missing.

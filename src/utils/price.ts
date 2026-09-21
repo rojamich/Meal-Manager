@@ -96,6 +96,19 @@ export function ageAdjust(
   return price * (1 + annualInflationPct / 100) ** (days / 365);
 }
 
+/**
+ * What one base unit of a purchase cost in US dollars, using the rate frozen on it.
+ *
+ * Returns undefined rather than guessing when the purchase carries no rate — a dollar
+ * figure invented from today's rate would misrepresent what was actually paid.
+ */
+export function usdOf(entry: PurchaseEntry): number | undefined {
+  const rate = entry.exchangeRateToUSD;
+  if (!rate || !Number.isFinite(rate) || rate <= 0) return undefined;
+  const per = unitPrice(entry);
+  return per > 0 ? per * rate : undefined;
+}
+
 export interface UnitPriceInfo {
   /** Price per base unit in the target currency, after any inflation adjustment. */
   price: number;
@@ -111,6 +124,19 @@ export interface UnitPriceInfo {
   /** Whether this came from the active location or from averaging across locations. */
   source: "location" | "average";
   inflationAdjusted: boolean;
+  /**
+   * The same price per base unit in US dollars, at the rate frozen on the purchase.
+   *
+   * Deliberately *not* inflation-adjusted, unlike `price`. In a high-inflation economy
+   * the local price rising and the currency falling are largely the same event, so
+   * carrying an old peso price forward and then converting it at the old rate would
+   * count that once in each direction. The dollar figure is what the purchase actually
+   * cost in dollars on the day, which is the number that stays comparable across
+   * countries and years.
+   *
+   * Undefined when no exchange rate was recorded with the purchase.
+   */
+  priceUsd?: number;
 }
 
 export interface BestPriceOptions {
@@ -160,7 +186,8 @@ export function bestUnitPriceInfo(
     rawPrice: number,
     asOf: string,
     sampleCount: number,
-    source: "location" | "average"
+    source: "location" | "average",
+    priceUsd?: number
   ): UnitPriceInfo => {
     const adjusted = ageAdjust(rawPrice, asOf, asOfDate, annualInflationPct);
     return {
@@ -171,29 +198,42 @@ export function bestUnitPriceInfo(
       currency: target || undefined,
       sampleCount,
       source,
-      inflationAdjusted: adjusted !== rawPrice
+      inflationAdjusted: adjusted !== rawPrice,
+      priceUsd
     };
   };
 
   if (byLocation.length) {
     const last = [...byLocation].sort(byDateDesc)[0];
     const price = convertAmount(unitPrice(last), last.currencyCode, target, rates);
-    if (price !== undefined && price > 0) return finish(price, last.date, 1, "location");
+    if (price !== undefined && price > 0) return finish(price, last.date, 1, "location", usdOf(last));
   }
 
   const comparable = itemPurchases
-    .map((p) => ({ price: convertAmount(unitPrice(p), p.currencyCode, target, rates), date: p.date }))
-    .filter((row): row is { price: number; date: string } => row.price !== undefined && row.price > 0);
+    .map((p) => ({
+      price: convertAmount(unitPrice(p), p.currencyCode, target, rates),
+      usd: usdOf(p),
+      date: p.date
+    }))
+    .filter((row) => row.price !== undefined && row.price > 0)
+    .map((row) => ({ price: row.price as number, usd: row.usd, date: row.date }));
 
   if (!comparable.length) return undefined;
 
   const avg = average(comparable.map((row) => row.price));
   if (avg <= 0) return undefined;
 
+  // Averaged over only the purchases that recorded a rate, so one unconverted trip does
+  // not drag the dollar figure toward zero.
+  const usdSamples = comparable
+    .map((row) => row.usd)
+    .filter((value): value is number => value !== undefined && value > 0);
+  const avgUsd = usdSamples.length ? average(usdSamples) : undefined;
+
   // Date the average by its most recent contributor: that is the freshest evidence in it,
   // and dating it any older would overstate how stale the estimate is.
   const newest = comparable.reduce((a, b) => (b.date > a.date ? b : a)).date;
-  return finish(avg, newest, comparable.length, "average");
+  return finish(avg, newest, comparable.length, "average", avgUsd);
 }
 
 /**
