@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PantryItem, PurchaseEntry, Recipe, RecipeIngredient } from "../../models";
 import { countRecipeReferences, deleteRecipe, duplicateRecipe, listAllIngredients, listRecipes } from "../../db/repositories/recipeRepo";
@@ -7,7 +7,8 @@ import { listActiveLots } from "../../db/repositories/inventoryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { useActiveLocationId } from "../locations/activeLocation";
-import { buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
+import { RecipeCostBreakdown, buildRecipeCostBreakdown, effectiveCostPerServing } from "../../utils/mealCost";
+import RecipeCostTable from "./RecipeCostTable";
 import { useConfirmChoiceModal } from "../../components/useConfirmChoiceModal";
 import { safeImageUrl } from "../../utils/url";
 import { buildCurrencyRates } from "../../utils/price";
@@ -47,6 +48,8 @@ export default function RecipesPage() {
   const [sortBy, setSortBy] = useState<"title" | "calories" | "cost" | "time" | "lastCooked">("title");
   const [canMakeOnly, setCanMakeOnly] = useState(false);
   const [beatsEatingOutOnly, setBeatsEatingOutOnly] = useState(false);
+  /** Recipe whose cost breakdown is open, so a figure can be questioned in place. */
+  const [costOpenFor, setCostOpenFor] = useState<string | null>(null);
   const [availabilityLocationId, setAvailabilityLocationId] = useState("");
   const [availabilityAsOfDate, setAvailabilityAsOfDate] = useState(dateKey(new Date()));
   const [allIngredients, setAllIngredients] = useState<RecipeIngredient[]>([]);
@@ -153,6 +156,11 @@ export default function RecipesPage() {
     return result;
   }, [activeLots, allIngredients, availabilityAsOfDate, recipes]);
 
+  const activeLocationCurrency = useMemo(
+    () => locations.find((loc) => loc.id === activeLocationId)?.currencyCode,
+    [activeLocationId, locations]
+  );
+
   /**
    * What a meal out costs per head here, if it has been recorded.
    *
@@ -176,7 +184,10 @@ export default function RecipesPage() {
       list.push(ing);
       ingredientsByRecipe.set(ing.recipeId, list);
     });
-    const result = new Map<string, { cost?: number; computed: boolean; complete: boolean }>();
+    const result = new Map<
+      string,
+      { cost?: number; computed: boolean; complete: boolean; breakdown: RecipeCostBreakdown }
+    >();
     recipes.forEach((recipe) => {
       const breakdown = buildRecipeCostBreakdown({
         recipe,
@@ -190,7 +201,8 @@ export default function RecipesPage() {
       result.set(recipe.id, {
         cost: effectiveCostPerServing(breakdown, recipe),
         computed: breakdown.pricedCount > 0,
-        complete: breakdown.complete
+        complete: breakdown.complete,
+        breakdown
       });
     });
     return result;
@@ -417,7 +429,8 @@ export default function RecipesPage() {
             </thead>
             <tbody>
               {filtered.map((recipe) => (
-                <tr key={recipe.id}>
+                <Fragment key={recipe.id}>
+                <tr>
                   <td data-label="Image" className="recipes-col-image">
                     {safeImageUrl(recipe.imageUrl) && (
                       <img
@@ -473,7 +486,18 @@ export default function RecipesPage() {
                           ? "Per serving, computed from your price history"
                           : "Per serving; some ingredients have no price data yet"
                         : "Manual estimate (no price history for these ingredients)";
-                      return <span title={title}>{label}</span>;
+                      return (
+                        <button
+                          type="button"
+                          className="secondary"
+                          title={`${title}. Click to see how it breaks down.`}
+                          onClick={() =>
+                            setCostOpenFor((prev) => (prev === recipe.id ? null : recipe.id))
+                          }
+                        >
+                          {label} {costOpenFor === recipe.id ? "▲" : "▼"}
+                        </button>
+                      );
                     })()}
                   </td>
                   <td data-label="Actions" className="table-actions recipes-col-actions">
@@ -495,6 +519,38 @@ export default function RecipesPage() {
                     </button>
                   </td>
                 </tr>
+                {costOpenFor === recipe.id && (
+                  <tr key={`${recipe.id}-cost`}>
+                    <td colSpan={8}>
+                      {(() => {
+                        const info = costInfoByRecipe.get(recipe.id);
+                        if (!info || info.breakdown.lineCount === 0) {
+                          return (
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                              This recipe has no ingredients yet, so there is nothing to cost.
+                            </p>
+                          );
+                        }
+                        if (!info.computed) {
+                          return (
+                            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+                              None of these ingredients has a recorded price yet, so the figure
+                              shown is the estimate typed on the recipe. Record a shopping trip
+                              under Prices and a real breakdown appears here.
+                            </p>
+                          );
+                        }
+                        return (
+                          <RecipeCostTable
+                            breakdown={info.breakdown}
+                            currency={activeLocationCurrency}
+                          />
+                        );
+                      })()}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
               {filtered.length === 0 && (
                 <tr>

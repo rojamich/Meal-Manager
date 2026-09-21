@@ -158,15 +158,18 @@ cost me".
   up to the batch, so nothing is counted twice and planning to eat leftovers does not look
   free — it never was.
 - **Recipes** — cost per serving, filterable and sortable, with `+` meaning some
-  ingredients are still unpriced. A **Cheaper than eating out** filter narrows the list
-  to recipes that beat the eat-out cost recorded for the active location; recipes with no
-  price are left out rather than assumed cheap.
+  ingredients are still unpriced. Clicking the figure opens the full breakdown in place,
+  so a surprising number can be questioned without opening the recipe. A **Cheaper than
+  eating out** filter narrows the list to recipes that beat the eat-out cost recorded for
+  the active location; recipes with no price are left out rather than assumed cheap.
 - **Recipe editor** — the per-ingredient breakdown showing how each line was charged
   ("1 pack × 970 g · 770 g spare"), the cost to make the whole recipe, and how much of
   that is packet you do not use here.
-- **Prices → Shopping trips** — every trip you have entered, with its lines, how the
-  total compares with what the receipt said, and a way to delete a whole trip if it went
-  in wrong. Deleting a trip removes its prices with it; pantry stock is left alone.
+- **Prices → Shopping trips** — every trip you have entered, with the store and place it
+  happened. Expanding one lists each thing bought: the packs you took, the quantity that
+  came to, the price per gram or millilitre, any discount, and what you paid. The entered
+  total is shown against what the receipt said, and a whole trip can be deleted if it
+  went in wrong — its prices go with it, pantry stock is left alone.
 - **Prices → Price coverage** — unpriced ingredients ranked by how many recipes each one
   is holding back, so the shortest route to useful numbers is obvious. Salt and the like
   can be marked *cost is negligible* so they stop counting as missing.
