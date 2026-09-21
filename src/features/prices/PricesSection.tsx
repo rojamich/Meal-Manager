@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { PantryItem, PurchaseEntry } from "../../models";
+import { LocationProfile, PantryItem, PurchaseEntry } from "../../models";
 import { listPantryItems } from "../../db/repositories/pantryRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { createPurchaseEntry, deletePurchaseEntry, listPurchaseEntries } from "../../db/repositories/purchaseRepo";
@@ -8,7 +8,7 @@ import { dateKey } from "../../utils/date";
 
 export default function PricesSection({ embedded = false }: { embedded?: boolean } = {}) {
   const [items, setItems] = useState<PantryItem[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<LocationProfile[]>([]);
   const [entries, setEntries] = useState<PurchaseEntry[]>([]);
 
   const refresh = useCallback(async () => {
@@ -24,14 +24,19 @@ export default function PricesSection({ embedded = false }: { embedded?: boolean
   async function addEntry(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const locationId = String(form.get("locationId") || "") || undefined;
     await createPurchaseEntry({
       pantryItemId: String(form.get("pantryItemId")),
       quantity: Number(form.get("quantity") || 0),
       totalPrice: Number(form.get("totalPrice") || 0),
       currencyCode: String(form.get("currencyCode")),
-      locationId: String(form.get("locationId") || "") || undefined,
+      locationId,
       store: String(form.get("store") || "") || undefined,
-      date: String(form.get("date"))
+      date: String(form.get("date")),
+      // Stamped here as well as on a full shopping trip. A price recorded through this
+      // form used to carry no rate at all, so it could never show a dollar figure and
+      // quietly became the one kind of price that could not be compared across places.
+      exchangeRateToUSD: locations.find((loc) => loc.id === locationId)?.exchangeRateToUSD
     });
     const formEl = e.currentTarget as HTMLFormElement | null;
     formEl?.reset();

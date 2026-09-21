@@ -246,6 +246,15 @@ export interface Receipt {
   locationId?: string;
   currencyCode: string;
   date: string;
+  /**
+   * USD per 1 unit of `currencyCode` on the day of the trip, frozen at entry.
+   *
+   * The same rate is stamped onto every line, which is what the cost figures actually
+   * read. Keeping it on the trip as well records the snapshot itself: what the currency
+   * was worth when this shop happened, visible without opening a line. It is never
+   * recalculated — a later rate change belongs to a later trip, not this one.
+   */
+  exchangeRateToUSD?: number;
   /** Printed total, for reconciliation against the sum of the captured lines. */
   total?: number;
   /** Printed subtotal before promotions, when shown. */

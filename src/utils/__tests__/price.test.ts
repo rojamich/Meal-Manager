@@ -6,8 +6,11 @@ import {
   bestUnitPriceInfo,
   buildCurrencyRates,
   convertAmount,
+  formatMoney,
   formatPriceAge,
-  unitPrice
+  formatUsd,
+  unitPrice,
+  usdOf
 } from "../price";
 
 const purchase = (over: Partial<PurchaseEntry>): PurchaseEntry => ({
@@ -18,6 +21,7 @@ const purchase = (over: Partial<PurchaseEntry>): PurchaseEntry => ({
   currencyCode: over.currencyCode ?? "USD",
   locationId: over.locationId,
   date: over.date ?? "2026-01-01",
+  exchangeRateToUSD: over.exchangeRateToUSD,
   createdAt: "x",
   updatedAt: "x"
 });
@@ -212,5 +216,100 @@ describe("formatPriceAge", () => {
     expect(formatPriceAge(120)).toBe("4mo old");
     expect(formatPriceAge(400)).toBe("1yr old");
     expect(formatPriceAge(900)).toBe("2yr old");
+  });
+});
+
+describe("usdOf", () => {
+  it("uses the rate frozen on the purchase, not any current one", () => {
+    const entry = purchase({ totalPrice: 9700, quantity: 1000, exchangeRateToUSD: 0.00068 });
+    expect(usdOf(entry)).toBeCloseTo(0.006596, 6);
+  });
+
+  it("returns nothing when the purchase recorded no rate", () => {
+    expect(usdOf(purchase({ totalPrice: 100, quantity: 10 }))).toBeUndefined();
+  });
+
+  it("refuses a nonsense rate rather than inventing a dollar figure", () => {
+    expect(usdOf(purchase({ totalPrice: 100, quantity: 10, exchangeRateToUSD: 0 }))).toBeUndefined();
+    expect(usdOf(purchase({ totalPrice: 100, quantity: 10, exchangeRateToUSD: -1 }))).toBeUndefined();
+  });
+});
+
+describe("bestUnitPriceInfo dollar figure", () => {
+  const rates = buildCurrencyRates(LOCATIONS, "us");
+
+  it("carries the dollars the purchase actually cost", () => {
+    const info = bestUnitPriceInfo(
+      [
+        purchase({
+          id: "a",
+          locationId: "us",
+          totalPrice: 1000,
+          quantity: 100,
+          exchangeRateToUSD: 0.5
+        })
+      ],
+      "item-1",
+      { locationId: "us", rates }
+    );
+    expect(info?.price).toBe(10);
+    expect(info?.priceUsd).toBe(5);
+  });
+
+  it("leaves the dollar figure alone when inflation adjusts the local one", () => {
+    // Local prices rising because the currency fell is one event, not two.
+    const info = bestUnitPriceInfo(
+      [
+        purchase({
+          id: "a",
+          locationId: "us",
+          totalPrice: 1000,
+          quantity: 1,
+          date: "2025-09-20",
+          exchangeRateToUSD: 0.001
+        })
+      ],
+      "item-1",
+      { locationId: "us", rates, asOfDate: "2026-09-20", annualInflationPct: 100 }
+    );
+    expect(info?.price).toBeCloseTo(2000, 0);
+    expect(info?.priceUsd).toBeCloseTo(1, 6);
+  });
+
+  it("averages dollars over only the purchases that recorded a rate", () => {
+    const info = bestUnitPriceInfo(
+      [
+        purchase({ id: "a", totalPrice: 100, quantity: 1, exchangeRateToUSD: 1 }),
+        purchase({ id: "b", totalPrice: 300, quantity: 1, exchangeRateToUSD: 3 }),
+        purchase({ id: "c", totalPrice: 200, quantity: 1 })
+      ],
+      "item-1",
+      { rates }
+    );
+    expect(info?.sampleCount).toBe(3);
+    // (1*100 + 3*300) / 2 = 500, the unrated purchase left out rather than counted as 0.
+    expect(info?.priceUsd).toBe(500);
+  });
+
+  it("has no dollar figure when nothing recorded a rate", () => {
+    const info = bestUnitPriceInfo(
+      [purchase({ id: "a", totalPrice: 100, quantity: 1 })],
+      "item-1",
+      { rates }
+    );
+    expect(info?.priceUsd).toBeUndefined();
+  });
+});
+
+describe("money formatting", () => {
+  it("attaches the currency when there is one", () => {
+    expect(formatMoney(1242.5, "ARS")).toBe("1242.50 ARS");
+    expect(formatMoney(1242.5)).toBe("1242.50");
+  });
+
+  it("keeps small dollar figures from rounding away to nothing", () => {
+    expect(formatUsd(0.0007)).toBe("$0.0007");
+    expect(formatUsd(3.38)).toBe("$3.38");
+    expect(formatUsd(0)).toBe("$0.0000");
   });
 });
