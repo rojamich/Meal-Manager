@@ -26,6 +26,12 @@ import { buildCurrencyRates } from "../../utils/price";
  * computing them twice would mean two sets of database reads and two chances to drift
  * apart on a rule as fiddly as how leftovers are charged. The planner owns the call and
  * hands the result to both.
+ *
+ * Everything here is in **US dollars**, whichever country the plan is for. A week in
+ * pesos and a week in dollars are both answering "is this worth cooking", and that
+ * question is only answerable if the two weeks are in the same unit. Each ingredient is
+ * converted at the rate frozen on the purchase it came from, so the figure still
+ * reflects what was actually paid rather than today's rate.
  */
 
 export interface MealCostRow {
@@ -105,8 +111,13 @@ export function useMealCosts({
     () => locations.find((loc) => loc.id === locationId),
     [locationId, locations]
   );
-  const currency = location?.currencyCode ?? "";
-  const eatOut = location?.eatOutCostPerPerson;
+  // The planner reports in dollars, so everything it compares has to arrive in dollars.
+  const currency = "USD";
+  const localRate = location?.exchangeRateToUSD;
+  const eatOut =
+    location?.eatOutCostPerPerson !== undefined && localRate
+      ? location.eatOutCostPerPerson * localRate
+      : undefined;
 
   const rates = useMemo(
     () => buildCurrencyRates(locations, locationId),
@@ -139,8 +150,10 @@ export function useMealCosts({
         rates,
         annualInflationPct: location?.annualInflationPct
       });
-      const value =
-        breakdown.pricedCount > 0 ? breakdown.costPerServing : recipe.estimatedCostPerServing;
+      // Only the converted figure is offered. A hand-typed estimate is in some
+      // unstated currency and a local total would be pesos wearing a dollar sign, so
+      // either would make the week's total a number of nothing in particular.
+      const value = breakdown.costPerServingUsd;
       perServingCache.set(recipeId, value);
       return value;
     };

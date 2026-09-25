@@ -17,6 +17,7 @@ import ExpiringSoon from "./ExpiringSoon";
 import FridgePanel from "./FridgePanel";
 import PlanCostPanel from "./PlanCostPanel";
 import { useMealCosts } from "./useMealCosts";
+import { formatUsd } from "../../utils/price";
 import TripSetupModal from "./TripSetupModal";
 import InlineAddPanel from "./InlineAddPanel";
 import MealLabel from "./MealLabel";
@@ -275,11 +276,11 @@ export default function PlannerPage() {
       setPanelStyle(buildInlinePanelStyle(nextAnchor));
       resetInline();
       setLeftoverCandidates([]);
-      void listLeftoverSourceCandidates(slot.date)
+      void listLeftoverSourceCandidates(slot.date, householdSize)
         .then(setLeftoverCandidates)
         .catch(reportLoadError("leftovers"));
     },
-    [resetInline]
+    [householdSize, resetInline]
   );
 
   const buildInlinePayload = useCallback((): Omit<PlannedMeal, "id" | "createdAt" | "updatedAt"> | null => {
@@ -801,7 +802,7 @@ export default function PlannerPage() {
     planCosts.byMealId.forEach((row, id) => {
       if (row.total === undefined) return;
       map.set(id, {
-        label: `${row.total.toFixed(0)}${planCosts.currency ? ` ${planCosts.currency}` : ""}`,
+        label: formatUsd(row.total),
         dearer: row.dearerThanEatingOut
       });
     });
