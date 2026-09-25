@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { PlanCostAnalysis } from "./useMealCosts";
 import { formatDateLabel } from "../../utils/date";
-import { formatMoney } from "../../utils/price";
+import { formatUsd } from "../../utils/price";
 
 /**
  * What the plan in front of you costs, and when it stops being worth cooking.
@@ -20,10 +20,10 @@ import { formatMoney } from "../../utils/price";
  */
 export default function PlanCostPanel({ analysis }: { analysis: PlanCostAnalysis }) {
   const [open, setOpen] = useState(false);
-  const currency = analysis.currency;
   const eatOut = analysis.eatOut;
 
-  const money = (value: number) => formatMoney(value, currency);
+  // Always dollars here, so a plan in Buenos Aires and a plan anywhere else compare.
+  const money = (value: number) => formatUsd(value);
 
   if (analysis.pricedMeals === 0 && analysis.unpricedMeals === 0) return null;
 
@@ -54,7 +54,8 @@ export default function PlanCostPanel({ analysis }: { analysis: PlanCostAnalysis
         {analysis.unpricedMeals > 0 && (
           <>
             {" · "}
-            <strong>{analysis.unpricedMeals}</strong> not priced yet, so the real total is higher
+            <strong>{analysis.unpricedMeals}</strong> not priced in dollars yet, so the real
+            total is higher — a meal needs an exchange rate on every ingredient it uses
           </>
         )}
         {!eatOut && (

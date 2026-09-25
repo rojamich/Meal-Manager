@@ -126,11 +126,28 @@ export interface LeftoverCandidate {
 const LEFTOVER_LOOKBACK_DAYS = 7;
 
 /**
+ * How many servings a meal is eaten by on its own day.
+ *
+ * A meal assigned to one person feeds one; anything else feeds the household. Without
+ * this the servings people sat down and ate were never subtracted from the batch, so a
+ * two-serving breakfast for two offered two servings of leftovers — food that had
+ * already been eaten.
+ */
+function eatersAt(meal: PlannedMeal, householdSize: number) {
+  return meal.assignedTo ? 1 : Math.max(householdSize, 1);
+}
+
+/**
  * Recipe meals planned in the week up to (and including) targetDate that still
- * have unclaimed servings. Excludes leftover meals themselves.
+ * have servings spare. Excludes leftover meals themselves.
+ *
+ * Spare means what the batch made, less what was eaten at the meal, less what later
+ * leftover meals have already claimed. A meal with nothing spare is left out entirely
+ * rather than offered with a zero.
  */
 export async function listLeftoverSourceCandidates(
   targetDate: string,
+  householdSize: number,
   excludeMealId?: string
 ): Promise<LeftoverCandidate[]> {
   const start = dateKey(addDays(parseISODate(targetDate), -LEFTOVER_LOOKBACK_DAYS));
@@ -149,9 +166,10 @@ export async function listLeftoverSourceCandidates(
   }
   return sources
     .map((meal) => {
-      const total = Math.max(meal.servingsPlanned ?? 1, 1);
+      const batch = Math.max(meal.servingsPlanned ?? 1, 1);
       const claimed = claimedBySource.get(meal.id) ?? 0;
-      return { meal, servingsRemaining: Math.max(total - claimed, 0) };
+      const eaten = eatersAt(meal, householdSize);
+      return { meal, servingsRemaining: Math.max(batch - eaten - claimed, 0) };
     })
     .filter((candidate) => candidate.servingsRemaining > 0)
     .sort((a, b) => b.meal.date.localeCompare(a.meal.date));

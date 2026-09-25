@@ -141,7 +141,13 @@ cost me".
 
 ### Where costs show up
 
-- **Planner** — a cost on each meal card, marked `!` when that meal costs more per
+- **Planner** — always in **US dollars**, whichever country the plan is for: a week in
+  pesos and a week in dollars only compare if they are in the same unit. Each ingredient
+  converts at the rate frozen on the purchase it came from. A meal only counts toward the
+  total once every ingredient it uses has a rate behind it; the rest are counted
+  separately so the total is never quietly flattering.
+
+  There is a cost on each meal card, marked `!` when that meal costs more per
   serving than eating out, plus a plan cost panel with the total for the days on screen, the
   servings-weighted average per serving, a per-meal breakdown, and a flag on any meal
   that costs more than eating out. Meals not yet priced are counted separately, never as
@@ -151,6 +157,11 @@ cost me".
   total: a pot that feeds six costs more than an omelette and is not the worse deal for
   it. Batch totals are shown beside the per-serving figures for the "what did tonight
   cost" question, but they never decide the verdict.
+
+  Leftovers are offered from what a meal has **spare**: what the batch made, less what
+  the people at that meal ate, less what later leftover meals already claimed. A recipe
+  serving four, eaten by a household of two, offers two — and stops offering them once
+  they are claimed. One serving two, eaten by two, offers none at all.
 
   Each day is charged what it **consumes**. A batch cooked on Sunday and finished on
   Wednesday is split across those days: the cook day is charged the servings its leftovers

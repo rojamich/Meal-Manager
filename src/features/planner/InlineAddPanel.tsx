@@ -158,7 +158,9 @@ export default function InlineAddPanel({
         <>
           {leftoverCandidates.length === 0 ? (
             <p className="muted">
-              No recent meals with servings to spare. Plan a recipe meal first (leftovers link to it).
+              Nothing planned in the last week has servings spare — each one is either eaten
+              by the people at that meal or already claimed as leftovers. Cook something for
+              more servings than you are sitting down to, and the remainder turns up here.
             </p>
           ) : (
             <>
