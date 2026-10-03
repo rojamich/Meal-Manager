@@ -56,6 +56,11 @@ enough to notice when a meal has quietly become more expensive than going out.
 - Unrecognised names offer a **Create** button inline, so a trip can be entered without
   leaving for the pantry page and back.
 
+**Start from a past trip** to avoid retyping the same twenty things: it copies the items
+and their pack sizes and leaves the prices blank, since the prices are the part that
+actually changed. Pressing Enter on a price starts the next line, so a whole trip goes in
+without reaching for the mouse.
+
 A trip you are part-way through is **kept on the device until you save it**, so going to
 another page and back — or closing the app entirely — does not lose it. You are told when
 one has been picked up, and can start over instead. It is device-local and never synced:
@@ -197,6 +202,12 @@ ingredient.
   total is shown against what the receipt said, and a whole trip can be deleted if it
   went in wrong — its prices go with it, pantry stock is left alone. Click anywhere on a
   trip to open it. Each line also shows what it came to in dollars at the day's rate.
+- **Prices → Price history** — one ingredient at a time, every price you have recorded
+  for it in date order, with the store and country beside each. Movement is measured in
+  **dollars**, not the local currency: two peso prices six months apart differ partly
+  because the peso moved, and reading that as the item getting dearer is the mistake this
+  is meant to prevent. A jump from 233 to 283 pesos looks like 21% and is 11% once the
+  rate is accounted for.
 - **Prices → Price coverage** — unpriced ingredients ranked by how many recipes each one
   is holding back, so the shortest route to useful numbers is obvious. Salt and the like
   can be marked *cost is negligible* so they stop counting as missing.

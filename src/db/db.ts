@@ -324,8 +324,14 @@ async function seedDefaults() {
       { id: "person-jen", name: "Jen", color: "#db2777", sortOrder: 2 }
     ]);
   }
-  const templateCount = await db.weekTemplates.count();
-  if (templateCount === 0) {
+  // Counting and then seeding has to happen inside one transaction.
+  //
+  // Two tabs opening the app together both saw an empty table and both seeded, and
+  // because these ids are generated rather than fixed there was no key collision to stop
+  // the second — so the starter templates silently doubled. The other seeds above use
+  // fixed ids, which is why only this one accumulated.
+  await db.transaction("rw", db.weekTemplates, async () => {
+    if ((await db.weekTemplates.count()) > 0) return;
     const now = new Date().toISOString();
     await db.weekTemplates.bulkAdd(
       STARTER_WEEK_TEMPLATES.map((template) => ({
@@ -334,7 +340,7 @@ async function seedDefaults() {
         createdAt: now
       }))
     );
-  }
+  });
 }
 
 export async function exportAll(): Promise<ExportBundle> {
