@@ -4,7 +4,13 @@ import { listPantryItems, addPantryItemAlias, createPantryItem } from "../../db/
 import { listPurchaseEntries } from "../../db/repositories/purchaseRepo";
 import { listLocations } from "../../db/repositories/locationRepo";
 import { createInventoryLot } from "../../db/repositories/inventoryRepo";
-import { ReceiptLineInput, reconcile, saveReceipt } from "../../db/repositories/receiptRepo";
+import {
+  ReceiptLineInput,
+  listPurchasesForReceipt,
+  listReceipts,
+  reconcile,
+  saveReceipt
+} from "../../db/repositories/receiptRepo";
 import { PANTRY_CATEGORY_OPTIONS } from "../../utils/pantryCategories";
 import { defaultPackUnit, packUnitsForBaseUnit, toBaseUnits } from "../../utils/packUnits";
 import { PACK_UNIT_OPTIONS } from "../../utils/packUnits";
@@ -133,15 +139,24 @@ export default function ReceiptEntryPage() {
     restored?.lines?.length ? restored.lines : [blankLine()]
   );
   const [saving, setSaving] = useState(false);
+  /** Past trips offered as a starting point, newest first. */
+  const [pastTrips, setPastTrips] = useState<{ id: string; label: string }[]>([]);
   const lastRowRef = useRef<HTMLInputElement | null>(null);
   const focusLast = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [items, locs, purchases] = await Promise.all([
+    const [items, locs, purchases, trips] = await Promise.all([
       listPantryItems(),
       listLocations(),
-      listPurchaseEntries()
+      listPurchaseEntries(),
+      listReceipts()
     ]);
+    setPastTrips(
+      trips.slice(0, 10).map((trip) => ({
+        id: trip.id,
+        label: `${trip.store || "Trip"} · ${trip.date}`
+      }))
+    );
     setPantryItems([...items]);
     setLocations([...locs]);
     // Whatever you last paid in is the best guess for what you are paying in now, and it
@@ -281,6 +296,38 @@ export default function ReceiptEntryPage() {
         notify(err instanceof Error ? err.message : "Could not create item", "error");
       }
     }
+  }
+
+  /**
+   * Start from a previous trip at the same shop.
+   *
+   * The same twenty things come home most weeks, and retyping their names and pack sizes
+   * is most of the work. Prices are deliberately left blank: they are the part that
+   * actually changed, and copying them forward would quietly record last month's prices
+   * as this month's.
+   */
+  async function repeatTrip(receiptId: string) {
+    if (!receiptId) return;
+    const entries = await listPurchasesForReceipt(receiptId);
+    if (!entries.length) {
+      notify("That trip has no lines left to copy.", "error");
+      return;
+    }
+    const rows: DraftLine[] = entries.map((entry) => {
+      const item = itemById.get(entry.pantryItemId);
+      return {
+        ...blankLine(),
+        text: item?.name ?? "",
+        pantryItemId: item ? entry.pantryItemId : undefined,
+        packCount: String(entry.packCount ?? 1),
+        packSize: entry.packSize !== undefined ? String(entry.packSize) : "",
+        packUnit: entry.packUnit ?? "",
+        rememberAlias: false,
+        soldInThisPack: false
+      };
+    });
+    setLines(rows);
+    notify(`Copied ${rows.length} line(s) — fill in what you paid.`, "info");
   }
 
   function addRow() {
@@ -707,6 +754,13 @@ export default function ReceiptEntryPage() {
                       placeholder="5000"
                       value={line.grossPrice}
                       onChange={(e) => patch(line.key, { grossPrice: e.target.value })}
+                      onKeyDown={(e) => {
+                        // The price is the last thing typed on a line, so Enter here is
+                        // the natural "next item" and saves reaching for the mouse.
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        if (index === lines.length - 1) addRow();
+                      }}
                     />
                   </td>
                   <td data-label="Discount">
@@ -757,6 +811,25 @@ export default function ReceiptEntryPage() {
           <button type="button" className="secondary" onClick={addRow}>
             Add line
           </button>
+          {pastTrips.length > 0 && (
+            <label className="field-stack">
+              <span>Start from a past trip</span>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  void repeatTrip(e.target.value);
+                  e.currentTarget.value = "";
+                }}
+              >
+                <option value="">Copy its items…</option>
+                {pastTrips.map((trip) => (
+                  <option key={trip.id} value={trip.id}>
+                    {trip.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="muted" style={{ fontSize: 12 }}>
             <input
               type="checkbox"
